@@ -197,9 +197,9 @@
   footer a{ color:var(--muted); text-decoration:underline; }
 
   @media (min-width: 700px){
-    .wrap{ max-width:1400px; padding-left:0; padding-right:0; }
+    .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
     .gauges{ gap:24px; }
-    canvas.gauge{ max-width:420px; }
+    canvas.gauge{ max-width:min(640px, 36vw, calc(100vh - 540px)); }
   }
 </style>
 </head>
@@ -247,8 +247,8 @@
 
   <div class="cockpit">
     <div class="gauges">
-      <canvas class="gauge" id="rpmGauge" width="480" height="480"></canvas>
-      <canvas class="gauge" id="spdGauge" width="480" height="480"></canvas>
+      <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
+      <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
     </div>
     <div class="center-strip">
       <div class="gear-box">
