@@ -196,47 +196,9 @@
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
   footer a{ color:var(--muted); text-decoration:underline; }
 
-  .disclaimer-overlay{
-    position:fixed; inset:0; z-index:100;
-    background:rgba(4,5,6,0.88); backdrop-filter:blur(3px);
-    display:flex; align-items:center; justify-content:center; padding:20px;
-  }
-  .disclaimer-box{
-    max-width:420px; width:100%; max-height:86vh; overflow-y:auto;
-    background:linear-gradient(180deg, #17191e, #0f1114);
-    border:1px solid #2c3038; border-top-color:#383d46; border-radius:16px;
-    padding:22px 20px; box-shadow:0 24px 48px rgba(0,0,0,0.6);
-  }
-  .disclaimer-title{ font-size:15px; font-weight:800; letter-spacing:0.5px; color:var(--text); margin-bottom:14px; }
-  .disclaimer-list{ margin:0 0 16px; padding-left:18px; color:var(--text); font-size:13px; line-height:1.7; }
-  .disclaimer-list li{ margin-bottom:6px; }
-  .disclaimer-check{ display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:16px; cursor:pointer; }
-  .disclaimer-check input{ margin-top:2px; flex-shrink:0; }
-  .disclaimer-btn{
-    width:100%; padding:13px; border-radius:10px; border:none; cursor:pointer;
-    background:linear-gradient(180deg, #ff9d5c, #e87a2e); color:#1a0f06; font-weight:800;
-    font-size:14px; letter-spacing:0.5px;
-  }
-  .disclaimer-btn:disabled{ background:#2a2e34; color:var(--muted); cursor:not-allowed; }
 </style>
 </head>
 <body>
-<div class="disclaimer-overlay" id="disclaimerOverlay">
-  <div class="disclaimer-box">
-    <div class="disclaimer-title">⚠️ Avant de commencer</div>
-    <ul class="disclaimer-list">
-      <li>Je n'interagis avec cet écran qu'à l'arrêt, jamais en conduisant.</li>
-      <li>Je respecte en toutes circonstances le code de la route.</li>
-      <li>Les compteurs affichés sont purement indicatifs et ne remplacent en aucun cas les instruments de bord du véhicule.</li>
-    </ul>
-    <label class="disclaimer-check">
-      <input type="checkbox" id="cguCheck">
-      <span>J'ai lu et j'accepte les conditions d'utilisation</span>
-    </label>
-    <button class="disclaimer-btn" id="acceptBtn" disabled>Commencer</button>
-  </div>
-</div>
-
 <div class="wrap">
 
   <header>
@@ -325,16 +287,6 @@
 
 <script>
 (function(){
-
-  // ---------------------------------------------------------------------
-  // 0. AVERTISSEMENT
-  // ---------------------------------------------------------------------
-  const disclaimerOverlay = document.getElementById('disclaimerOverlay');
-  const cguCheck = document.getElementById('cguCheck');
-  const acceptBtn = document.getElementById('acceptBtn');
-
-  cguCheck.addEventListener('change', () => { acceptBtn.disabled = !cguCheck.checked; });
-  acceptBtn.addEventListener('click', () => { disclaimerOverlay.hidden = true; });
 
   // ---------------------------------------------------------------------
   // 1. PROFILS MOTEUR
