@@ -196,12 +196,12 @@
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
   footer a{ color:var(--muted); text-decoration:underline; }
 
-  .disclaimer-overlay, .cgu-overlay{
+  .disclaimer-overlay{
     position:fixed; inset:0; z-index:100;
     background:rgba(4,5,6,0.88); backdrop-filter:blur(3px);
     display:flex; align-items:center; justify-content:center; padding:20px;
   }
-  .disclaimer-box, .cgu-box{
+  .disclaimer-box{
     max-width:420px; width:100%; max-height:86vh; overflow-y:auto;
     background:linear-gradient(180deg, #17191e, #0f1114);
     border:1px solid #2c3038; border-top-color:#383d46; border-radius:16px;
@@ -212,16 +212,12 @@
   .disclaimer-list li{ margin-bottom:6px; }
   .disclaimer-check{ display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:16px; cursor:pointer; }
   .disclaimer-check input{ margin-top:2px; flex-shrink:0; }
-  .disclaimer-check a{ color:var(--amber); }
   .disclaimer-btn{
     width:100%; padding:13px; border-radius:10px; border:none; cursor:pointer;
     background:linear-gradient(180deg, #ff9d5c, #e87a2e); color:#1a0f06; font-weight:800;
     font-size:14px; letter-spacing:0.5px;
   }
   .disclaimer-btn:disabled{ background:#2a2e34; color:var(--muted); cursor:not-allowed; }
-  .cgu-text{ font-size:12.5px; color:var(--muted); line-height:1.6; margin-bottom:16px; }
-  .cgu-text p{ margin:0 0 12px; }
-  .cgu-text strong{ color:var(--text); }
 </style>
 </head>
 <body>
@@ -235,23 +231,9 @@
     </ul>
     <label class="disclaimer-check">
       <input type="checkbox" id="cguCheck">
-      <span>J'ai lu et j'accepte les <a href="#" id="openCgu">conditions d'utilisation</a></span>
+      <span>J'ai lu et j'accepte les conditions d'utilisation</span>
     </label>
     <button class="disclaimer-btn" id="acceptBtn" disabled>Commencer</button>
-  </div>
-</div>
-
-<div class="cgu-overlay" id="cguOverlay" hidden>
-  <div class="cgu-box">
-    <div class="disclaimer-title">Conditions d'utilisation</div>
-    <div class="cgu-text">
-      <p><strong>Objet.</strong> Ce simulateur est un prototype de démonstration à but ludique et expérimental. Il ne remplace en aucun cas les instruments de bord d'un véhicule réel et n'a aucune vocation à être utilisé pendant la conduite.</p>
-      <p><strong>Utilisation.</strong> L'utilisateur s'engage à n'interagir avec cette application qu'à l'arrêt, et à respecter en toutes circonstances le code de la route. Toute utilisation contraire à ces recommandations relève de la seule responsabilité de l'utilisateur.</p>
-      <p><strong>Responsabilité.</strong> L'éditeur ne saurait être tenu responsable d'un usage non conforme à ces recommandations, ni des conséquences directes ou indirectes pouvant en résulter (infraction, accident, dommage matériel ou corporel).</p>
-      <p><strong>Données personnelles (RGPD).</strong> Cette application ne collecte, ne transmet, ni ne stocke aucune donnée personnelle. Elle fonctionne entièrement dans le navigateur, sans compte, sans serveur, sans cookie ni traceur. Aucun traitement de données à caractère personnel n'est effectué.</p>
-      <p><strong>Propriété.</strong> Prototype personnel, à usage non commercial.</p>
-    </div>
-    <button class="disclaimer-btn" id="closeCgu">Fermer</button>
   </div>
 </div>
 
@@ -338,28 +320,21 @@
     </div>
   </div>
 
-  <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API — <a href="#" id="footerCguLink">CGU</a></footer>
+  <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API</footer>
 </div>
 
 <script>
 (function(){
 
   // ---------------------------------------------------------------------
-  // 0. AVERTISSEMENT / CGU
+  // 0. AVERTISSEMENT
   // ---------------------------------------------------------------------
   const disclaimerOverlay = document.getElementById('disclaimerOverlay');
-  const cguOverlay = document.getElementById('cguOverlay');
   const cguCheck = document.getElementById('cguCheck');
   const acceptBtn = document.getElementById('acceptBtn');
-  const openCgu = document.getElementById('openCgu');
-  const closeCgu = document.getElementById('closeCgu');
-  const footerCguLink = document.getElementById('footerCguLink');
 
   cguCheck.addEventListener('change', () => { acceptBtn.disabled = !cguCheck.checked; });
-  openCgu.addEventListener('click', (e) => { e.preventDefault(); cguOverlay.hidden = false; });
-  closeCgu.addEventListener('click', () => { cguOverlay.hidden = true; });
   acceptBtn.addEventListener('click', () => { disclaimerOverlay.hidden = true; });
-  footerCguLink.addEventListener('click', (e) => { e.preventDefault(); cguOverlay.hidden = false; });
 
   // ---------------------------------------------------------------------
   // 1. PROFILS MOTEUR
