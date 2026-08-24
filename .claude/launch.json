@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vroom-static",
+      "runtimeExecutable": "C:\\Users\\rolio\\AppData\\Local\\fnm_multishells\\26032_1787565989801\\node.exe",
+      "runtimeArgs": ["scripts/serve.js"],
+      "port": 4173
+    }
+  ]
+}
