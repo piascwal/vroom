@@ -430,6 +430,7 @@
   let lowpass = null;
   let currentProfileKey = 'mecanique';
   let popCooldown = 0;      // secondes avant le prochain "pop" possible
+  let popFlash = 0;         // 0..1, flash visuel du compteur RPM synchronisé sur la pétarade, décroît avec le temps
   let prevThrottleVal = 0;  // pour détecter un lâcher brusque d'accélérateur (turbo)
   let prevGear = 1;         // pour détecter un changement de rapport
   let fxGain = null;        // canal dédié pétarade/whoosh, non écrasé par le volume moteur
@@ -439,6 +440,7 @@
   let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
 
   function spawnPop(intensity){
+    popFlash = Math.min(1, 0.6 + intensity * 0.6);
     if(!actx || !noiseNode) return;
     const now = actx.currentTime;
 
@@ -730,7 +732,7 @@
   const sctx = spdCanvas.getContext('2d');
 
   function drawGauge(ctx, opts){
-    const {value, max, redlineStart, unitLabel, majorStep, isSpeed} = opts;
+    const {value, max, redlineStart, unitLabel, majorStep, isSpeed, flash} = opts;
     const W = ctx.canvas.width, H = ctx.canvas.height;
     const cx = W/2, cy = H/2, r = W*0.38;
     const startAngle = Math.PI * 0.75;
@@ -865,6 +867,21 @@
     ctx.fillStyle = glass;
     ctx.fillRect(cx-r, cy-r, r*2, r*2);
     ctx.restore();
+
+    // flash de pétarade (backfire) : burst chaud synchronisé sur spawnPop
+    if(flash > 0){
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.clip();
+      const burst = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      burst.addColorStop(0, `rgba(255,170,90,${0.55*flash})`);
+      burst.addColorStop(0.55, `rgba(255,90,30,${0.30*flash})`);
+      burst.addColorStop(1, 'rgba(255,59,59,0)');
+      ctx.fillStyle = burst;
+      ctx.fillRect(cx-r, cy-r, r*2, r*2);
+      ctx.restore();
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1185,7 +1202,9 @@
     }
     prevThrottleVal = physics.throttle;
 
-    drawGauge(rctx, { value: physics.rpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false });
+    popFlash = Math.max(0, popFlash - dt * 3.2); // décroissance du flash visuel de pétarade
+
+    drawGauge(rctx, { value: physics.rpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false, flash: popFlash });
     drawGauge(sctx, { value: physics.speed, max: 240, redlineStart: null, unitLabel:'km/h', majorStep: 20, isSpeed:true });
 
     gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
