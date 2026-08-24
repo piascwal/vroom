@@ -314,12 +314,13 @@
     v10rally:  { name:'V10 Rallye', cylinders:10, idleRPM:1000, maxRPM:8500, redline:8200, harmonics:[1,2,3,4,5,6],    roughness:0.45, brightness:1.05, crackle:0.9,  turbo:false },
     grogne:    { name:'V8 Big Block', cylinders:8, idleRPM:650, maxRPM:6000, redline:5800, harmonics:[0.5,1,1.5,2,3], roughness:0.55, brightness:0.32, crackle:0.8, turbo:false, growl:0.9 },
     funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
+    tondeuse:  { name:'Tondeuse à Gazon', cylinders:1, idleRPM:550, maxRPM:3200, redline:3000, harmonics:[1,2], roughness:0.75, brightness:0.35, crackle:0.7, turbo:false, mechanical:1 },
   };
 
   // ---------------------------------------------------------------------
   // 2. PHYSIQUE : vitesse <-> régime via rapports de boîte
   // ---------------------------------------------------------------------
-  const GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46]; // resserrés : les 6 rapports s'enchainent avant 130 km/h
+  const GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
   const FINAL_DRIVE = 3.9;
   const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
 
