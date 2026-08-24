@@ -199,7 +199,15 @@
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
     .gauges{ gap:24px; }
-    canvas.gauge{ max-width:min(640px, 36vw, calc(100vh - 540px)); }
+    canvas.gauge{ max-width:min(640px, 36vw, calc(100vh - 560px)); }
+    footer{ display:none; }
+    .hint{ display:none; }
+    #powerBtn{
+      position:fixed; left:50%; margin-left:-40px; bottom:14px;
+      width:80px; height:80px; z-index:50;
+    }
+    #powerBtn .cap svg{ width:30px; height:30px; }
+    #powerBtn .led{ width:9px; height:9px; bottom:7px; }
   }
 </style>
 </head>
@@ -215,7 +223,7 @@
 
   <div class="engine-row">
     <button class="engine-picker" id="enginePickerBtn" type="button">
-      <span id="enginePickerLabel">V8</span>
+      <span id="enginePickerLabel">Moteur Brut</span>
       <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
     </button>
     <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
@@ -255,7 +263,7 @@
         <div class="label">Rapport</div>
         <div class="val" id="gearVal">N</div>
       </div>
-      <div class="engine-name">Moteur actuel<br><b id="engineLabel">V8</b></div>
+      <div class="engine-name">Moteur actuel<br><b id="engineLabel">Moteur Brut</b></div>
     </div>
   </div>
 
@@ -297,6 +305,7 @@
   // 1. PROFILS MOTEUR
   // ---------------------------------------------------------------------
   const ENGINES = {
+    mecanique: { name:'Moteur Brut', cylinders:6, idleRPM:700, maxRPM:5500, redline:5300, harmonics:[0.5,1,2,3], roughness:0.6, brightness:0.5, crackle:0.6, turbo:false, mechanical:0.85 },
     v6:  { name:'V6',  cylinders:6,  idleRPM:800, maxRPM:7000, redline:6800, harmonics:[1,2,3,4],       roughness:0.22, brightness:0.85, crackle:0,    turbo:false },
     v8:  { name:'V8',  cylinders:8,  idleRPM:700, maxRPM:6500, redline:6300, harmonics:[1,2,3,4,5],     roughness:0.30, brightness:0.70, crackle:0,    turbo:false },
     v12: { name:'V12', cylinders:12, idleRPM:900, maxRPM:9000, redline:8800, harmonics:[1,2,3,4,5,6,7], roughness:0.08, brightness:1.15, crackle:0,    turbo:false },
@@ -305,7 +314,6 @@
     v10rally:  { name:'V10 Rallye', cylinders:10, idleRPM:1000, maxRPM:8500, redline:8200, harmonics:[1,2,3,4,5,6],    roughness:0.45, brightness:1.05, crackle:0.9,  turbo:false },
     grogne:    { name:'V8 Big Block', cylinders:8, idleRPM:650, maxRPM:6000, redline:5800, harmonics:[0.5,1,1.5,2,3], roughness:0.55, brightness:0.32, crackle:0.8, turbo:false, growl:0.9 },
     funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
-    mecanique: { name:'Moteur Brut', cylinders:6, idleRPM:700, maxRPM:5500, redline:5300, harmonics:[0.5,1,2,3], roughness:0.6, brightness:0.5, crackle:0.6, turbo:false, mechanical:0.85 },
   };
 
   // ---------------------------------------------------------------------
@@ -420,7 +428,7 @@
   let noiseNode = null, noiseFilter = null, noiseGain = null;
   let oscBank = []; // {osc, gain}
   let lowpass = null;
-  let currentProfileKey = 'v8';
+  let currentProfileKey = 'mecanique';
   let popCooldown = 0;      // secondes avant le prochain "pop" possible
   let prevThrottleVal = 0;  // pour détecter un lâcher brusque d'accélérateur (turbo)
   let prevGear = 1;         // pour détecter un changement de rapport
@@ -965,7 +973,7 @@
 
   applyDebugUI();
 
-  let currentEngineKey = 'v8';
+  let currentEngineKey = 'mecanique';
   let rupteurOn = true;
   let antilagOn = false;
   let nitroState = 'ready'; // 'ready' | 'active' | 'cooldown'
