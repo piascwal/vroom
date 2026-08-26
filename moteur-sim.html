@@ -318,6 +318,10 @@
       <span class="led"></span>
       <span class="lbl">Nitro</span>
     </button>
+    <button class="toggle-btn" id="vrombBtn" type="button" title="Grondement grave qui reste audible même à allure constante, sans coupure de croisière">
+      <span class="led"></span>
+      <span class="lbl">Vromb.</span>
+    </button>
   </div>
 
   <div class="cockpit">
@@ -795,7 +799,11 @@
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
 
     if(growlDepth){
-      const growlAmt = (profile.growl || 0) * targetMaster * (1 - Math.min(1, rpmRatio * 1.3));
+      // grondement naturel du moteur (fort au ralenti, s'efface avec le régime) ; le bouton
+      // Vromb. force un grondement fixe qui ne s'efface pas, pour rester audible à allure constante
+      const naturalGrowl = (profile.growl || 0) * (1 - Math.min(1, rpmRatio * 1.3));
+      const forcedGrowl = vrombOn ? 0.6 : 0;
+      const growlAmt = Math.max(naturalGrowl, forcedGrowl) * targetMaster;
       growlDepth.gain.setTargetAtTime(running ? growlAmt * 0.35 : 0, now, 0.05);
     }
     if(wahDepth){
@@ -1076,8 +1084,9 @@
   applyDebugUI();
 
   let currentEngineKey = 'mecanique';
-  let rupteurOn = true;
+  let rupteurOn = false;
   let antilagOn = false;
+  let vrombOn = false; // grondement forcé, audible même à allure constante (annule l'atténuation de croisière)
   let nitroState = 'ready'; // 'ready' | 'active' | 'cooldown'
   let nitroTimer = 0;
   let limiterCooldown = 0;        // rebond au rupteur en dernier rapport, plein gaz
@@ -1140,6 +1149,13 @@
   antilagBtn.addEventListener('click', () => {
     antilagOn = !antilagOn;
     antilagBtn.classList.toggle('on', antilagOn);
+  });
+
+  const vrombBtn = document.getElementById('vrombBtn');
+  vrombBtn.classList.toggle('on', vrombOn);
+  vrombBtn.addEventListener('click', () => {
+    vrombOn = !vrombOn;
+    vrombBtn.classList.toggle('on', vrombOn);
   });
 
   nitroBtn.addEventListener('click', () => {
@@ -1260,7 +1276,7 @@
     cruiseTimer = cruising ? cruiseTimer + dt : 0;
     prevThrottleCruise = physics.throttle;
     prevGearCruise = physics.gear;
-    const targetCruiseFade = cruiseTimer > 4 ? 0.62 : 1;
+    const targetCruiseFade = (cruiseTimer > 4 && !vrombOn) ? 0.62 : 1;
     cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * 1.2);
 
     updateAudio(physics.rpm, physics.throttle, physics.running, profile, cruiseFade);
