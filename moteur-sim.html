@@ -188,7 +188,10 @@
   .sd-slider{ margin-bottom:10px; }
   .sd-slider label{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); letter-spacing:0.5px; margin-bottom:4px; }
   .sd-slider label span{ color:var(--amber); font-variant-numeric:tabular-nums; font-weight:700; }
-  .sd-slider input[type=range]{ width:100%; accent-color:var(--amber); }
+  /* touch-action:pan-y : un doigt qui glisse verticalement pour faire défiler le panneau
+     n'est pas capturé par le curseur (horizontal) en dessous — seul un geste horizontal
+     déplace le curseur. Sans ça, le défilement tactile déplaçait le curseur du bout du doigt. */
+  .sd-slider input[type=range]{ width:100%; accent-color:var(--amber); touch-action:pan-y; }
   .sd-toggles{ display:flex; gap:16px; margin-bottom:10px; }
   .sd-toggles label{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text); cursor:pointer; }
   .sd-toggles input{ accent-color:var(--amber); }
@@ -383,6 +386,13 @@
     <div class="sd-slider"><label>Pétarade <span id="sdCrackleVal"></span></label><input type="range" id="sdCrackle" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
+    <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
+
+    <div class="sd-row">
+      <label for="sdGears">Rapports</label>
+      <input type="text" id="sdGears" placeholder="6.5,4.1,2.75,2.05,1.72,1.46,1.24,1.05">
+    </div>
 
     <div class="sd-toggles">
       <label><input type="checkbox" id="sdTurbo"> Turbo</label>
@@ -455,13 +465,16 @@
   // ---------------------------------------------------------------------
   // 2. PHYSIQUE : vitesse <-> régime via rapports de boîte
   // ---------------------------------------------------------------------
-  const GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
+  // rapports de boîte par défaut, utilisés par tout profil qui ne définit pas son propre
+  // profile.gearRatios — le nombre de rapports n'est plus limité à 8, il suit simplement
+  // la longueur du tableau (par défaut ou propre au profil)
+  const DEFAULT_GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
   const FINAL_DRIVE = 3.9;
   const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
 
   const physics = {
     speed: 0,        // km/h
-    gear: 1,          // 1..6 (0 = point mort / à l'arrêt)
+    gear: 1,          // 1..N selon le nombre de rapports du profil (0 = point mort / à l'arrêt)
     rpm: 0,
     throttle: 0,      // 0..1
     brake: 0,         // 0..1
@@ -479,13 +492,13 @@
   let smoothedGpsSpeed = 0;    // vitesse lissée injectée dans physics.speed
   let prevSpeedForAccel = 0;   // pour déduire une accélération/freinage "virtuels" du delta de vitesse réelle
 
-  function engineRPMForSpeed(speedKmh, gear){
-    const ratio = GEAR_RATIOS[gear-1];
+  function engineRPMForSpeed(speedKmh, gear, ratios){
+    const ratio = ratios[gear-1];
     const wheelRPM = speedKmh / WHEEL_FACTOR;
     return wheelRPM * ratio * FINAL_DRIVE;
   }
-  function speedForEngineRPM(rpm, gear){
-    const ratio = GEAR_RATIOS[gear-1];
+  function speedForEngineRPM(rpm, gear, ratios){
+    const ratio = ratios[gear-1];
     const wheelRPM = rpm / (ratio * FINAL_DRIVE);
     return wheelRPM * WHEEL_FACTOR;
   }
@@ -538,23 +551,29 @@
 
     if(physics.speed < 0.5){ physics.gear = 1; }
 
+    // rapports et zone de rétrogradation : propres au profil s'il les définit, sinon
+    // valeurs par défaut — configurables depuis l'atelier son (curseurs "Rétrogradation")
+    const ratios = profile.gearRatios || DEFAULT_GEAR_RATIOS;
+    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.24;
+    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.42;
+
     // régime théorique dans le rapport actuel
     let rpm = physics.speed < 0.5
       ? profile.idleRPM
-      : Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear));
+      : Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear, ratios));
 
     // boîte automatique : monte / rétrograde
     const shiftUp = profile.redline - 150;
     const range = profile.redline - profile.idleRPM;
     // au freinage, rétrogradage plus franc et progressif (frein moteur) qu'au simple relâchement
     const shiftDown = physics.brake > 0.1
-      ? profile.idleRPM + range * 0.42
-      : profile.idleRPM + range * 0.24;
-    if(rpm > shiftUp && physics.gear < GEAR_RATIOS.length){
+      ? profile.idleRPM + range * shiftDownBrakeFrac
+      : profile.idleRPM + range * shiftDownCoastFrac;
+    if(rpm > shiftUp && physics.gear < ratios.length){
       physics.gear++;
-      rpm = Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear));
+      rpm = Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear, ratios));
     } else if(rpm < shiftDown && physics.gear > 1 && physics.speed > 0.5){
-      const testRpm = engineRPMForSpeed(physics.speed, physics.gear - 1);
+      const testRpm = engineRPMForSpeed(physics.speed, physics.gear - 1, ratios);
       if(testRpm < profile.redline){
         physics.gear--;
         rpm = Math.max(profile.idleRPM, testRpm);
@@ -1307,7 +1326,10 @@
     crackle: document.getElementById('sdCrackle'),
     growl: document.getElementById('sdGrowl'),
     mechanical: document.getElementById('sdMechanical'),
+    shiftDownCoastFrac: document.getElementById('sdShiftDownCoast'),
+    shiftDownBrakeFrac: document.getElementById('sdShiftDownBrake'),
   };
+  const sdGears = document.getElementById('sdGears');
   const sdTurbo = document.getElementById('sdTurbo');
   const sdFunky = document.getElementById('sdFunky');
   const sdHarmonicsContainer = document.getElementById('sdHarmonics');
@@ -1346,6 +1368,9 @@
     sdControls.crackle.value = p.crackle;
     sdControls.growl.value = p.growl || 0;
     sdControls.mechanical.value = p.mechanical || 0;
+    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.24;
+    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.42;
+    sdGears.value = (p.gearRatios || DEFAULT_GEAR_RATIOS).join(',');
     sdTurbo.checked = !!p.turbo;
     sdFunky.checked = !!p.funkyWah;
     Array.from(sdHarmonicsContainer.querySelectorAll('input')).forEach(cb => {
@@ -1364,6 +1389,8 @@
     document.getElementById('sdCrackleVal').textContent = parseFloat(sdControls.crackle.value).toFixed(2);
     document.getElementById('sdGrowlVal').textContent = parseFloat(sdControls.growl.value).toFixed(2);
     document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
+    document.getElementById('sdShiftDownCoastVal').textContent = parseFloat(sdControls.shiftDownCoastFrac.value).toFixed(2);
+    document.getElementById('sdShiftDownBrakeVal').textContent = parseFloat(sdControls.shiftDownBrakeFrac.value).toFixed(2);
   }
 
   function applySoundDesignBase(key){
@@ -1374,6 +1401,9 @@
       harmonics: src.harmonics.slice(),
       roughness: src.roughness, brightness: src.brightness, crackle: src.crackle,
       turbo: !!src.turbo, growl: src.growl || 0, mechanical: src.mechanical || 0, funkyWah: !!src.funkyWah,
+      gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
+      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.24,
+      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.42,
     };
     syncSoundDesignControls();
     selectEngine('custom');
@@ -1398,6 +1428,11 @@
     p.funkyWah = sdFunky.checked;
     p.harmonics = HARMONIC_OPTIONS.filter(h => sdHarmonicsContainer.querySelector(`input[data-h="${h}"]`).checked);
     if(p.harmonics.length === 0) p.harmonics = [1];
+    p.shiftDownCoastFrac = parseFloat(sdControls.shiftDownCoastFrac.value);
+    p.shiftDownBrakeFrac = parseFloat(sdControls.shiftDownBrakeFrac.value);
+    // rapports séparés par des virgules, aucune limite de nombre — les entrées invalides sont ignorées
+    const parsedGears = sdGears.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
+    if(parsedGears.length > 0) p.gearRatios = parsedGears;
     enginePickerLabel.textContent = p.name;
     engineLabel.textContent = p.name;
     updateSoundDesignLabels();
@@ -1415,6 +1450,7 @@
   });
   sdTurbo.addEventListener('change', () => onSoundDesignChange(false));
   sdFunky.addEventListener('change', () => onSoundDesignChange(false));
+  sdGears.addEventListener('input', () => onSoundDesignChange(false));
 
   syncSoundDesignControls();
 
@@ -1423,11 +1459,14 @@
     const name = (sdName.value.trim() || 'Mon Moteur');
     const diacritics = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
     const slug = (name.toLowerCase().normalize('NFD').replace(diacritics, '').replace(/[^a-z0-9]+/g, '').slice(0, 20)) || 'custom1';
+    const gearRatios = p.gearRatios || DEFAULT_GEAR_RATIOS;
     const extras = [];
     if(p.growl) extras.push(`growl:${p.growl}`);
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
-    const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}${extras.length ? ', ' + extras.join(', ') : ''} },`;
+    if((p.shiftDownCoastFrac ?? 0.24) !== 0.24) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
+    if((p.shiftDownBrakeFrac ?? 0.42) !== 0.42) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
+    const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}, gearRatios:[${gearRatios.join(',')}]${extras.length ? ', ' + extras.join(', ') : ''} },`;
     sdExportOutput.value = line;
     sdExportOutput.select();
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -1557,7 +1596,7 @@
 
     // rebond au rupteur : en dernier rapport, plein gaz contre le plafond de régime,
     // le limiteur coupe réellement les tours par à-coups nets (pas seulement le bruit)
-    const topGear = GEAR_RATIOS.length;
+    const topGear = (profile.gearRatios || DEFAULT_GEAR_RATIOS).length;
     const atLimiter = physics.running && rupteurOn && physics.gear === topGear && physics.throttle > 0.5 && physics.rpm >= profile.redline - 30;
     if(atLimiter){
       limiterCooldown -= dt;
