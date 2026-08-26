@@ -379,6 +379,12 @@
     bugatti: { name:'Bugatti Veyron', cylinders:16, idleRPM:900, maxRPM:6600, redline:6400, harmonics:[1,2,3,4,5,6,7,8], roughness:0.05, brightness:1.2, crackle:0.2, turbo:true },
     lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false },
     amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true },
+
+    // --- son réel : 6 boucles enregistrées (grave -> aigu), crossfadées selon le régime,
+    // au lieu d'harmoniques synthétisées. Les champs harmoniques/roughness/etc. ne servent
+    // qu'aux effets qui restent actifs (pétarade, jauge) tant que la synthèse procédurale
+    // sous-jacente n'est pas coupée.
+    realcar: { name:'Voiture de course (son réel)', cylinders:6, idleRPM:900, maxRPM:7000, redline:6800, harmonics:[1], roughness:0.2, brightness:0.8, crackle:0.3, turbo:false, sampleBased:true },
   };
 
   // ---------------------------------------------------------------------
@@ -512,6 +518,10 @@
   let pulseLFO = null, pulseDepth = null; // "mécanique" : pulsation réelle par cycle de combustion
   let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
   let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
+  let proceduralBusGain = null, sampleBusGain = null; // bascule synthèse procédurale <-> échantillons réels
+  const SAMPLE_COUNT = 6; // loop_0.wav (régime bas) .. loop_5.wav (régime haut), crossfadés selon le rpmRatio
+  let sampleLayers = []; // {source, gain} par fichier, une fois chargés et démarrés
+  let samplesReady = false;
 
   function spawnPop(intensity){
     popFlash = Math.min(1, 0.6 + intensity * 0.6);
@@ -658,6 +668,34 @@
     return buffer;
   }
 
+  // charge les 6 boucles d'enregistrement moteur réel (régime croissant), les démarre en
+  // lecture continue (volume à 0 tant qu'un profil "échantillons" n'est pas sélectionné),
+  // et bascule samplesReady une fois prêt — le profil retombe sur la synthèse procédurale
+  // en attendant, pas de blanc ni d'erreur si l'utilisateur le sélectionne avant la fin du chargement
+  async function loadEngineSamples(){
+    try{
+      const buffers = await Promise.all(
+        Array.from({length: SAMPLE_COUNT}, (_, i) =>
+          fetch(`assets/engine-samples/loop_${i}.wav`)
+            .then(res => res.arrayBuffer())
+            .then(data => actx.decodeAudioData(data))
+        )
+      );
+      sampleLayers = buffers.map(buffer => {
+        const source = actx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        const gain = actx.createGain();
+        gain.gain.value = 0;
+        source.connect(gain);
+        gain.connect(sampleBusGain);
+        source.start();
+        return { source, gain };
+      });
+      samplesReady = true;
+    }catch(e){ /* pas de son échantillonné si le chargement échoue (réseau…) — la synthèse procédurale reste disponible */ }
+  }
+
   function initAudio(){
     if(actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -670,7 +708,18 @@
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 800;
     lowpass.Q.value = 0.7;
-    lowpass.connect(master);
+
+    // bus de synthèse procédurale (harmoniques + bruit + peigne) vs bus échantillons réels :
+    // un seul des deux est audible à la fois, selon le profil moteur choisi (profile.sampleBased)
+    proceduralBusGain = actx.createGain();
+    proceduralBusGain.gain.value = 1;
+    proceduralBusGain.connect(master);
+    lowpass.connect(proceduralBusGain);
+
+    sampleBusGain = actx.createGain();
+    sampleBusGain.gain.value = 0;
+    sampleBusGain.connect(master);
+    loadEngineSamples();
 
     fxGain = actx.createGain();
     fxGain.gain.value = 0.9;
@@ -716,7 +765,7 @@
     noiseGain.gain.value = 0;
     noiseNode.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(master);
+    noiseGain.connect(proceduralBusGain);
     noiseNode.start();
 
     // échappement en bruit filtré en peigne : un délai rebouclé sur lui-même, calé sur la
@@ -807,6 +856,23 @@
 
     const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
+
+    // bascule synthèse procédurale <-> échantillons réels selon le profil, et crossfade entre
+    // les 2 boucles enregistrées les plus proches du régime actuel (position continue 0..5)
+    const useSamples = !!profile.sampleBased && samplesReady;
+    proceduralBusGain.gain.setTargetAtTime(useSamples ? 0 : 1, now, 0.08);
+    sampleBusGain.gain.setTargetAtTime(useSamples ? 1 : 0, now, 0.08);
+    if(sampleLayers.length === SAMPLE_COUNT){
+      const pos = rpmRatio * (SAMPLE_COUNT - 1);
+      const i = Math.min(SAMPLE_COUNT - 2, Math.floor(pos));
+      const frac = pos - i;
+      sampleLayers.forEach((layer, idx) => {
+        const w = idx === i ? Math.cos(frac * Math.PI / 2) : idx === i + 1 ? Math.sin(frac * Math.PI / 2) : 0;
+        layer.gain.gain.setTargetAtTime(useSamples ? w : 0, now, 0.05);
+        // léger glissement de hauteur en plus du crossfade, pour une transition plus continue entre les 6 paliers
+        layer.source.playbackRate.setTargetAtTime(idx === i ? 1 + frac * 0.12 : idx === i + 1 ? 0.94 + frac * 0.06 : 1, now, 0.05);
+      });
+    }
 
     if(growlDepth){
       // grondement naturel du moteur (fort au ralenti, s'efface avec le régime) ; le bouton
