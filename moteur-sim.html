@@ -140,7 +140,14 @@
     box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
   }
   .gauges{ display:flex; justify-content:center; gap:2px; }
+  .gauge-col{ display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; }
   canvas.gauge{ width:100%; max-width:224px; height:auto; }
+  .gauge-readout{
+    font-size:12px; font-weight:700; letter-spacing:0.5px; font-variant-numeric: tabular-nums;
+    height:16px; line-height:16px;
+  }
+  .gauge-readout.rpm{ color:var(--amber); }
+  .gauge-readout.spd{ color:var(--cyan); }
 
   .center-strip{
     display:flex; align-items:flex-start; justify-content:center; gap:22px;
@@ -188,10 +195,11 @@
   .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
   .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  .stats{ display:flex; gap:10px; }
-  .stat{ flex:1; background:var(--panel); border:1px solid #23272e; border-top-color:#2e333b; border-radius:12px; padding:10px 12px;}
-  .stat .l{ font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase;}
-  .stat .v{ font-size:18px; font-weight:700; color:var(--text); font-variant-numeric: tabular-nums;}
+  .vision-panel{
+    position:relative; height:110px; border-radius:14px; overflow:hidden;
+    border:1px solid #23272e; border-top-color:#2e333b; background:#08090b; flex-shrink:0;
+  }
+  .vision-panel canvas{ display:block; width:100%; height:100%; }
 
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
   footer a{ color:var(--muted); text-decoration:underline; }
@@ -229,13 +237,18 @@
 
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
-    header, .engine-row, .effects-row, .stats, #debugPanel, #gpsPanel{ flex-shrink:0; }
+    header, .engine-row, .effects-row, #debugPanel, #gpsPanel{ flex-shrink:0; }
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
-       via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla */
-    .cockpit{ flex:1; min-height:0; display:flex; flex-direction:column; }
-    .gauges{ flex:1; min-height:0; align-items:center; gap:24px; }
-    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
+       via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
+       Le panneau vision est secondaire : flex-shrink:0 sur le cockpit lui garantit une
+       hauteur plancher (220px) et c'est le panneau vision qui absorbe le manque d'espace
+       en premier (flex-shrink:1, jusqu'à son propre plancher de 40px). */
+    .cockpit{ flex:1 0 220px; min-height:220px; display:flex; flex-direction:column; }
+    .vision-panel{ flex:0 1 100px; min-height:40px; }
+    .gauges{ flex:1; min-height:0; gap:24px; }
+    .gauge-col{ min-height:0; justify-content:center; }
+    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:calc(100% - 24px); }
     .center-strip{ flex-shrink:0; }
     footer{ display:none; }
     .hint{ display:none; }
@@ -326,8 +339,14 @@
 
   <div class="cockpit">
     <div class="gauges">
-      <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
-      <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
+      <div class="gauge-col">
+        <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
+        <div class="gauge-readout rpm" id="rpmStat">0 tr/min</div>
+      </div>
+      <div class="gauge-col">
+        <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
+        <div class="gauge-readout spd" id="spdStat">0 km/h</div>
+      </div>
     </div>
     <div class="center-strip">
       <div class="gear-box">
@@ -338,9 +357,8 @@
     </div>
   </div>
 
-  <div class="stats">
-    <div class="stat"><div class="l">Régime</div><div class="v" id="rpmStat">0 tr/min</div></div>
-    <div class="stat"><div class="l">Vitesse</div><div class="v" id="spdStat">0 km/h</div></div>
+  <div class="vision-panel">
+    <canvas id="visionCanvas" width="900" height="220"></canvas>
   </div>
 
   <div class="panel" id="debugPanel">
@@ -979,6 +997,96 @@
   }
 
   // ---------------------------------------------------------------------
+  // 4c. VISION VITESSE — route en perspective + particules, pour "voir" la vitesse
+  // ---------------------------------------------------------------------
+  const visionCanvas = document.getElementById('visionCanvas');
+  const visctx = visionCanvas.getContext('2d');
+  const VISION_PARTICLES = 40;
+  const visionParticles = Array.from({ length: VISION_PARTICLES }, () => ({
+    angle: Math.random() * 2 - 1, // -1..1, position latérale relative au point de fuite
+    z: Math.random(),             // 0 = au point de fuite (loin), 1 = au bord de l'écran (proche)
+  }));
+  let roadScroll = 0; // défilement des tirets centraux de la route
+
+  function drawVision(speedKmh, throttle, running, dt){
+    const W = visctx.canvas.width, H = visctx.canvas.height;
+    visctx.clearRect(0, 0, W, H);
+    const vpX = W / 2, vpY = H * 0.28;
+
+    const sky = visctx.createLinearGradient(0, 0, 0, vpY);
+    sky.addColorStop(0, '#0b0e13');
+    sky.addColorStop(1, '#1b212a');
+    visctx.fillStyle = sky;
+    visctx.fillRect(0, 0, W, vpY);
+    visctx.fillStyle = '#08090b';
+    visctx.fillRect(0, vpY, W, H - vpY);
+
+    // route en trapèze, convergente vers le point de fuite
+    const roadHalfBottom = W * 0.48, roadHalfTop = 3;
+    visctx.beginPath();
+    visctx.moveTo(vpX - roadHalfTop, vpY);
+    visctx.lineTo(vpX + roadHalfTop, vpY);
+    visctx.lineTo(vpX + roadHalfBottom, H);
+    visctx.lineTo(vpX - roadHalfBottom, H);
+    visctx.closePath();
+    const roadGrad = visctx.createLinearGradient(0, vpY, 0, H);
+    roadGrad.addColorStop(0, '#1c1f24');
+    roadGrad.addColorStop(1, '#0e1013');
+    visctx.fillStyle = roadGrad;
+    visctx.fill();
+
+    visctx.lineWidth = 2;
+    visctx.strokeStyle = 'rgba(255,140,60,0.4)';
+    visctx.beginPath(); visctx.moveTo(vpX - roadHalfTop, vpY); visctx.lineTo(vpX - roadHalfBottom, H); visctx.stroke();
+    visctx.beginPath(); visctx.moveTo(vpX + roadHalfTop, vpY); visctx.lineTo(vpX + roadHalfBottom, H); visctx.stroke();
+
+    // ligne centrale pointillée qui défile vers le bas, cadencée par la vitesse réelle
+    const speedFactor = Math.min(1.4, speedKmh / 140);
+    roadScroll = (roadScroll + dt * (0.15 + speedFactor * 1.1)) % 1;
+    visctx.fillStyle = 'rgba(231,228,222,0.55)';
+    const dashCount = 8;
+    for(let i = 0; i < dashCount; i++){
+      const t = (i / dashCount + roadScroll) % 1;
+      const tt = t * t; // easing : les tirets s'écartent visuellement en approchant du bas
+      const y = vpY + (H - vpY) * tt;
+      const y2 = vpY + (H - vpY) * Math.min(1, t + 0.05) ** 2;
+      const halfW = 1 + tt * 4;
+      visctx.fillRect(vpX - halfW, y, halfW * 2, Math.max(2, y2 - y));
+    }
+
+    // particules de vitesse : traînées radiant depuis le point de fuite vers le bord de l'écran
+    const accelBoost = running ? Math.max(0, throttle) : 0;
+    const baseSpeed = running ? (0.15 + speedFactor * 0.9 + accelBoost * 0.6) : 0;
+    visctx.lineCap = 'round';
+    visionParticles.forEach(p => {
+      p.z += dt * baseSpeed * (0.6 + Math.abs(p.angle) * 0.4);
+      if(p.z > 1){ p.z = 0; p.angle = Math.random() * 2 - 1; }
+      if(!running) return;
+      const zz = p.z * p.z; // accélération visuelle vers les bords, comme en perspective réelle
+      const x = vpX + p.angle * zz * W * 0.55;
+      const y = vpY + zz * (H - vpY);
+      const len = 4 + zz * 26 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5);
+      const mag = Math.hypot(x - vpX, y - vpY) || 1;
+      const tailX = x - (x - vpX) / mag * len;
+      const tailY = y - (y - vpY) / mag * len;
+      const alpha = Math.min(0.9, 0.15 + zz * 0.6 + accelBoost * 0.3);
+      visctx.strokeStyle = `rgba(255,${210 - Math.round(zz * 40)},${150 - Math.round(zz * 60)},${alpha})`;
+      visctx.lineWidth = 1 + zz * 1.5;
+      visctx.beginPath();
+      visctx.moveTo(x, y);
+      visctx.lineTo(tailX, tailY);
+      visctx.stroke();
+    });
+
+    // halo au point de fuite (feux lointains), qui s'intensifie à l'accélération
+    const glow = visctx.createRadialGradient(vpX, vpY, 0, vpX, vpY, W * 0.06);
+    glow.addColorStop(0, `rgba(255,220,180,${running ? 0.5 + accelBoost * 0.3 : 0.15})`);
+    glow.addColorStop(1, 'rgba(255,220,180,0)');
+    visctx.fillStyle = glow;
+    visctx.fillRect(vpX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
+  }
+
+  // ---------------------------------------------------------------------
   // 5. UI / INPUT
   // ---------------------------------------------------------------------
   // ---------------------------------------------------------------------
@@ -1307,6 +1415,7 @@
 
     drawGauge(rctx, { value: physics.rpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false, flash: popFlash });
     drawGauge(sctx, { value: physics.speed, max: 240, redlineStart: null, unitLabel:'km/h', majorStep: 20, isSpeed:true });
+    drawVision(physics.speed, physics.throttle, physics.running, dt);
 
     gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
     spdStat.textContent = Math.round(physics.speed) + ' km/h';
