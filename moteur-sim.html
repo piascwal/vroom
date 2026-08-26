@@ -229,8 +229,14 @@
 
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
-    .gauges{ gap:24px; }
-    canvas.gauge{ max-width:min(640px, 36vw, calc(100vh - 560px)); }
+    header, .engine-row, .effects-row, .stats, #debugPanel, #gpsPanel{ flex-shrink:0; }
+    /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
+       restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
+       via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla */
+    .cockpit{ flex:1; min-height:0; display:flex; flex-direction:column; }
+    .gauges{ flex:1; min-height:0; align-items:center; gap:24px; }
+    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
+    .center-strip{ flex-shrink:0; }
     footer{ display:none; }
     .hint{ display:none; }
     #powerBtn{
