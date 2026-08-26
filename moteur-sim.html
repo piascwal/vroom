@@ -372,13 +372,16 @@
     funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
     tondeuse:  { name:'Tondeuse à Gazon', cylinders:1, idleRPM:550, maxRPM:3200, redline:3000, harmonics:[1,2], roughness:0.75, brightness:0.35, crackle:0.7, turbo:false, mechanical:1 },
 
-    // --- véhicules iconiques : mêmes paramètres de synthèse, réglés pour évoquer leur timbre propre ---
-    ferrari: { name:'Ferrari F40', cylinders:8, idleRPM:900, maxRPM:7750, redline:7500, harmonics:[1,2,3,4,5], roughness:0.18, brightness:1.1,  crackle:0.5,  turbo:true },
-    porsche: { name:'Porsche 911', cylinders:6, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,2.5,3,4], roughness:0.35, brightness:0.9, crackle:0.15, turbo:false },
-    harley:  { name:'Harley-Davidson', cylinders:2, idleRPM:650, maxRPM:5500, redline:5300, harmonics:[0.5,1,1.5], roughness:0.7, brightness:0.4, crackle:0.6, turbo:false, growl:0.7, mechanical:0.6 },
+    // --- véhicules iconiques : synthèse procédurale de repli (utilisée pendant le chargement
+    // de l'enregistrement réel, ou si celui-ci échoue) + sampleFile pour le son réel une fois prêt.
+    // sampleBaseRate/samplePitchRange calent la hauteur de lecture (playbackRate) sur le régime :
+    // hauteur = sampleBaseRate + rpmRatio * samplePitchRange
+    ferrari: { name:'Ferrari F40', cylinders:8, idleRPM:900, maxRPM:7750, redline:7500, harmonics:[1,2,3,4,5], roughness:0.18, brightness:1.1,  crackle:0.5,  turbo:true, sampleBased:true, sampleFile:'assets/vehicle-samples/ferrari.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
+    porsche: { name:'Porsche 911', cylinders:6, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,2.5,3,4], roughness:0.35, brightness:0.9, crackle:0.15, turbo:false, sampleBased:true, sampleFile:'assets/vehicle-samples/porsche.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
+    harley:  { name:'Harley-Davidson', cylinders:2, idleRPM:650, maxRPM:5500, redline:5300, harmonics:[0.5,1,1.5], roughness:0.7, brightness:0.4, crackle:0.6, turbo:false, growl:0.7, mechanical:0.6, sampleBased:true, sampleFile:'assets/vehicle-samples/harley.mp3', sampleBaseRate:0.75, samplePitchRange:0.8 },
     bugatti: { name:'Bugatti Veyron', cylinders:16, idleRPM:900, maxRPM:6600, redline:6400, harmonics:[1,2,3,4,5,6,7,8], roughness:0.05, brightness:1.2, crackle:0.2, turbo:true },
-    lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false },
-    amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true },
+    lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false, sampleBased:true, sampleFile:'assets/vehicle-samples/lambo.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
+    amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true, sampleBased:true, sampleFile:'assets/vehicle-samples/amg.mp3', sampleBaseRate:0.7, samplePitchRange:1.1 },
 
     // --- son réel : 6 boucles enregistrées (grave -> aigu), crossfadées selon le régime,
     // au lieu d'harmoniques synthétisées. Les champs harmoniques/roughness/etc. ne servent
@@ -522,6 +525,10 @@
   const SAMPLE_COUNT = 6; // loop_0.wav (régime bas) .. loop_5.wav (régime haut), crossfadés selon le rpmRatio
   let sampleLayers = []; // {source, gain} par fichier, une fois chargés et démarrés
   let samplesReady = false;
+  let vehicleSampleGain = null;      // enregistrement réel unique par véhicule, pitché par régime
+  let vehicleSampleSource = null;    // noeud de lecture actif, recréé à chaque changement de véhicule
+  let vehicleSampleKey = null;       // sampleFile actuellement en cours de lecture (ou null)
+  const vehicleSampleBuffers = {};   // cache { sampleFile: AudioBuffer } pour ne décoder qu'une fois
 
   function spawnPop(intensity){
     popFlash = Math.min(1, 0.6 + intensity * 0.6);
@@ -696,6 +703,28 @@
     }catch(e){ /* pas de son échantillonné si le chargement échoue (réseau…) — la synthèse procédurale reste disponible */ }
   }
 
+  // charge (une seule fois, mis en cache) et démarre l'enregistrement réel du véhicule
+  // sélectionné ; ne fait rien si ce fichier est déjà celui en cours de lecture
+  async function loadVehicleSample(profile){
+    if(!actx || !profile.sampleFile || vehicleSampleKey === profile.sampleFile) return;
+    let buffer = vehicleSampleBuffers[profile.sampleFile];
+    if(!buffer){
+      try{
+        const res = await fetch(profile.sampleFile);
+        const data = await res.arrayBuffer();
+        buffer = await actx.decodeAudioData(data);
+        vehicleSampleBuffers[profile.sampleFile] = buffer;
+      }catch(e){ return; } // échec réseau/décodage : reste sur la synthèse procédurale de ce profil
+    }
+    if(vehicleSampleSource){ try{ vehicleSampleSource.stop(); }catch(e){} }
+    vehicleSampleSource = actx.createBufferSource();
+    vehicleSampleSource.buffer = buffer;
+    vehicleSampleSource.loop = true;
+    vehicleSampleSource.connect(vehicleSampleGain);
+    vehicleSampleSource.start();
+    vehicleSampleKey = profile.sampleFile;
+  }
+
   function initAudio(){
     if(actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -720,6 +749,13 @@
     sampleBusGain.gain.value = 0;
     sampleBusGain.connect(master);
     loadEngineSamples();
+
+    // enregistrement réel unique par véhicule iconique, hauteur modulée par playbackRate
+    // selon le régime simulé (chargé à la demande, pas au démarrage, pour ne pas imposer
+    // ~7 Mo de téléchargement tant qu'aucun de ces profils n'est choisi)
+    vehicleSampleGain = actx.createGain();
+    vehicleSampleGain.gain.value = 0;
+    vehicleSampleGain.connect(sampleBusGain);
 
     fxGain = actx.createGain();
     fxGain.gain.value = 0.9;
@@ -800,6 +836,7 @@
     pulseLFO.start();
 
     setEngineProfile(currentProfileKey);
+    if(ENGINES[currentProfileKey].sampleFile) loadVehicleSample(ENGINES[currentProfileKey]);
   }
 
   function clearOscBank(){
@@ -857,21 +894,33 @@
     const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
 
-    // bascule synthèse procédurale <-> échantillons réels selon le profil, et crossfade entre
-    // les 2 boucles enregistrées les plus proches du régime actuel (position continue 0..5)
-    const useSamples = !!profile.sampleBased && samplesReady;
+    // bascule synthèse procédurale <-> échantillons réels selon le profil. Deux modes possibles
+    // côté échantillons : le pack générique (6 boucles crossfadées) ou un enregistrement réel
+    // unique par véhicule iconique (pitché par playbackRate selon le régime).
+    const useMultiSample = !!profile.sampleBased && !profile.sampleFile && samplesReady;
+    const useVehicleSample = !!profile.sampleFile && vehicleSampleKey === profile.sampleFile;
+    const useSamples = useMultiSample || useVehicleSample;
     proceduralBusGain.gain.setTargetAtTime(useSamples ? 0 : 1, now, 0.08);
     sampleBusGain.gain.setTargetAtTime(useSamples ? 1 : 0, now, 0.08);
+
     if(sampleLayers.length === SAMPLE_COUNT){
       const pos = rpmRatio * (SAMPLE_COUNT - 1);
       const i = Math.min(SAMPLE_COUNT - 2, Math.floor(pos));
       const frac = pos - i;
       sampleLayers.forEach((layer, idx) => {
         const w = idx === i ? Math.cos(frac * Math.PI / 2) : idx === i + 1 ? Math.sin(frac * Math.PI / 2) : 0;
-        layer.gain.gain.setTargetAtTime(useSamples ? w : 0, now, 0.05);
+        layer.gain.gain.setTargetAtTime(useMultiSample ? w : 0, now, 0.05);
         // léger glissement de hauteur en plus du crossfade, pour une transition plus continue entre les 6 paliers
         layer.source.playbackRate.setTargetAtTime(idx === i ? 1 + frac * 0.12 : idx === i + 1 ? 0.94 + frac * 0.06 : 1, now, 0.05);
       });
+    }
+
+    if(vehicleSampleGain){
+      vehicleSampleGain.gain.setTargetAtTime(useVehicleSample ? 1 : 0, now, 0.08);
+      if(vehicleSampleSource){
+        const rate = (profile.sampleBaseRate ?? 0.7) + rpmRatio * (profile.samplePitchRange ?? 1.0);
+        vehicleSampleSource.playbackRate.setTargetAtTime(rate, now, 0.05);
+      }
     }
 
     if(growlDepth){
@@ -1256,6 +1305,7 @@
     enginePickerLabel.textContent = ENGINES[key].name;
     engineLabel.textContent = ENGINES[key].name;
     setEngineProfile(key);
+    if(ENGINES[key].sampleFile) loadVehicleSample(ENGINES[key]);
     document.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
@@ -1428,8 +1478,8 @@
     cruiseTimer = cruising ? cruiseTimer + dt : 0;
     prevThrottleCruise = physics.throttle;
     prevGearCruise = physics.gear;
-    const targetCruiseFade = (cruiseTimer > 1 && !vrombOn) ? 0.62 : 1;
-    cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * 1.2);
+    const targetCruiseFade = (cruiseTimer > 1 && !vrombOn) ? 0.15 : 1;
+    cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * 2);
 
     // coup de gaz à l'activation du Nitro : un régime affiché/entendu plus haut en plus du
     // vrai boost de vitesse, sans influencer les rapports de boîte — retombe tout seul.
