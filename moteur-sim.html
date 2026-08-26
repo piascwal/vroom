@@ -27,10 +27,11 @@
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     overflow-x:hidden;
   }
-  .wrap{ max-width:520px; margin:0 auto; padding:16px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:14px;}
+  #visionCanvas{ position:fixed; inset:0; width:100vw; height:100vh; z-index:0; display:block; }
+  .wrap{ position:relative; z-index:1; max-width:520px; margin:0 auto; padding:16px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:14px;}
 
   header{ display:flex; align-items:center; justify-content:space-between; gap:10px;}
-  .brand{ font-size:13px; letter-spacing:3px; text-transform:uppercase; color:var(--muted);}
+  .brand{ font-size:13px; letter-spacing:3px; text-transform:uppercase; color:var(--muted); text-shadow:0 1px 4px rgba(0,0,0,0.8);}
   .brand b{color:var(--amber); letter-spacing:1px;}
   .debug-badge{
     font-size:10px; letter-spacing:2px; text-transform:uppercase;
@@ -65,7 +66,7 @@
   .engine-picker.open .chev{ transform:rotate(180deg); }
 
   .engine-dropdown{
-    position:absolute; top:calc(100% + 8px); left:0; right:64px; z-index:20;
+    position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:20;
     background:linear-gradient(180deg, #1a1d22, #101317);
     border:1px solid #2c3038; border-radius:12px; overflow:hidden;
     box-shadow: 0 16px 32px rgba(0,0,0,0.55);
@@ -132,35 +133,19 @@
     to{ box-shadow: 0 3px 0 #05060a, 0 5px 20px rgba(139,107,255,0.55); }
   }
 
-  .cockpit{
-    background:
-      repeating-linear-gradient(115deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
-      linear-gradient(180deg, #16191e, #0e1013);
-    border:1px solid #2a2e35; border-top-color:#383d46; border-radius:20px; padding:20px 12px 10px;
-    box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
-  }
-  .gauges{ display:flex; justify-content:center; gap:2px; }
-  .gauge-col{ display:flex; flex-direction:column; align-items:center; gap:4px; min-width:0; }
+  /* le cockpit n'a plus de panneau opaque : les compteurs flottent directement sur la
+     vision de vitesse en arrière-plan, poussés vers le bas de l'espace disponible */
+  .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; }
+  .gauges{ display:flex; justify-content:center; align-items:flex-end; gap:10px; }
   canvas.gauge{ width:100%; max-width:224px; height:auto; }
-  .gauge-readout{
-    font-size:12px; font-weight:700; letter-spacing:0.5px; font-variant-numeric: tabular-nums;
-    height:16px; line-height:16px;
-  }
-  .gauge-readout.rpm{ color:var(--amber); }
-  .gauge-readout.spd{ color:var(--cyan); }
 
-  .center-strip{
-    display:flex; align-items:flex-start; justify-content:center; gap:22px;
-    margin-top:-22px; margin-bottom:8px;
-  }
-  .gear-box{ text-align:center; }
-  .gear-box .label{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;}
-  .gear-box .val{
-    font-size:32px; font-weight:800; color:var(--cyan); font-variant-numeric: tabular-nums; line-height:1;
-    text-shadow: 0 0 12px rgba(94,234,212,0.45);
-  }
-  .engine-name{ text-align:center; font-size:11px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;}
-  .engine-name b{ color:var(--text); font-size:13px; letter-spacing:1px; }
+  .readout-strip{ display:flex; justify-content:center; align-items:baseline; flex-wrap:wrap; gap:20px; text-align:center; flex-shrink:0; }
+  .readout .l{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; text-shadow:0 1px 4px rgba(0,0,0,0.8); }
+  .readout .v{ margin-top:2px; font-size:15px; font-weight:700; color:var(--text); font-variant-numeric: tabular-nums; text-shadow:0 1px 4px rgba(0,0,0,0.8); }
+  .readout.rpm .v{ color:var(--amber); }
+  .readout.spd .v{ color:var(--cyan); }
+  .readout.gear .v{ font-size:20px; color:var(--cyan); text-shadow:0 0 12px rgba(94,234,212,0.45); }
+  .readout.engine .v{ font-size:12px; }
 
   .panel{
     background:var(--panel); border:1px solid #23272e; border-top-color:#2e333b; border-radius:14px; padding:14px;
@@ -194,12 +179,6 @@
   .cruise-btn .led{ width:8px; height:8px; border-radius:50%; background:#3a2013; box-shadow: inset 0 1px 1px rgba(0,0,0,0.6); flex-shrink:0; }
   .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
   .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
-
-  .vision-panel{
-    position:relative; height:110px; border-radius:14px; overflow:hidden;
-    border:1px solid #23272e; border-top-color:#2e333b; background:#08090b; flex-shrink:0;
-  }
-  .vision-panel canvas{ display:block; width:100%; height:100%; }
 
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
   footer a{ color:var(--muted); text-decoration:underline; }
@@ -241,27 +220,22 @@
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
        via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
-       Le panneau vision est secondaire : flex-shrink:0 sur le cockpit lui garantit une
-       hauteur plancher (220px) et c'est le panneau vision qui absorbe le manque d'espace
-       en premier (flex-shrink:1, jusqu'à son propre plancher de 40px). */
-    .cockpit{ flex:1 0 220px; min-height:220px; display:flex; flex-direction:column; }
-    .vision-panel{ flex:0 1 100px; min-height:40px; }
+       La vision de vitesse n'est plus dans ce calcul : c'est un canvas plein écran fixe,
+       en arrière-plan de toute la page (voir #visionCanvas), donc elle ne dispute plus
+       d'espace vertical avec les compteurs. */
+    .cockpit{ flex:1; min-height:0; gap:16px; }
     .gauges{ flex:1; min-height:0; gap:24px; }
-    .gauge-col{ min-height:0; justify-content:center; }
-    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:calc(100% - 24px); }
-    .center-strip{ flex-shrink:0; }
+    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
     .hint{ display:none; }
-    #powerBtn{
-      position:fixed; left:50%; margin-left:-40px; bottom:14px;
-      width:80px; height:80px; z-index:50;
-    }
+    #powerBtn{ width:80px; height:80px; }
     #powerBtn .cap svg{ width:30px; height:30px; }
     #powerBtn .led{ width:9px; height:9px; bottom:7px; }
   }
 </style>
 </head>
 <body>
+<canvas id="visionCanvas"></canvas>
 <div class="disclaimer-overlay" id="disclaimerOverlay">
   <div class="disclaimer-box">
     <div class="disclaimer-title">⚠️ Avant de commencer</div>
@@ -306,15 +280,6 @@
       <span id="enginePickerLabel">Moteur Brut</span>
       <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
     </button>
-    <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
-      <span class="cap">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2v9"></path>
-          <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-        </svg>
-      </span>
-      <span class="led"></span>
-    </button>
     <div class="engine-dropdown" id="engineDropdown" hidden></div>
   </div>
 
@@ -339,26 +304,24 @@
 
   <div class="cockpit">
     <div class="gauges">
-      <div class="gauge-col">
-        <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
-        <div class="gauge-readout rpm" id="rpmStat">0 tr/min</div>
-      </div>
-      <div class="gauge-col">
-        <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
-        <div class="gauge-readout spd" id="spdStat">0 km/h</div>
-      </div>
+      <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
+      <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
+        <span class="cap">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v9"></path>
+            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+          </svg>
+        </span>
+        <span class="led"></span>
+      </button>
+      <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
     </div>
-    <div class="center-strip">
-      <div class="gear-box">
-        <div class="label">Rapport</div>
-        <div class="val" id="gearVal">N</div>
-      </div>
-      <div class="engine-name">Moteur actuel<br><b id="engineLabel">Moteur Brut</b></div>
+    <div class="readout-strip">
+      <div class="readout rpm"><div class="l">Régime</div><div class="v" id="rpmStat">0 tr/min</div></div>
+      <div class="readout gear"><div class="l">Rapport</div><div class="v" id="gearVal">N</div></div>
+      <div class="readout spd"><div class="l">Vitesse</div><div class="v" id="spdStat">0 km/h</div></div>
+      <div class="readout engine"><div class="l">Moteur</div><div class="v" id="engineLabel">Moteur Brut</div></div>
     </div>
-  </div>
-
-  <div class="vision-panel">
-    <canvas id="visionCanvas" width="900" height="220"></canvas>
   </div>
 
   <div class="panel" id="debugPanel">
@@ -1001,6 +964,13 @@
   // ---------------------------------------------------------------------
   const visionCanvas = document.getElementById('visionCanvas');
   const visctx = visionCanvas.getContext('2d');
+  // toile plein écran, en arrière-plan de toute la page : sa résolution suit la fenêtre
+  function resizeVisionCanvas(){
+    visionCanvas.width = window.innerWidth;
+    visionCanvas.height = window.innerHeight;
+  }
+  resizeVisionCanvas();
+  window.addEventListener('resize', resizeVisionCanvas);
   const VISION_PARTICLES = 40;
   const visionParticles = Array.from({ length: VISION_PARTICLES }, () => ({
     angle: Math.random() * 2 - 1, // -1..1, position latérale relative au point de fuite
