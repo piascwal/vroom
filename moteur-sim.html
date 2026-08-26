@@ -175,6 +175,34 @@
   .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
   .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
+  /* --- atelier son (débug) : curseurs pour composer un moteur, puis export copiable ---
+     hauteur plafonnée + défilement interne : ce panneau ne doit jamais pousser les
+     compteurs (l'élément principal) hors de l'écran ou à une taille nulle */
+  #soundDesignPanel{ max-height:300px; overflow-y:auto; }
+  .sd-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .sd-row label{ font-size:11px; color:var(--muted); letter-spacing:0.5px; flex-shrink:0; width:70px; }
+  .sd-row select, .sd-row input[type=text]{
+    flex:1; background:#0e1013; border:1px solid #2a2f37; border-radius:8px; color:var(--text);
+    padding:8px 10px; font-size:13px;
+  }
+  .sd-slider{ margin-bottom:10px; }
+  .sd-slider label{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); letter-spacing:0.5px; margin-bottom:4px; }
+  .sd-slider label span{ color:var(--amber); font-variant-numeric:tabular-nums; font-weight:700; }
+  .sd-slider input[type=range]{ width:100%; accent-color:var(--amber); }
+  .sd-toggles{ display:flex; gap:16px; margin-bottom:10px; }
+  .sd-toggles label{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text); cursor:pointer; }
+  .sd-toggles input{ accent-color:var(--amber); }
+  .sd-harm-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .sd-harm-row label{
+    display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text);
+    background:#0e1013; border:1px solid #2a2f37; border-radius:6px; padding:4px 8px; cursor:pointer;
+  }
+  .sd-harm-row input{ accent-color:var(--amber); }
+  #sdExportOutput{
+    width:100%; margin-top:10px; background:#0e1013; border:1px solid #2a2f37; border-radius:8px;
+    color:var(--cyan); font-size:11px; font-family:monospace; padding:8px; resize:vertical;
+  }
+
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
   footer a{ color:var(--muted); text-decoration:underline; }
 
@@ -211,14 +239,15 @@
 
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
-    header, .engine-row, .effects-row, #debugPanel{ flex-shrink:0; }
+    header, .engine-row, .effects-row, #debugPanel, #soundDesignPanel{ flex-shrink:0; }
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
        via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
        La vision de vitesse n'est plus dans ce calcul : c'est un canvas plein écran fixe,
        en arrière-plan de toute la page (voir #visionCanvas), donc elle ne dispute plus
        d'espace vertical avec les compteurs. */
-    .cockpit{ flex:1; min-height:0; gap:16px; }
+    .cockpit{ flex:1; min-height:180px; gap:16px; }
+    #soundDesignPanel{ max-height:min(300px, 40vh); }
     .gauges{ flex:1; min-height:0; gap:24px; }
     canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
@@ -334,6 +363,44 @@
     </div>
   </div>
 
+  <div class="panel" id="soundDesignPanel">
+    <h3>Atelier son (débug)</h3>
+    <div class="sd-row">
+      <label for="sdBaseSelect">Partir de</label>
+      <select id="sdBaseSelect"></select>
+    </div>
+    <div class="sd-row">
+      <label for="sdName">Nom</label>
+      <input type="text" id="sdName" placeholder="Mon moteur">
+    </div>
+
+    <div class="sd-slider"><label>Cylindres <span id="sdCylindersVal"></span></label><input type="range" id="sdCylinders" min="1" max="16" step="1"></div>
+    <div class="sd-slider"><label>Ralenti (tr/min) <span id="sdIdleVal"></span></label><input type="range" id="sdIdle" min="300" max="1500" step="10"></div>
+    <div class="sd-slider"><label>Régime max <span id="sdMaxRpmVal"></span></label><input type="range" id="sdMaxRpm" min="2000" max="10000" step="50"></div>
+    <div class="sd-slider"><label>Zone rouge <span id="sdRedlineVal"></span></label><input type="range" id="sdRedline" min="2000" max="10000" step="50"></div>
+    <div class="sd-slider"><label>Rugosité <span id="sdRoughnessVal"></span></label><input type="range" id="sdRoughness" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Brillance <span id="sdBrightnessVal"></span></label><input type="range" id="sdBrightness" min="0" max="2" step="0.01"></div>
+    <div class="sd-slider"><label>Pétarade <span id="sdCrackleVal"></span></label><input type="range" id="sdCrackle" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
+
+    <div class="sd-toggles">
+      <label><input type="checkbox" id="sdTurbo"> Turbo</label>
+      <label><input type="checkbox" id="sdFunky"> Wah funky</label>
+    </div>
+
+    <div class="sd-row" style="display:block;">
+      <label>Harmoniques</label>
+      <div class="sd-harm-row" id="sdHarmonics"></div>
+    </div>
+
+    <button class="cruise-btn" id="sdExportBtn" type="button">Exporter (copier la config)</button>
+    <textarea id="sdExportOutput" readonly rows="3" placeholder="Le code à me coller apparaîtra ici après export…"></textarea>
+    <div class="hint" id="sdExportHint">
+      Choisis un moteur de départ, ajuste les curseurs en écoutant (démarre le moteur avec le bouton central), puis Exporter copie une ligne prête à coller dans le chat.
+    </div>
+  </div>
+
   <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API — <a href="#" id="footerCguLink">CGU</a></footer>
 </div>
 
@@ -372,22 +439,17 @@
     funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
     tondeuse:  { name:'Tondeuse à Gazon', cylinders:1, idleRPM:550, maxRPM:3200, redline:3000, harmonics:[1,2], roughness:0.75, brightness:0.35, crackle:0.7, turbo:false, mechanical:1 },
 
-    // --- véhicules iconiques : synthèse procédurale de repli (utilisée pendant le chargement
-    // de l'enregistrement réel, ou si celui-ci échoue) + sampleFile pour le son réel une fois prêt.
-    // sampleBaseRate/samplePitchRange calent la hauteur de lecture (playbackRate) sur le régime :
-    // hauteur = sampleBaseRate + rpmRatio * samplePitchRange
-    ferrari: { name:'Ferrari F40', cylinders:8, idleRPM:900, maxRPM:7750, redline:7500, harmonics:[1,2,3,4,5], roughness:0.18, brightness:1.1,  crackle:0.5,  turbo:true, sampleBased:true, sampleFile:'assets/vehicle-samples/ferrari.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
-    porsche: { name:'Porsche 911', cylinders:6, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,2.5,3,4], roughness:0.35, brightness:0.9, crackle:0.15, turbo:false, sampleBased:true, sampleFile:'assets/vehicle-samples/porsche.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
-    harley:  { name:'Harley-Davidson', cylinders:2, idleRPM:650, maxRPM:5500, redline:5300, harmonics:[0.5,1,1.5], roughness:0.7, brightness:0.4, crackle:0.6, turbo:false, growl:0.7, mechanical:0.6, sampleBased:true, sampleFile:'assets/vehicle-samples/harley.mp3', sampleBaseRate:0.75, samplePitchRange:0.8 },
+    // --- véhicules iconiques : mêmes paramètres de synthèse, réglés pour évoquer leur timbre propre ---
+    ferrari: { name:'Ferrari F40', cylinders:8, idleRPM:900, maxRPM:7750, redline:7500, harmonics:[1,2,3,4,5], roughness:0.18, brightness:1.1,  crackle:0.5,  turbo:true },
+    porsche: { name:'Porsche 911', cylinders:6, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,2.5,3,4], roughness:0.35, brightness:0.9, crackle:0.15, turbo:false },
+    harley:  { name:'Harley-Davidson', cylinders:2, idleRPM:650, maxRPM:5500, redline:5300, harmonics:[0.5,1,1.5], roughness:0.7, brightness:0.4, crackle:0.6, turbo:false, growl:0.7, mechanical:0.6 },
     bugatti: { name:'Bugatti Veyron', cylinders:16, idleRPM:900, maxRPM:6600, redline:6400, harmonics:[1,2,3,4,5,6,7,8], roughness:0.05, brightness:1.2, crackle:0.2, turbo:true },
-    lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false, sampleBased:true, sampleFile:'assets/vehicle-samples/lambo.mp3', sampleBaseRate:0.7, samplePitchRange:1.0 },
-    amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true, sampleBased:true, sampleFile:'assets/vehicle-samples/amg.mp3', sampleBaseRate:0.7, samplePitchRange:1.1 },
+    lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false },
+    amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true },
 
-    // --- son réel : 6 boucles enregistrées (grave -> aigu), crossfadées selon le régime,
-    // au lieu d'harmoniques synthétisées. Les champs harmoniques/roughness/etc. ne servent
-    // qu'aux effets qui restent actifs (pétarade, jauge) tant que la synthèse procédurale
-    // sous-jacente n'est pas coupée.
-    realcar: { name:'Voiture de course (son réel)', cylinders:6, idleRPM:900, maxRPM:7000, redline:6800, harmonics:[1], roughness:0.2, brightness:0.8, crackle:0.3, turbo:false, sampleBased:true },
+    // slot de travail pour l'atelier son (débug) : ses valeurs sont réécrites en direct par
+    // les curseurs, ne pas s'y fier comme préréglage fixe
+    custom: { name:'Atelier (réglable)', cylinders:6, idleRPM:800, maxRPM:7000, redline:6800, harmonics:[1,2,3], roughness:0.3, brightness:0.9, crackle:0, turbo:false },
   };
 
   // ---------------------------------------------------------------------
@@ -521,14 +583,6 @@
   let pulseLFO = null, pulseDepth = null; // "mécanique" : pulsation réelle par cycle de combustion
   let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
   let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
-  let proceduralBusGain = null, sampleBusGain = null; // bascule synthèse procédurale <-> échantillons réels
-  const SAMPLE_COUNT = 6; // loop_0.wav (régime bas) .. loop_5.wav (régime haut), crossfadés selon le rpmRatio
-  let sampleLayers = []; // {source, gain} par fichier, une fois chargés et démarrés
-  let samplesReady = false;
-  let vehicleSampleGain = null;      // enregistrement réel unique par véhicule, pitché par régime
-  let vehicleSampleSource = null;    // noeud de lecture actif, recréé à chaque changement de véhicule
-  let vehicleSampleKey = null;       // sampleFile actuellement en cours de lecture (ou null)
-  const vehicleSampleBuffers = {};   // cache { sampleFile: AudioBuffer } pour ne décoder qu'une fois
 
   function spawnPop(intensity){
     popFlash = Math.min(1, 0.6 + intensity * 0.6);
@@ -675,55 +729,6 @@
     return buffer;
   }
 
-  // charge les 6 boucles d'enregistrement moteur réel (régime croissant), les démarre en
-  // lecture continue (volume à 0 tant qu'un profil "échantillons" n'est pas sélectionné),
-  // et bascule samplesReady une fois prêt — le profil retombe sur la synthèse procédurale
-  // en attendant, pas de blanc ni d'erreur si l'utilisateur le sélectionne avant la fin du chargement
-  async function loadEngineSamples(){
-    try{
-      const buffers = await Promise.all(
-        Array.from({length: SAMPLE_COUNT}, (_, i) =>
-          fetch(`assets/engine-samples/loop_${i}.wav`)
-            .then(res => res.arrayBuffer())
-            .then(data => actx.decodeAudioData(data))
-        )
-      );
-      sampleLayers = buffers.map(buffer => {
-        const source = actx.createBufferSource();
-        source.buffer = buffer;
-        source.loop = true;
-        const gain = actx.createGain();
-        gain.gain.value = 0;
-        source.connect(gain);
-        gain.connect(sampleBusGain);
-        source.start();
-        return { source, gain };
-      });
-      samplesReady = true;
-    }catch(e){ /* pas de son échantillonné si le chargement échoue (réseau…) — la synthèse procédurale reste disponible */ }
-  }
-
-  // charge (une seule fois, mis en cache) et démarre l'enregistrement réel du véhicule
-  // sélectionné ; ne fait rien si ce fichier est déjà celui en cours de lecture
-  async function loadVehicleSample(profile){
-    if(!actx || !profile.sampleFile || vehicleSampleKey === profile.sampleFile) return;
-    let buffer = vehicleSampleBuffers[profile.sampleFile];
-    if(!buffer){
-      try{
-        const res = await fetch(profile.sampleFile);
-        const data = await res.arrayBuffer();
-        buffer = await actx.decodeAudioData(data);
-        vehicleSampleBuffers[profile.sampleFile] = buffer;
-      }catch(e){ return; } // échec réseau/décodage : reste sur la synthèse procédurale de ce profil
-    }
-    if(vehicleSampleSource){ try{ vehicleSampleSource.stop(); }catch(e){} }
-    vehicleSampleSource = actx.createBufferSource();
-    vehicleSampleSource.buffer = buffer;
-    vehicleSampleSource.loop = true;
-    vehicleSampleSource.connect(vehicleSampleGain);
-    vehicleSampleSource.start();
-    vehicleSampleKey = profile.sampleFile;
-  }
 
   function initAudio(){
     if(actx) return;
@@ -737,25 +742,7 @@
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 800;
     lowpass.Q.value = 0.7;
-
-    // bus de synthèse procédurale (harmoniques + bruit + peigne) vs bus échantillons réels :
-    // un seul des deux est audible à la fois, selon le profil moteur choisi (profile.sampleBased)
-    proceduralBusGain = actx.createGain();
-    proceduralBusGain.gain.value = 1;
-    proceduralBusGain.connect(master);
-    lowpass.connect(proceduralBusGain);
-
-    sampleBusGain = actx.createGain();
-    sampleBusGain.gain.value = 0;
-    sampleBusGain.connect(master);
-    loadEngineSamples();
-
-    // enregistrement réel unique par véhicule iconique, hauteur modulée par playbackRate
-    // selon le régime simulé (chargé à la demande, pas au démarrage, pour ne pas imposer
-    // ~7 Mo de téléchargement tant qu'aucun de ces profils n'est choisi)
-    vehicleSampleGain = actx.createGain();
-    vehicleSampleGain.gain.value = 0;
-    vehicleSampleGain.connect(sampleBusGain);
+    lowpass.connect(master);
 
     fxGain = actx.createGain();
     fxGain.gain.value = 0.9;
@@ -801,7 +788,7 @@
     noiseGain.gain.value = 0;
     noiseNode.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(proceduralBusGain);
+    noiseGain.connect(master);
     noiseNode.start();
 
     // échappement en bruit filtré en peigne : un délai rebouclé sur lui-même, calé sur la
@@ -836,7 +823,6 @@
     pulseLFO.start();
 
     setEngineProfile(currentProfileKey);
-    if(ENGINES[currentProfileKey].sampleFile) loadVehicleSample(ENGINES[currentProfileKey]);
   }
 
   function clearOscBank(){
@@ -894,34 +880,6 @@
     const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
 
-    // bascule synthèse procédurale <-> échantillons réels selon le profil. Deux modes possibles
-    // côté échantillons : le pack générique (6 boucles crossfadées) ou un enregistrement réel
-    // unique par véhicule iconique (pitché par playbackRate selon le régime).
-    const useMultiSample = !!profile.sampleBased && !profile.sampleFile && samplesReady;
-    const useVehicleSample = !!profile.sampleFile && vehicleSampleKey === profile.sampleFile;
-    const useSamples = useMultiSample || useVehicleSample;
-    proceduralBusGain.gain.setTargetAtTime(useSamples ? 0 : 1, now, 0.08);
-    sampleBusGain.gain.setTargetAtTime(useSamples ? 1 : 0, now, 0.08);
-
-    if(sampleLayers.length === SAMPLE_COUNT){
-      const pos = rpmRatio * (SAMPLE_COUNT - 1);
-      const i = Math.min(SAMPLE_COUNT - 2, Math.floor(pos));
-      const frac = pos - i;
-      sampleLayers.forEach((layer, idx) => {
-        const w = idx === i ? Math.cos(frac * Math.PI / 2) : idx === i + 1 ? Math.sin(frac * Math.PI / 2) : 0;
-        layer.gain.gain.setTargetAtTime(useMultiSample ? w : 0, now, 0.05);
-        // léger glissement de hauteur en plus du crossfade, pour une transition plus continue entre les 6 paliers
-        layer.source.playbackRate.setTargetAtTime(idx === i ? 1 + frac * 0.12 : idx === i + 1 ? 0.94 + frac * 0.06 : 1, now, 0.05);
-      });
-    }
-
-    if(vehicleSampleGain){
-      vehicleSampleGain.gain.setTargetAtTime(useVehicleSample ? 1 : 0, now, 0.08);
-      if(vehicleSampleSource){
-        const rate = (profile.sampleBaseRate ?? 0.7) + rpmRatio * (profile.samplePitchRange ?? 1.0);
-        vehicleSampleSource.playbackRate.setTargetAtTime(rate, now, 0.05);
-      }
-    }
 
     if(growlDepth){
       // grondement naturel du moteur (fort au ralenti, s'efface avec le régime) ; le bouton
@@ -1262,10 +1220,12 @@
   // ---------------------------------------------------------------------
   const debugToggle = document.getElementById('debugToggle');
   const debugPanel = document.getElementById('debugPanel');
+  const soundDesignPanel = document.getElementById('soundDesignPanel');
 
   function applyDebugUI(){
     debugToggle.classList.toggle('on', debugMode);
     debugPanel.hidden = !debugMode;
+    soundDesignPanel.hidden = !debugMode;
     if(debugMode){
       stopGeoWatch();
       physics.throttle = 0; physics.brake = 0;
@@ -1305,7 +1265,6 @@
     enginePickerLabel.textContent = ENGINES[key].name;
     engineLabel.textContent = ENGINES[key].name;
     setEngineProfile(key);
-    if(ENGINES[key].sampleFile) loadVehicleSample(ENGINES[key]);
     document.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
@@ -1331,6 +1290,154 @@
   });
   enginePickerLabel.textContent = ENGINES[currentEngineKey].name;
   engineLabel.textContent = ENGINES[currentEngineKey].name;
+
+  // ---------------------------------------------------------------------
+  // 5c. ATELIER SON (débug) — composer un moteur aux curseurs, puis exporter
+  // ---------------------------------------------------------------------
+  const HARMONIC_OPTIONS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8];
+  const sdBaseSelect = document.getElementById('sdBaseSelect');
+  const sdName = document.getElementById('sdName');
+  const sdControls = {
+    cylinders: document.getElementById('sdCylinders'),
+    idleRPM: document.getElementById('sdIdle'),
+    maxRPM: document.getElementById('sdMaxRpm'),
+    redline: document.getElementById('sdRedline'),
+    roughness: document.getElementById('sdRoughness'),
+    brightness: document.getElementById('sdBrightness'),
+    crackle: document.getElementById('sdCrackle'),
+    growl: document.getElementById('sdGrowl'),
+    mechanical: document.getElementById('sdMechanical'),
+  };
+  const sdTurbo = document.getElementById('sdTurbo');
+  const sdFunky = document.getElementById('sdFunky');
+  const sdHarmonicsContainer = document.getElementById('sdHarmonics');
+  const sdExportBtn = document.getElementById('sdExportBtn');
+  const sdExportOutput = document.getElementById('sdExportOutput');
+  const sdExportHint = document.getElementById('sdExportHint');
+  const sdExportHintDefault = sdExportHint.textContent;
+
+  Object.keys(ENGINES).forEach(key => {
+    if(key === 'custom') return;
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = ENGINES[key].name;
+    sdBaseSelect.appendChild(opt);
+  });
+
+  HARMONIC_OPTIONS.forEach(h => {
+    const lbl = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.h = h;
+    cb.addEventListener('change', () => onSoundDesignChange(true));
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(h));
+    sdHarmonicsContainer.appendChild(lbl);
+  });
+
+  function syncSoundDesignControls(){
+    const p = ENGINES.custom;
+    sdControls.cylinders.value = p.cylinders;
+    sdControls.idleRPM.value = p.idleRPM;
+    sdControls.maxRPM.value = p.maxRPM;
+    sdControls.redline.value = p.redline;
+    sdControls.roughness.value = p.roughness;
+    sdControls.brightness.value = p.brightness;
+    sdControls.crackle.value = p.crackle;
+    sdControls.growl.value = p.growl || 0;
+    sdControls.mechanical.value = p.mechanical || 0;
+    sdTurbo.checked = !!p.turbo;
+    sdFunky.checked = !!p.funkyWah;
+    Array.from(sdHarmonicsContainer.querySelectorAll('input')).forEach(cb => {
+      cb.checked = p.harmonics.includes(parseFloat(cb.dataset.h));
+    });
+    updateSoundDesignLabels();
+  }
+
+  function updateSoundDesignLabels(){
+    document.getElementById('sdCylindersVal').textContent = sdControls.cylinders.value;
+    document.getElementById('sdIdleVal').textContent = sdControls.idleRPM.value;
+    document.getElementById('sdMaxRpmVal').textContent = sdControls.maxRPM.value;
+    document.getElementById('sdRedlineVal').textContent = sdControls.redline.value;
+    document.getElementById('sdRoughnessVal').textContent = parseFloat(sdControls.roughness.value).toFixed(2);
+    document.getElementById('sdBrightnessVal').textContent = parseFloat(sdControls.brightness.value).toFixed(2);
+    document.getElementById('sdCrackleVal').textContent = parseFloat(sdControls.crackle.value).toFixed(2);
+    document.getElementById('sdGrowlVal').textContent = parseFloat(sdControls.growl.value).toFixed(2);
+    document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
+  }
+
+  function applySoundDesignBase(key){
+    const src = ENGINES[key];
+    ENGINES.custom = {
+      name: sdName.value.trim() || 'Atelier (réglable)',
+      cylinders: src.cylinders, idleRPM: src.idleRPM, maxRPM: src.maxRPM, redline: src.redline,
+      harmonics: src.harmonics.slice(),
+      roughness: src.roughness, brightness: src.brightness, crackle: src.crackle,
+      turbo: !!src.turbo, growl: src.growl || 0, mechanical: src.mechanical || 0, funkyWah: !!src.funkyWah,
+    };
+    syncSoundDesignControls();
+    selectEngine('custom');
+    sdExportHint.textContent = sdExportHintDefault;
+  }
+
+  function onSoundDesignChange(needsRebuild){
+    if(currentEngineKey !== 'custom') selectEngine('custom');
+    const p = ENGINES.custom;
+    p.name = sdName.value.trim() || 'Atelier (réglable)';
+    p.cylinders = parseInt(sdControls.cylinders.value, 10);
+    p.idleRPM = parseInt(sdControls.idleRPM.value, 10);
+    p.maxRPM = parseInt(sdControls.maxRPM.value, 10);
+    p.redline = Math.min(parseInt(sdControls.redline.value, 10), p.maxRPM);
+    sdControls.redline.value = p.redline; // la zone rouge ne dépasse jamais le régime max
+    p.roughness = parseFloat(sdControls.roughness.value);
+    p.brightness = parseFloat(sdControls.brightness.value);
+    p.crackle = parseFloat(sdControls.crackle.value);
+    p.growl = parseFloat(sdControls.growl.value);
+    p.mechanical = parseFloat(sdControls.mechanical.value);
+    p.turbo = sdTurbo.checked;
+    p.funkyWah = sdFunky.checked;
+    p.harmonics = HARMONIC_OPTIONS.filter(h => sdHarmonicsContainer.querySelector(`input[data-h="${h}"]`).checked);
+    if(p.harmonics.length === 0) p.harmonics = [1];
+    enginePickerLabel.textContent = p.name;
+    engineLabel.textContent = p.name;
+    updateSoundDesignLabels();
+    // rugosité (détune des oscillateurs) et harmoniques (nombre d'oscillateurs) sont fixées à
+    // la création du banc d'oscillateurs : il faut le reconstruire pour les entendre changer
+    if(needsRebuild) setEngineProfile('custom');
+  }
+
+  sdBaseSelect.addEventListener('change', () => applySoundDesignBase(sdBaseSelect.value));
+  sdName.addEventListener('input', () => onSoundDesignChange(false));
+  sdControls.roughness.addEventListener('input', () => onSoundDesignChange(true));
+  Object.entries(sdControls).forEach(([key, el]) => {
+    if(key === 'roughness') return;
+    el.addEventListener('input', () => onSoundDesignChange(false));
+  });
+  sdTurbo.addEventListener('change', () => onSoundDesignChange(false));
+  sdFunky.addEventListener('change', () => onSoundDesignChange(false));
+
+  syncSoundDesignControls();
+
+  sdExportBtn.addEventListener('click', () => {
+    const p = ENGINES.custom;
+    const name = (sdName.value.trim() || 'Mon Moteur');
+    const diacritics = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+    const slug = (name.toLowerCase().normalize('NFD').replace(diacritics, '').replace(/[^a-z0-9]+/g, '').slice(0, 20)) || 'custom1';
+    const extras = [];
+    if(p.growl) extras.push(`growl:${p.growl}`);
+    if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
+    if(p.funkyWah) extras.push('funkyWah:true');
+    const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}${extras.length ? ', ' + extras.join(', ') : ''} },`;
+    sdExportOutput.value = line;
+    sdExportOutput.select();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(line)
+        .then(() => { sdExportHint.textContent = 'Copié dans le presse-papiers ! Colle-le moi dans le chat.'; })
+        .catch(() => { sdExportHint.textContent = 'Copie automatique impossible — le texte ci-dessus est sélectionné, copie-le (Ctrl+C).'; });
+    } else {
+      sdExportHint.textContent = 'Le texte ci-dessus est sélectionné, copie-le (Ctrl+C) et colle-le moi dans le chat.';
+    }
+  });
 
   enginePickerBtn.addEventListener('click', (e) => {
     e.stopPropagation();
