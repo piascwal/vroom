@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Cockpit — Simulateur moteur</title>
+<style>
+  :root{
+    --bg: #08090b;
+    --panel: #14171c;
+    --amber: #ff8c3c;
+    --amber-dim: #7a4622;
+    --cyan: #5eead4;
+    --cyan-dim: #2e5c54;
+    --red: #ff3b3b;
+    --text: #e7e4de;
+    --muted: #6b7078;
+    --metal-hi: #e4e8ec;
+    --metal-mid: #6b7178;
+    --metal-lo: #23262b;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(120% 140% at 50% -10%, #1a1e24 0%, var(--bg) 55%);
+    color:var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow-x:hidden;
+  }
+  .wrap{ max-width:520px; margin:0 auto; padding:16px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:14px;}
+
+  header{ display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .brand{ font-size:13px; letter-spacing:3px; text-transform:uppercase; color:var(--muted);}
+  .brand b{color:var(--amber); letter-spacing:1px;}
+  .nav-link{
+    font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted);
+    text-decoration:none; border:1px solid #2c3038; border-radius:6px; padding:6px 10px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .nav-link:active{ background:rgba(255,255,255,0.04); }
+  .debug-badge{
+    font-size:10px; letter-spacing:2px; text-transform:uppercase;
+    padding:4px 10px; border-radius:3px; border:1px solid #2c3038;
+    color:var(--muted); background:rgba(255,255,255,0.02);
+    display:flex; align-items:center; gap:6px; cursor:pointer;
+  }
+  .debug-badge .dot{
+    width:6px; height:6px; border-radius:50%; background:#3a2013; flex-shrink:0;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+  }
+  .debug-badge.on{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.08); }
+  .debug-badge.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
+
+  .gps-status{ font-size:12.5px; color:var(--text); line-height:1.5; }
+  .gps-status.searching{ color:var(--muted); }
+  .gps-status.error{ color:var(--red); }
+  .gps-status.ok{ color:var(--cyan); }
+
+  .engine-row{ display:flex; gap:10px; align-items:center; position:relative; }
+
+  /* --- sélecteur moteur : bouton custom, plus de <select> natif --- */
+  .engine-picker{
+    flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:linear-gradient(180deg, #1b1f24, #121519);
+    color:var(--text); border:1px solid #2c3038; border-top-color:#383d46;
+    border-radius:9px; padding:11px 12px; font-size:15px; font-weight:700;
+    letter-spacing:0.3px; cursor:pointer;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+  .engine-picker .chev{ color:var(--muted); flex-shrink:0; transition:transform 0.15s; }
+  .engine-picker.open .chev{ transform:rotate(180deg); }
+
+  .engine-dropdown{
+    position:absolute; top:calc(100% + 8px); left:0; right:64px; z-index:20;
+    background:linear-gradient(180deg, #1a1d22, #101317);
+    border:1px solid #2c3038; border-radius:12px; overflow:hidden;
+    box-shadow: 0 16px 32px rgba(0,0,0,0.55);
+  }
+  .engine-option{
+    padding:12px 14px; font-size:14px; font-weight:600; color:var(--text);
+    border-bottom:1px solid #20242a; cursor:pointer; letter-spacing:0.2px;
+  }
+  .engine-option:last-child{ border-bottom:none; }
+  .engine-option.selected{ color:var(--amber); background:rgba(255,140,60,0.08); }
+  .engine-option:active{ background:rgba(255,140,60,0.14); }
+
+  /* --- boutons physiques : lunette métal + capuchon + LED --- */
+  .phys-btn{
+    width:56px; height:56px; border-radius:50%; cursor:pointer; position:relative; flex-shrink:0;
+    background:radial-gradient(circle at 35% 30%, var(--metal-hi), var(--metal-mid) 45%, var(--metal-lo) 100%);
+    box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.5);
+    border:none; padding:3px;
+  }
+  .phys-btn:active{ transform:translateY(2px); box-shadow: 0 1px 0 #05060a, 0 2px 6px rgba(0,0,0,0.5); }
+  .phys-btn .cap{
+    width:100%; height:100%; border-radius:50%;
+    background:radial-gradient(circle at 40% 32%, #23262b, #0a0b0d 70%);
+    display:flex; align-items:center; justify-content:center; color:var(--muted);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.7), inset 0 -1px 1px rgba(255,255,255,0.05);
+  }
+  .phys-btn.on .cap{ color:var(--amber); box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 0 14px rgba(255,140,60,0.55), inset 0 -1px 1px rgba(255,140,60,0.2); }
+  .phys-btn .led{
+    position:absolute; bottom:4px; left:50%; transform:translateX(-50%);
+    width:6px; height:6px; border-radius:50%; background:#3a2013;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+  }
+  .phys-btn.on .led{ background:var(--amber); box-shadow: 0 0 6px 1px rgba(255,140,60,0.9); }
+
+  .toggle-btn{
+    width:56px; height:56px; border-radius:14px; cursor:pointer; flex-shrink:0; position:relative;
+    background:linear-gradient(180deg, #22262c, #14161a);
+    border:1px solid #2c3038; border-top-color:#383d46;
+    box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.45);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+  }
+  .toggle-btn:active{ transform:translateY(2px); box-shadow: 0 1px 0 #05060a, 0 2px 6px rgba(0,0,0,0.4); }
+  .toggle-btn .led{
+    width:8px; height:8px; border-radius:50%; background:#3a2013;
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+  }
+  .toggle-btn.on .led{ background:var(--red); box-shadow: 0 0 8px 2px rgba(255,59,59,0.8); }
+  .toggle-btn .lbl{ font-size:8px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; font-weight:700; }
+  .toggle-btn.on .lbl{ color:var(--text); }
+
+  .effects-row{ display:flex; gap:10px; }
+  .effects-row .toggle-btn{ flex:1; width:auto; }
+
+  .nitro-btn .led{ background:#204030; }
+  .nitro-btn.ready .led{ background:#2ecc71; box-shadow:0 0 6px 1px rgba(46,204,113,0.7); }
+  .nitro-btn.ready .lbl{ color:var(--text); }
+  .nitro-btn.active{ animation:nitroPulse 0.35s infinite alternate; }
+  .nitro-btn.active .led{ background:#8b6bff; box-shadow:0 0 10px 3px rgba(139,107,255,0.9); }
+  .nitro-btn.active .lbl{ color:#c8b8ff; }
+  .nitro-btn.cooldown{ opacity:0.5; pointer-events:none; }
+  .nitro-btn.cooldown .led{ background:#4a1414; }
+  @keyframes nitroPulse{
+    from{ box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.45); }
+    to{ box-shadow: 0 3px 0 #05060a, 0 5px 20px rgba(139,107,255,0.55); }
+  }
+
+  .cockpit{
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px),
+      linear-gradient(180deg, #16191e, #0e1013);
+    border:1px solid #2a2e35; border-top-color:#383d46; border-radius:20px; padding:20px 12px 10px;
+    box-shadow: 0 24px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .gauges{ display:flex; justify-content:center; gap:2px; }
+  canvas.gauge{ width:100%; max-width:224px; height:auto; }
+
+  .center-strip{
+    display:flex; align-items:flex-start; justify-content:center; gap:22px;
+    margin-top:-22px; margin-bottom:8px;
+  }
+  .gear-box{ text-align:center; }
+  .gear-box .label{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;}
+  .gear-box .val{
+    font-size:32px; font-weight:800; color:var(--cyan); font-variant-numeric: tabular-nums; line-height:1;
+    text-shadow: 0 0 12px rgba(94,234,212,0.45);
+  }
+  .engine-name{ text-align:center; font-size:11px; letter-spacing:2px; color:var(--muted); text-transform:uppercase;}
+  .engine-name b{ color:var(--text); font-size:13px; letter-spacing:1px; }
+
+  .panel{
+    background:var(--panel); border:1px solid #23272e; border-top-color:#2e333b; border-radius:14px; padding:14px;
+  }
+  .panel h3{ margin:0 0 10px; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); font-weight:600;}
+  .pedals{ display:flex; gap:12px; }
+  .pedal{
+    flex:1; height:96px; border-radius:10px 10px 4px 4px; border:1px solid #2a2f37;
+    background:
+      repeating-linear-gradient(180deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 6px),
+      #0e1013;
+    position:relative; overflow:hidden;
+    display:flex; align-items:flex-end; justify-content:center;
+    cursor:pointer; user-select:none; touch-action:none;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.5), 0 2px 0 #050608;
+  }
+  .pedal .fill{ position:absolute; bottom:0; left:0; right:0; height:0%; transition:height 0.05s linear; }
+  .pedal.throttle .fill{ background:linear-gradient(180deg, rgba(255,140,60,0.05), rgba(255,140,60,0.55)); }
+  .pedal.brake .fill{ background:linear-gradient(180deg, rgba(255,59,59,0.05), rgba(255,59,59,0.55)); }
+  .pedal span{ position:relative; z-index:2; font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); padding-bottom:8px;}
+  .hint{ margin-top:10px; font-size:11px; color:var(--muted); text-align:center; line-height:1.5;}
+  .hint kbd{ background:#0e1013; border:1px solid #2a2f37; border-radius:4px; padding:1px 6px; color:var(--text); font-size:11px;}
+
+  .cruise-btn{
+    margin-top:10px; width:100%; padding:11px; border-radius:9px; cursor:pointer;
+    background:linear-gradient(180deg, #1b1f24, #14171b); color:var(--muted);
+    border:1px solid #2a2f37; border-top-color:#33383f;
+    font-size:12px; font-weight:700; letter-spacing:0.5px;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .cruise-btn .led{ width:8px; height:8px; border-radius:50%; background:#3a2013; box-shadow: inset 0 1px 1px rgba(0,0,0,0.6); flex-shrink:0; }
+  .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
+  .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
+
+  .stats{ display:flex; gap:10px; }
+  .stat{ flex:1; background:var(--panel); border:1px solid #23272e; border-top-color:#2e333b; border-radius:12px; padding:10px 12px;}
+  .stat .l{ font-size:9px; color:var(--muted); letter-spacing:2px; text-transform:uppercase;}
+  .stat .v{ font-size:18px; font-weight:700; color:var(--text); font-variant-numeric: tabular-nums;}
+
+  footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
+  footer a{ color:var(--muted); text-decoration:underline; }
+
+  @media (min-width: 700px){
+    .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
+    .gauges{ gap:24px; }
+    canvas.gauge{ max-width:min(640px, 36vw, calc(100vh - 560px)); }
+    footer{ display:none; }
+    .hint{ display:none; }
+    #powerBtn{
+      position:fixed; left:50%; margin-left:-40px; bottom:14px;
+      width:80px; height:80px; z-index:50;
+    }
+    #powerBtn .cap svg{ width:30px; height:30px; }
+    #powerBtn .led{ width:9px; height:9px; bottom:7px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand"><b>COCKPIT</b> / moteur virtuel</div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button class="debug-badge" id="debugToggle" type="button" title="Mode débug : pédales manuelles. Sinon, vitesse réelle via GPS du navigateur.">
+        <span class="dot"></span> Débug
+      </button>
+      <a class="nav-link" href="decouverte.html">Découverte ▶</a>
+    </div>
+  </header>
+
+  <div class="engine-row">
+    <button class="engine-picker" id="enginePickerBtn" type="button">
+      <span id="enginePickerLabel">Moteur Brut</span>
+      <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+    </button>
+    <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
+      <span class="cap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v9"></path>
+          <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+        </svg>
+      </span>
+      <span class="led"></span>
+    </button>
+    <div class="engine-dropdown" id="engineDropdown" hidden></div>
+  </div>
+
+  <div class="effects-row">
+    <button class="toggle-btn" id="rupteurBtn" type="button" title="Pétarade au lever de pied en surrégime">
+      <span class="led"></span>
+      <span class="lbl">Rupteur</span>
+    </button>
+    <button class="toggle-btn" id="antilagBtn" type="button" title="Pétarade au changement de rapport">
+      <span class="led"></span>
+      <span class="lbl">Anti-lag</span>
+    </button>
+    <button class="toggle-btn nitro-btn ready" id="nitroBtn" type="button" title="Boost nitro">
+      <span class="led"></span>
+      <span class="lbl">Nitro</span>
+    </button>
+  </div>
+
+  <div class="cockpit">
+    <div class="gauges">
+      <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
+      <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
+    </div>
+    <div class="center-strip">
+      <div class="gear-box">
+        <div class="label">Rapport</div>
+        <div class="val" id="gearVal">N</div>
+      </div>
+      <div class="engine-name">Moteur actuel<br><b id="engineLabel">Moteur Brut</b></div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="l">Régime</div><div class="v" id="rpmStat">0 tr/min</div></div>
+    <div class="stat"><div class="l">Vitesse</div><div class="v" id="spdStat">0 km/h</div></div>
+  </div>
+
+  <div class="panel" id="debugPanel">
+    <h3>Commandes (débug)</h3>
+    <div class="pedals">
+      <div class="pedal throttle" id="pedalGas"><div class="fill" id="fillGas"></div><span>Accélérateur</span></div>
+      <div class="pedal brake" id="pedalBrake"><div class="fill" id="fillBrake"></div><span>Frein</span></div>
+    </div>
+    <button class="cruise-btn" id="cruiseBtn" type="button">
+      <span class="led"></span> Régulateur (vitesse constante)
+    </button>
+    <div class="hint">
+      Maintenir pour appuyer, relâcher pour lâcher. Clavier : <kbd>↑</kbd> accélérer, <kbd>↓</kbd> freiner.<br>
+      Le régulateur simule un pied fixe sur l'accélérateur, pour tester le comportement à allure stable sans devoir maintenir la pédale.
+    </div>
+  </div>
+
+  <div class="panel" id="gpsPanel" hidden>
+    <h3>Vitesse réelle (GPS)</h3>
+    <div class="gps-status searching" id="gpsStatusText">Localisation non demandée.</div>
+    <div class="hint">
+      La vitesse provient du GPS du navigateur (ex. écran embarqué Tesla). Accélération et freinage sont déduits automatiquement des variations de vitesse réelle.
+    </div>
+  </div>
+
+  <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API</footer>
+</div>
+
+<script>
+(function(){
+
+  // ---------------------------------------------------------------------
+  // 1. PROFILS MOTEUR
+  // ---------------------------------------------------------------------
+  const ENGINES = {
+    mecanique: { name:'Moteur Brut', cylinders:6, idleRPM:700, maxRPM:5500, redline:5300, harmonics:[0.5,1,2,3], roughness:0.6, brightness:0.5, crackle:0.6, turbo:false, mechanical:0.85 },
+    v6:  { name:'V6',  cylinders:6,  idleRPM:800, maxRPM:7000, redline:6800, harmonics:[1,2,3,4],       roughness:0.22, brightness:0.85, crackle:0,    turbo:false },
+    v8:  { name:'V8',  cylinders:8,  idleRPM:700, maxRPM:6500, redline:6300, harmonics:[1,2,3,4,5],     roughness:0.30, brightness:0.70, crackle:0,    turbo:false },
+    v12: { name:'V12', cylinders:12, idleRPM:900, maxRPM:9000, redline:8800, harmonics:[1,2,3,4,5,6,7], roughness:0.08, brightness:1.15, crackle:0,    turbo:false },
+    v8crackle: { name:'V8 Compétition', cylinders:8,  idleRPM:900,  maxRPM:7200, redline:7000, harmonics:[1,2,3,4,5],   roughness:0.40, brightness:0.95, crackle:0.55, turbo:false },
+    turbo4:    { name:'4L Turbo', cylinders:4, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,3],      roughness:0.35, brightness:1.00, crackle:0.35, turbo:true },
+    v10rally:  { name:'V10 Rallye', cylinders:10, idleRPM:1000, maxRPM:8500, redline:8200, harmonics:[1,2,3,4,5,6],    roughness:0.45, brightness:1.05, crackle:0.9,  turbo:false },
+    grogne:    { name:'V8 Big Block', cylinders:8, idleRPM:650, maxRPM:6000, redline:5800, harmonics:[0.5,1,1.5,2,3], roughness:0.55, brightness:0.32, crackle:0.8, turbo:false, growl:0.9 },
+    funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
+    tondeuse:  { name:'Tondeuse à Gazon', cylinders:1, idleRPM:550, maxRPM:3200, redline:3000, harmonics:[1,2], roughness:0.75, brightness:0.35, crackle:0.7, turbo:false, mechanical:1 },
+  };
+
+  // ---------------------------------------------------------------------
+  // 2. PHYSIQUE : vitesse <-> régime via rapports de boîte
+  // ---------------------------------------------------------------------
+  const GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
+  const FINAL_DRIVE = 3.9;
+  const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
+
+  const physics = {
+    speed: 0,        // km/h
+    gear: 1,          // 1..6 (0 = point mort / à l'arrêt)
+    rpm: 0,
+    throttle: 0,      // 0..1
+    brake: 0,         // 0..1
+    running: false,
+  };
+
+  // débug (pédales manuelles) vs réel (vitesse GPS navigateur) — désactivé par défaut
+  let debugMode = false;
+  try{ debugMode = localStorage.getItem('vroom_debug') === '1'; }catch(e){}
+
+  // vitesse réelle issue de la géolocalisation navigateur, utilisée quand debugMode est faux
+  let geoWatchId = null;
+  let gpsSpeedKmh = null;      // dernière vitesse GPS connue (km/h), null si indisponible
+  let smoothedGpsSpeed = 0;    // vitesse lissée injectée dans physics.speed
+  let prevSpeedForAccel = 0;   // pour déduire une accélération/freinage "virtuels" du delta de vitesse réelle
+
+  function engineRPMForSpeed(speedKmh, gear){
+    const ratio = GEAR_RATIOS[gear-1];
+    const wheelRPM = speedKmh / WHEEL_FACTOR;
+    return wheelRPM * ratio * FINAL_DRIVE;
+  }
+  function speedForEngineRPM(rpm, gear){
+    const ratio = GEAR_RATIOS[gear-1];
+    const wheelRPM = rpm / (ratio * FINAL_DRIVE);
+    return wheelRPM * WHEEL_FACTOR;
+  }
+
+  function stepPhysics(dt, profile){
+    if(!physics.running){
+      physics.speed = 0; physics.rpm = 0; physics.gear = 1;
+      physics.throttle = 0; physics.brake = 0;
+      return;
+    }
+
+    if(debugMode){
+      const nitroActive = nitroState === 'active';
+      const maxAccel = nitroActive ? 3.6 * 2.6 : 3.6;   // m/s^2 pied au plancher (fortement boosté pendant le nitro)
+      const maxDecel = 8.5;   // m/s^2 freinage
+      const drag = 2.2;       // m/s^2 frein moteur / trainee au relachement (décélération franche au lever de pied)
+
+      let speedMps = physics.speed / 3.6;
+      let a = 0;
+      if(physics.brake > 0.02){
+        a = -maxDecel * physics.brake;
+      } else if(physics.throttle > 0.02){
+        // le nitro garde de la patate même à haute vitesse, contrairement à l'accélération normale
+        const falloff = nitroActive ? 1 - Math.min(speedMps / 70, 0.25) : 1 - Math.min(speedMps / 70, 0.6);
+        a = maxAccel * physics.throttle * falloff;
+      } else {
+        a = -drag;
+      }
+      speedMps = Math.max(0, speedMps + a * dt);
+      physics.speed = speedMps * 3.6;
+    } else {
+      // mode réel : la vitesse vient du GPS du navigateur, pas de pédales.
+      // on lisse le signal (bruyant en GPS) et on déduit un couple accélérateur/frein "virtuel"
+      // de sa dérivée, pour continuer à piloter le son comme en mode débug.
+      const targetSpeed = gpsSpeedKmh != null ? gpsSpeedKmh : physics.speed;
+      smoothedGpsSpeed += (targetSpeed - smoothedGpsSpeed) * Math.min(1, dt * 2.5);
+      const accel = (smoothedGpsSpeed - prevSpeedForAccel) / Math.max(dt, 0.001); // km/h par seconde
+      prevSpeedForAccel = smoothedGpsSpeed;
+      physics.speed = smoothedGpsSpeed;
+      physics.throttle = accel > 0.3 ? Math.min(1, accel / 6) : 0;
+      physics.brake = accel < -0.3 ? Math.min(1, -accel / 12) : 0;
+    }
+
+    if(physics.speed < 0.5){ physics.gear = 1; }
+
+    // régime théorique dans le rapport actuel
+    let rpm = physics.speed < 0.5
+      ? profile.idleRPM
+      : Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear));
+
+    // boîte automatique : monte / rétrograde
+    const shiftUp = profile.redline - 150;
+    const range = profile.redline - profile.idleRPM;
+    // au freinage, rétrogradage plus franc et progressif (frein moteur) qu'au simple relâchement
+    const shiftDown = physics.brake > 0.1
+      ? profile.idleRPM + range * 0.42
+      : profile.idleRPM + range * 0.24;
+    if(rpm > shiftUp && physics.gear < GEAR_RATIOS.length){
+      physics.gear++;
+      rpm = Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear));
+    } else if(rpm < shiftDown && physics.gear > 1 && physics.speed > 0.5){
+      const testRpm = engineRPMForSpeed(physics.speed, physics.gear - 1);
+      if(testRpm < profile.redline){
+        physics.gear--;
+        rpm = Math.max(profile.idleRPM, testRpm);
+      }
+    }
+
+    physics.rpm = Math.min(rpm, profile.maxRPM);
+  }
+
+  // ---------------------------------------------------------------------
+  // 3. SYNTHESE AUDIO — Web Audio API
+  // ---------------------------------------------------------------------
+  let actx = null;
+  let master = null;
+  let noiseNode = null, noiseFilter = null, noiseGain = null;
+  let oscBank = []; // {osc, gain}
+  let lowpass = null;
+  let currentProfileKey = 'mecanique';
+  let popCooldown = 0;      // secondes avant le prochain "pop" possible
+  let popFlash = 0;         // 0..1, flash visuel du compteur RPM synchronisé sur la pétarade, décroît avec le temps
+  let prevThrottleVal = 0;  // pour détecter un lâcher brusque d'accélérateur (turbo)
+  let prevGear = 1;         // pour détecter un changement de rapport
+  let fxGain = null;        // canal dédié pétarade/whoosh, non écrasé par le volume moteur
+  let growlLFO = null, growlDepth = null; // "grogne" : modulation grave irrégulière au ralenti
+  let wahLFO = null, wahDepth = null;     // "funky" : balayage rythmique du filtre
+  let pulseLFO = null, pulseDepth = null; // "mécanique" : pulsation réelle par cycle de combustion
+  let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
+
+  function spawnPop(intensity){
+    popFlash = Math.min(1, 0.6 + intensity * 0.6);
+    if(!actx || !noiseNode) return;
+    const now = actx.currentTime;
+
+    // le pétard écrase le moteur au moment où il claque : creux net du volume moteur
+    if(master){
+      const g = master.gain.value;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setValueAtTime(g, now);
+      master.gain.linearRampToValueAtTime(g * 0.12, now + 0.012);
+      master.gain.linearRampToValueAtTime(g, now + 0.16 + Math.random()*0.05);
+    }
+
+    const dur = 0.14 + Math.random()*0.10;
+
+    // explosion large bande (le "crac" du pétard, pas un clic filtré étroit)
+    const src = actx.createBufferSource();
+    src.buffer = noiseNode.buffer;
+    const shaper = actx.createBiquadFilter();
+    shaper.type = 'lowpass';
+    shaper.frequency.setValueAtTime(7000, now);
+    shaper.frequency.exponentialRampToValueAtTime(500, now + dur);
+    shaper.Q.value = 0.5;
+    const g1 = actx.createGain();
+    g1.gain.setValueAtTime(0.0001, now);
+    g1.gain.linearRampToValueAtTime(1.1 + intensity*0.5, now + 0.002);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(shaper); shaper.connect(g1); g1.connect(fxGain);
+    src.start(now); src.stop(now + dur + 0.02);
+
+    // corps grave / onde de choc
+    const thump = actx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(150 + Math.random()*50, now);
+    thump.frequency.exponentialRampToValueAtTime(35, now + 0.09);
+    const tg = actx.createGain();
+    tg.gain.setValueAtTime(0.5 + intensity*0.6, now);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    thump.connect(tg); tg.connect(fxGain);
+    thump.start(now); thump.stop(now + 0.16);
+
+    // claquement sec en tête (crack initial très bref, transitoire)
+    const crackDur = 0.012;
+    const crackSrc = actx.createBufferSource();
+    crackSrc.buffer = noiseNode.buffer;
+    const hp = actx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1800;
+    const cg = actx.createGain();
+    cg.gain.setValueAtTime(0.9 + intensity*0.3, now);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + crackDur);
+    crackSrc.connect(hp); hp.connect(cg); cg.connect(fxGain);
+    crackSrc.start(now); crackSrc.stop(now + crackDur + 0.005);
+  }
+
+  function spawnWhoosh(){
+    if(!actx || !noiseNode) return;
+    const now = actx.currentTime;
+    const dur = 0.32;
+    const src = actx.createBufferSource();
+    src.buffer = noiseNode.buffer;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(3000, now);
+    bp.frequency.exponentialRampToValueAtTime(550, now + dur);
+    bp.Q.value = 0.9;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.5, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(bp); bp.connect(g); g.connect(fxGain);
+    src.start(now); src.stop(now + dur + 0.02);
+  }
+
+  function spawnNitro(duration){
+    if(!actx || !noiseNode) return;
+    const now = actx.currentTime;
+    const attack = 0.04, release = 0.35;
+    const sustain = Math.max(0.1, duration - attack - release);
+    const end = now + attack + sustain + release;
+
+    // coup de boutoir initial : impact sec et puissant, la sensation de "shove"
+    const kick = actx.createOscillator();
+    kick.type = 'sine';
+    kick.frequency.setValueAtTime(180, now);
+    kick.frequency.exponentialRampToValueAtTime(32, now + 0.22);
+    const kg = actx.createGain();
+    kg.gain.setValueAtTime(1.0, now);
+    kg.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    kick.connect(kg); kg.connect(fxGain);
+    kick.start(now); kick.stop(now + 0.35);
+
+    const kickNoise = actx.createBufferSource();
+    kickNoise.buffer = noiseNode.buffer;
+    const kickFilter = actx.createBiquadFilter();
+    kickFilter.type = 'lowpass';
+    kickFilter.frequency.setValueAtTime(4500, now);
+    kickFilter.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+    const kng = actx.createGain();
+    kng.gain.setValueAtTime(0.8, now);
+    kng.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+    kickNoise.connect(kickFilter); kickFilter.connect(kng); kng.connect(fxGain);
+    kickNoise.start(now); kickNoise.stop(now + 0.18);
+
+    // souffle continu (spray), aigu qui redescend légèrement pendant le boost
+    const src = actx.createBufferSource();
+    src.buffer = noiseNode.buffer;
+    src.loop = true;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(2400, now);
+    bp.frequency.linearRampToValueAtTime(1100, now + attack + sustain);
+    bp.Q.value = 1.1;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.55, now + attack);
+    g.gain.setValueAtTime(0.55, now + attack + sustain);
+    g.gain.linearRampToValueAtTime(0.0001, end);
+    src.connect(bp); bp.connect(g); g.connect(fxGain);
+    src.start(now); src.stop(end + 0.05);
+
+    // corps grave de la poussée, sustenue tout le long du boost
+    const surge = actx.createOscillator();
+    surge.type = 'sawtooth';
+    surge.frequency.setValueAtTime(60, now);
+    surge.frequency.linearRampToValueAtTime(95, now + attack + sustain);
+    const sg = actx.createGain();
+    sg.gain.setValueAtTime(0.0001, now);
+    sg.gain.linearRampToValueAtTime(0.42, now + attack);
+    sg.gain.setValueAtTime(0.42, now + attack + sustain);
+    sg.gain.linearRampToValueAtTime(0.0001, end);
+    surge.connect(sg); sg.connect(fxGain);
+    surge.start(now); surge.stop(end + 0.05);
+  }
+
+  // ---- (atelier de test supprimé — la pétarade est intégrée directement à spawnPop) ----
+
+  function buildNoiseBuffer(ctx){
+    const len = ctx.sampleRate * 2;
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<len;i++){ data[i] = Math.random()*2 - 1; }
+    return buffer;
+  }
+
+  function initAudio(){
+    if(actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+
+    master = actx.createGain();
+    master.gain.value = 0;
+    master.connect(actx.destination);
+
+    lowpass = actx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 800;
+    lowpass.Q.value = 0.7;
+    lowpass.connect(master);
+
+    fxGain = actx.createGain();
+    fxGain.gain.value = 0.9;
+    fxGain.connect(actx.destination);
+
+    // LFO de "grogne" : irrégularité grave du ralenti, module le volume moteur
+    growlLFO = actx.createOscillator();
+    growlLFO.type = 'sine';
+    growlLFO.frequency.value = 6.5;
+    growlDepth = actx.createGain();
+    growlDepth.gain.value = 0;
+    growlLFO.connect(growlDepth);
+    growlDepth.connect(master.gain);
+    growlLFO.start();
+
+    // LFO "wah" (mode funky) : balayage rythmique du filtre principal
+    wahLFO = actx.createOscillator();
+    wahLFO.type = 'sine';
+    wahLFO.frequency.value = 3.2;
+    wahDepth = actx.createGain();
+    wahDepth.gain.value = 0;
+    wahLFO.connect(wahDepth);
+    wahDepth.connect(lowpass.frequency);
+    wahLFO.start();
+
+    // bus interne moteur : tout le banc d'harmoniques passe par ici avant le filtre
+    engineSum = actx.createGain();
+    engineSum.gain.value = 1;
+    engineBodyGain = actx.createGain();
+    engineBodyGain.gain.value = 1;
+    engineSum.connect(engineBodyGain);
+    engineBodyGain.connect(lowpass);
+
+    // couche bruit (air / echappement)
+    noiseNode = actx.createBufferSource();
+    noiseNode.buffer = buildNoiseBuffer(actx);
+    noiseNode.loop = true;
+    noiseFilter = actx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 400;
+    noiseFilter.Q.value = 0.8;
+    noiseGain = actx.createGain();
+    noiseGain.gain.value = 0;
+    noiseNode.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(master);
+    noiseNode.start();
+
+    // LFO "mécanique" : pulsation réelle par cycle de combustion (pas un ton tenu)
+    pulseLFO = actx.createOscillator();
+    pulseLFO.type = 'sawtooth';
+    pulseLFO.frequency.value = 40;
+    pulseDepth = actx.createGain();
+    pulseDepth.gain.value = 0;
+    pulseLFO.connect(pulseDepth);
+    pulseDepth.connect(engineBodyGain.gain);
+    pulseDepth.connect(noiseGain.gain);
+    pulseLFO.start();
+
+    setEngineProfile(currentProfileKey);
+  }
+
+  function clearOscBank(){
+    oscBank.forEach(o => {
+      try{ o.osc.stop(); }catch(e){}
+      try{ o.osc.disconnect(); o.gain.disconnect(); }catch(e){}
+    });
+    oscBank = [];
+  }
+
+  function setEngineProfile(key){
+    currentProfileKey = key;
+    if(!actx) return;
+    clearOscBank();
+    const profile = ENGINES[key];
+    profile.harmonics.forEach((h, idx) => {
+      const osc = actx.createOscillator();
+      osc.type = h < 1 ? 'sine' : (idx === 0 ? 'sawtooth' : 'triangle');
+      const gain = actx.createGain();
+      const baseAmp = 1 / Math.pow(idx + 1, 1.4);
+      gain.gain.value = baseAmp;
+      osc.connect(gain);
+      gain.connect(engineSum);
+      osc.frequency.value = 40;
+      // léger détune pour la texture "rugueuse" (roughness du moteur)
+      osc.detune.value = (Math.random() * 2 - 1) * profile.roughness * 25;
+      osc.start();
+      oscBank.push({osc, gain, harmonic: h});
+    });
+  }
+
+  function updateAudio(rpm, throttle, running, profile, cruiseFade){
+    if(!actx) return;
+    const now = actx.currentTime;
+    const firingFreq = Math.max(18, (rpm * profile.cylinders) / 120);
+
+    oscBank.forEach(o => {
+      const f = Math.min(firingFreq * o.harmonic, actx.sampleRate/2 - 100);
+      o.osc.frequency.setTargetAtTime(f, now, 0.03);
+    });
+
+    const rpmRatio = Math.min(1, rpm / profile.maxRPM);
+    lowpass.frequency.setTargetAtTime(500 + rpmRatio * 6000 * profile.brightness, now, 0.05);
+
+    noiseFilter.frequency.setTargetAtTime(300 + rpmRatio * 3500, now, 0.05);
+    const targetNoise = running ? (0.02 + throttle * 0.10 + rpmRatio * 0.05) * cruiseFade : 0;
+    noiseGain.gain.setTargetAtTime(targetNoise, now, 0.08);
+
+    const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
+    master.gain.setTargetAtTime(targetMaster, now, 0.06);
+
+    if(growlDepth){
+      const growlAmt = (profile.growl || 0) * targetMaster * (1 - Math.min(1, rpmRatio * 1.3));
+      growlDepth.gain.setTargetAtTime(running ? growlAmt * 0.35 : 0, now, 0.05);
+    }
+    if(wahDepth){
+      const wahAmt = profile.funkyWah ? 900 + rpmRatio * 500 : 0;
+      wahDepth.gain.setTargetAtTime(running ? wahAmt : 0, now, 0.05);
+    }
+    if(pulseLFO && pulseDepth){
+      pulseLFO.frequency.setTargetAtTime(firingFreq, now, 0.02);
+      const mech = profile.mechanical || 0;
+      pulseDepth.gain.setTargetAtTime(running ? mech * 0.32 : 0, now, 0.05);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 4. GAUGES (canvas)
+  // ---------------------------------------------------------------------
+  const rpmCanvas = document.getElementById('rpmGauge');
+  const spdCanvas = document.getElementById('spdGauge');
+  const rctx = rpmCanvas.getContext('2d');
+  const sctx = spdCanvas.getContext('2d');
+
+  function drawGauge(ctx, opts){
+    const {value, max, redlineStart, unitLabel, majorStep, isSpeed, flash} = opts;
+    const W = ctx.canvas.width, H = ctx.canvas.height;
+    const cx = W/2, cy = H/2, r = W*0.38;
+    const startAngle = Math.PI * 0.75;
+    const endAngle = Math.PI * 2.25;
+    const span = endAngle - startAngle;
+
+    ctx.clearRect(0,0,W,H);
+
+    // --- lunette métal brossé ---
+    const bezelOuter = r*1.16, bezelInner = r*1.0;
+    const bezelGrad = ctx.createLinearGradient(cx-bezelOuter, cy-bezelOuter, cx+bezelOuter, cy+bezelOuter);
+    bezelGrad.addColorStop(0.00, '#3a3f47');
+    bezelGrad.addColorStop(0.20, '#8f96a1');
+    bezelGrad.addColorStop(0.35, '#e4e8ec');
+    bezelGrad.addColorStop(0.50, '#4a4f57');
+    bezelGrad.addColorStop(0.65, '#1c1f24');
+    bezelGrad.addColorStop(0.80, '#767c86');
+    bezelGrad.addColorStop(1.00, '#2a2e34');
+    ctx.beginPath();
+    ctx.arc(cx, cy, bezelOuter, 0, Math.PI*2);
+    ctx.fillStyle = bezelGrad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, bezelInner, 0, Math.PI*2);
+    ctx.fillStyle = '#0a0b0d';
+    ctx.fill();
+
+    // rivets aux 4 points cardinaux
+    [0, Math.PI/2, Math.PI, Math.PI*1.5].forEach(a => {
+      const rx = cx + Math.cos(a) * (bezelOuter+bezelInner)/2;
+      const ry = cy + Math.sin(a) * (bezelOuter+bezelInner)/2;
+      const rg = ctx.createRadialGradient(rx-1.2, ry-1.2, 0.4, rx, ry, r*0.028);
+      rg.addColorStop(0, '#e8ebee');
+      rg.addColorStop(0.5, '#8a8f97');
+      rg.addColorStop(1, '#25282d');
+      ctx.beginPath();
+      ctx.arc(rx, ry, r*0.028, 0, Math.PI*2);
+      ctx.fillStyle = rg;
+      ctx.fill();
+    });
+
+    // fond du cadran
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    const faceGrad = ctx.createRadialGradient(cx, cy-r*0.2, r*0.1, cx, cy, r);
+    faceGrad.addColorStop(0, '#16191d');
+    faceGrad.addColorStop(1, '#08090a');
+    ctx.fillStyle = faceGrad;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#262b32';
+    ctx.stroke();
+
+    // arc redline
+    if(redlineStart != null){
+      const a1 = startAngle + (redlineStart/max) * span;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r*0.92, a1, endAngle);
+      ctx.strokeStyle = 'rgba(255,59,59,0.85)';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+    }
+
+    // graduations
+    ctx.font = `600 ${r*0.11}px 'Segoe UI', sans-serif`;
+    ctx.fillStyle = '#9aa0a8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const steps = max / majorStep;
+    for(let i=0;i<=steps;i++){
+      const val = i*majorStep;
+      const a = startAngle + (val/max) * span;
+      const inner = r*0.76, outer = r*0.89;
+      const x1 = cx + Math.cos(a)*inner, y1 = cy + Math.sin(a)*inner;
+      const x2 = cx + Math.cos(a)*outer, y2 = cy + Math.sin(a)*outer;
+      ctx.beginPath();
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+      ctx.strokeStyle = (redlineStart!=null && val>=redlineStart) ? '#ff3b3b' : '#c8ccd2';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      const lx = cx + Math.cos(a)*(r*0.61), ly = cy + Math.sin(a)*(r*0.61);
+      ctx.fillText(val, lx, ly);
+    }
+
+    // aiguille
+    const v = Math.max(0, Math.min(max, value));
+    const needleAngle = startAngle + (v/max) * span;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(needleAngle);
+    const grad = ctx.createLinearGradient(0,0,r*0.85,0);
+    grad.addColorStop(0, isSpeed ? '#5eead4' : '#ff8c3c');
+    grad.addColorStop(1, isSpeed ? '#a7fff0' : '#ffd7ab');
+    ctx.beginPath();
+    ctx.moveTo(-r*0.16, -3.2);
+    ctx.lineTo(r*0.85, 0);
+    ctx.lineTo(-r*0.16, 3.2);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.shadowColor = isSpeed ? '#5eead4' : '#ff8c3c';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.restore();
+
+    // moyeu (chromé, plus travaillé)
+    const hubGrad = ctx.createRadialGradient(cx-r*0.02, cy-r*0.02, r*0.01, cx, cy, r*0.09);
+    hubGrad.addColorStop(0, '#e4e8ec');
+    hubGrad.addColorStop(0.4, '#5a606a');
+    hubGrad.addColorStop(1, '#101215');
+    ctx.beginPath();
+    ctx.arc(cx, cy, r*0.09, 0, Math.PI*2);
+    ctx.fillStyle = hubGrad;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#0a0b0d';
+    ctx.stroke();
+
+    // label unité
+    ctx.font = `600 ${r*0.13}px 'Segoe UI', sans-serif`;
+    ctx.fillStyle = '#6b7078';
+    ctx.fillText(unitLabel, cx, cy + r*0.42);
+
+    // reflet de verre (arc diffus en haut à gauche)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.clip();
+    const glass = ctx.createRadialGradient(cx-r*0.4, cy-r*0.55, r*0.05, cx-r*0.3, cy-r*0.4, r*1.1);
+    glass.addColorStop(0, 'rgba(255,255,255,0.10)');
+    glass.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+    glass.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glass;
+    ctx.fillRect(cx-r, cy-r, r*2, r*2);
+    ctx.restore();
+
+    // flash de pétarade (backfire) : burst chaud synchronisé sur spawnPop
+    if(flash > 0){
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.clip();
+      const burst = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      burst.addColorStop(0, `rgba(255,170,90,${0.55*flash})`);
+      burst.addColorStop(0.55, `rgba(255,90,30,${0.30*flash})`);
+      burst.addColorStop(1, 'rgba(255,59,59,0)');
+      ctx.fillStyle = burst;
+      ctx.fillRect(cx-r, cy-r, r*2, r*2);
+      ctx.restore();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 5. UI / INPUT
+  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // 4b. GÉOLOCALISATION — vitesse réelle quand le mode débug est désactivé
+  // ---------------------------------------------------------------------
+  const gpsStatusText = document.getElementById('gpsStatusText');
+
+  function setGpsStatus(text, cls){
+    gpsStatusText.textContent = text;
+    gpsStatusText.className = 'gps-status' + (cls ? ' ' + cls : '');
+  }
+
+  function startGeoWatch(){
+    if(geoWatchId != null) return;
+    if(!('geolocation' in navigator)){
+      setGpsStatus("Géolocalisation non supportée par ce navigateur.", 'error');
+      return;
+    }
+    setGpsStatus("Demande d'autorisation de localisation…", 'searching');
+    geoWatchId = navigator.geolocation.watchPosition(
+      pos => {
+        const spd = pos.coords.speed; // m/s, peut être null selon le capteur
+        if(spd == null || Number.isNaN(spd)){
+          gpsSpeedKmh = null;
+          setGpsStatus('GPS lié — vitesse indisponible (rester en mouvement).', 'searching');
+          return;
+        }
+        gpsSpeedKmh = Math.max(0, spd * 3.6);
+        setGpsStatus('GPS lié — ' + Math.round(gpsSpeedKmh) + ' km/h', 'ok');
+      },
+      err => {
+        gpsSpeedKmh = null;
+        if(err.code === err.PERMISSION_DENIED){
+          setGpsStatus("Localisation refusée — autorisez l'accès dans le navigateur pour utiliser la vitesse réelle.", 'error');
+        } else if(err.code === err.POSITION_UNAVAILABLE){
+          setGpsStatus('Position indisponible.', 'error');
+        } else if(err.code === err.TIMEOUT){
+          setGpsStatus('Délai de localisation dépassé — nouvelle tentative…', 'searching');
+        } else {
+          setGpsStatus('Erreur de localisation.', 'error');
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+  }
+
+  function stopGeoWatch(){
+    if(geoWatchId != null){
+      navigator.geolocation.clearWatch(geoWatchId);
+      geoWatchId = null;
+    }
+    gpsSpeedKmh = null;
+  }
+
+  const enginePickerBtn = document.getElementById('enginePickerBtn');
+  const enginePickerLabel = document.getElementById('enginePickerLabel');
+  const engineDropdown = document.getElementById('engineDropdown');
+  const engineLabel = document.getElementById('engineLabel');
+  const rupteurBtn = document.getElementById('rupteurBtn');
+  const antilagBtn = document.getElementById('antilagBtn');
+  const nitroBtn = document.getElementById('nitroBtn');
+  const powerBtn = document.getElementById('powerBtn');
+  const gearVal = document.getElementById('gearVal');
+  const spdStat = document.getElementById('spdStat');
+  const rpmStat = document.getElementById('rpmStat');
+  const pedalGas = document.getElementById('pedalGas');
+  const pedalBrake = document.getElementById('pedalBrake');
+  const fillGas = document.getElementById('fillGas');
+  const fillBrake = document.getElementById('fillBrake');
+  const cruiseBtn = document.getElementById('cruiseBtn');
+  let cruiseControlOn = false;
+  cruiseBtn.addEventListener('click', () => {
+    cruiseControlOn = !cruiseControlOn;
+    cruiseBtn.classList.toggle('on', cruiseControlOn);
+  });
+
+  // ---------------------------------------------------------------------
+  // 5b. BASCULE MODE DÉBUG
+  // ---------------------------------------------------------------------
+  const debugToggle = document.getElementById('debugToggle');
+  const debugPanel = document.getElementById('debugPanel');
+  const gpsPanel = document.getElementById('gpsPanel');
+
+  function applyDebugUI(){
+    debugToggle.classList.toggle('on', debugMode);
+    debugPanel.hidden = !debugMode;
+    gpsPanel.hidden = debugMode;
+    if(debugMode){
+      stopGeoWatch();
+      physics.throttle = 0; physics.brake = 0;
+    } else {
+      smoothedGpsSpeed = physics.speed;
+      prevSpeedForAccel = physics.speed;
+      if(physics.running) startGeoWatch();
+    }
+  }
+
+  debugToggle.addEventListener('click', () => {
+    debugMode = !debugMode;
+    try{ localStorage.setItem('vroom_debug', debugMode ? '1' : '0'); }catch(e){}
+    applyDebugUI();
+  });
+
+  applyDebugUI();
+
+  let currentEngineKey = 'mecanique';
+  let rupteurOn = true;
+  let antilagOn = false;
+  let nitroState = 'ready'; // 'ready' | 'active' | 'cooldown'
+  let nitroTimer = 0;
+  let limiterCooldown = 0;        // rebond au rupteur en dernier rapport, plein gaz
+  let prevThrottleCruise = 0, prevGearCruise = 1, cruiseTimer = 0, cruiseFade = 1; // atténuation à allure stable
+  let limiterDipAmount = 0;
+  let limiterRecoveryRate = 0;
+  const LIMITER_RECOVERY_TIME = 0.24; // secondes pour remonter après une coupure
+  const NITRO_DURATION = 3.5;
+  const NITRO_COOLDOWN = 6;
+  const DEFAULT_CRACKLE = 0.55; // pétarade appliquée par défaut aux moteurs qui n'en ont pas (v6/v8/v12)
+
+  function selectEngine(key){
+    currentEngineKey = key;
+    enginePickerLabel.textContent = ENGINES[key].name;
+    engineLabel.textContent = ENGINES[key].name;
+    setEngineProfile(key);
+    document.querySelectorAll('.engine-option').forEach(el => {
+      el.classList.toggle('selected', el.dataset.key === key);
+    });
+    closeDropdown();
+  }
+
+  function openDropdown(){
+    engineDropdown.hidden = false;
+    enginePickerBtn.classList.add('open');
+  }
+  function closeDropdown(){
+    engineDropdown.hidden = true;
+    enginePickerBtn.classList.remove('open');
+  }
+
+  Object.keys(ENGINES).forEach(key => {
+    const row = document.createElement('div');
+    row.className = 'engine-option' + (key === currentEngineKey ? ' selected' : '');
+    row.dataset.key = key;
+    row.textContent = ENGINES[key].name;
+    row.addEventListener('click', () => selectEngine(key));
+    engineDropdown.appendChild(row);
+  });
+  enginePickerLabel.textContent = ENGINES[currentEngineKey].name;
+  engineLabel.textContent = ENGINES[currentEngineKey].name;
+
+  enginePickerBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    engineDropdown.hidden ? openDropdown() : closeDropdown();
+  });
+  document.addEventListener('click', (e) => {
+    if(!engineDropdown.hidden && !engineDropdown.contains(e.target) && e.target !== enginePickerBtn){
+      closeDropdown();
+    }
+  });
+
+  rupteurBtn.classList.toggle('on', rupteurOn);
+  rupteurBtn.addEventListener('click', () => {
+    rupteurOn = !rupteurOn;
+    rupteurBtn.classList.toggle('on', rupteurOn);
+  });
+
+  antilagBtn.classList.toggle('on', antilagOn);
+  antilagBtn.addEventListener('click', () => {
+    antilagOn = !antilagOn;
+    antilagBtn.classList.toggle('on', antilagOn);
+  });
+
+  nitroBtn.addEventListener('click', () => {
+    initAudio();
+    if(actx.state === 'suspended') actx.resume();
+    if(nitroState === 'ready' && physics.running){
+      nitroState = 'active';
+      nitroTimer = NITRO_DURATION;
+      physics.speed = Math.min(235, physics.speed + 22); // coup de fouet instantané, sensation de shove immédiat
+      spawnNitro(NITRO_DURATION);
+      nitroBtn.classList.remove('ready');
+      nitroBtn.classList.add('active');
+    }
+  });
+
+  function setPedal(kind, active){
+    if(!debugMode) return; // en mode réel, throttle/brake sont déduits de la vitesse GPS
+    if(kind==='gas'){ physics.throttle = active ? 1 : 0; }
+    if(kind==='brake'){ physics.brake = active ? 1 : 0; }
+  }
+  function bindPedal(el, kind){
+    const press = e => { e.preventDefault(); setPedal(kind, true); };
+    const release = e => { e.preventDefault(); setPedal(kind, false); };
+    el.addEventListener('mousedown', press);
+    el.addEventListener('touchstart', press, {passive:false});
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev => el.addEventListener(ev, release));
+  }
+  bindPedal(pedalGas, 'gas');
+  bindPedal(pedalBrake, 'brake');
+
+  window.addEventListener('keydown', e => {
+    if(e.key === 'ArrowUp') setPedal('gas', true);
+    if(e.key === 'ArrowDown') setPedal('brake', true);
+  });
+  window.addEventListener('keyup', e => {
+    if(e.key === 'ArrowUp') setPedal('gas', false);
+    if(e.key === 'ArrowDown') setPedal('brake', false);
+  });
+
+  powerBtn.addEventListener('click', () => {
+    initAudio();
+    if(actx.state === 'suspended') actx.resume();
+    physics.running = !physics.running;
+    powerBtn.classList.toggle('on', physics.running);
+    if(physics.running){
+      if(!debugMode){
+        smoothedGpsSpeed = physics.speed;
+        prevSpeedForAccel = physics.speed;
+        startGeoWatch();
+      }
+    } else {
+      physics.throttle = 0; physics.brake = 0;
+      nitroState = 'ready'; nitroTimer = 0;
+      nitroBtn.classList.remove('active', 'cooldown');
+      nitroBtn.classList.add('ready');
+      stopGeoWatch();
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // 6. BOUCLE PRINCIPALE
+  // ---------------------------------------------------------------------
+  let lastT = performance.now();
+  function loop(t){
+    const dt = Math.min(0.05, (t - lastT) / 1000);
+    lastT = t;
+
+    if(debugMode && cruiseControlOn && physics.running && physics.brake < 0.02){
+      physics.throttle = 0.32; // pied fixe simulé, pour tester le comportement à allure stable
+    }
+    const profile = ENGINES[currentEngineKey];
+    stepPhysics(dt, profile);
+
+    // gestion d'état du nitro : actif -> refroidissement -> prêt
+    if(nitroState === 'active'){
+      nitroTimer -= dt;
+      if(nitroTimer <= 0){
+        nitroState = 'cooldown';
+        nitroTimer = NITRO_COOLDOWN;
+        nitroBtn.classList.remove('active');
+        nitroBtn.classList.add('cooldown');
+      }
+    } else if(nitroState === 'cooldown'){
+      nitroTimer -= dt;
+      if(nitroTimer <= 0){
+        nitroState = 'ready';
+        nitroBtn.classList.remove('cooldown');
+        nitroBtn.classList.add('ready');
+      }
+    }
+
+    // rebond au rupteur : en dernier rapport, plein gaz contre le plafond de régime,
+    // le limiteur coupe réellement les tours par à-coups nets (pas seulement le bruit)
+    const topGear = GEAR_RATIOS.length;
+    const atLimiter = physics.running && rupteurOn && physics.gear === topGear && physics.throttle > 0.5 && physics.rpm >= profile.redline - 30;
+    if(atLimiter){
+      limiterCooldown -= dt;
+      if(limiterCooldown <= 0){
+        spawnPop(profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE);
+        const dipMag = (profile.redline - profile.idleRPM) * 0.30;
+        limiterDipAmount = dipMag;
+        limiterRecoveryRate = dipMag / LIMITER_RECOVERY_TIME;
+        limiterCooldown = 0.28 + Math.random() * 0.06; // ~3-4 coupures par seconde, cadence lisible
+      }
+    } else {
+      limiterCooldown = 0; // prêt à repartir dès le prochain contact du limiteur
+    }
+    if(limiterDipAmount > 0){
+      limiterDipAmount = Math.max(0, limiterDipAmount - limiterRecoveryRate * dt);
+      physics.rpm = Math.max(profile.idleRPM, physics.rpm - limiterDipAmount);
+    }
+
+    // détection de croisière : régime stable pendant plusieurs secondes -> on atténue le son
+    // (un ronron constant sur autoroute devient vite fatigant ; on garde le volume plein sur
+    // les moments qui comptent : accélération, freinage, changement de rapport)
+    const throttleSteady = physics.throttle > 0.04 && physics.throttle < 0.97 && Math.abs(physics.throttle - prevThrottleCruise) < 0.04;
+    const cruising = physics.running && throttleSteady && physics.brake < 0.02 && physics.gear === prevGearCruise && physics.speed > 15;
+    cruiseTimer = cruising ? cruiseTimer + dt : 0;
+    prevThrottleCruise = physics.throttle;
+    prevGearCruise = physics.gear;
+    const targetCruiseFade = cruiseTimer > 4 ? 0.62 : 1;
+    cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * 1.2);
+
+    updateAudio(physics.rpm, physics.throttle, physics.running, profile, cruiseFade);
+
+    // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
+    const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
+    if(physics.running && effectiveCrackle > 0){
+      const overrun = physics.throttle < 0.2 && physics.rpm > profile.idleRPM + (profile.redline - profile.idleRPM) * 0.22;
+      popCooldown -= dt;
+      if(overrun && popCooldown <= 0){
+        spawnPop(effectiveCrackle);
+        popCooldown = (0.28 - effectiveCrackle * 0.16) + Math.random() * 0.2;
+      }
+    }
+    // anti-lag : pétarade au changement de rapport, activable sur tous les moteurs
+    if(physics.running && antilagOn && physics.gear !== prevGear){
+      const baseCrackle = profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE;
+      spawnPop(Math.min(1, baseCrackle * 1.3));
+    }
+    prevGear = physics.gear;
+    // anti-lag turbo : souffle de décharge au lâcher brusque de l'accélérateur
+    if(physics.running && profile.turbo && prevThrottleVal > 0.55 && physics.throttle < 0.2){
+      spawnWhoosh();
+    }
+    prevThrottleVal = physics.throttle;
+
+    popFlash = Math.max(0, popFlash - dt * 3.2); // décroissance du flash visuel de pétarade
+
+    drawGauge(rctx, { value: physics.rpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false, flash: popFlash });
+    drawGauge(sctx, { value: physics.speed, max: 240, redlineStart: null, unitLabel:'km/h', majorStep: 20, isSpeed:true });
+
+    gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
+    spdStat.textContent = Math.round(physics.speed) + ' km/h';
+    rpmStat.textContent = Math.round(physics.rpm) + ' tr/min';
+    fillGas.style.height = (physics.throttle*100) + '%';
+    fillBrake.style.height = (physics.brake*100) + '%';
+
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
