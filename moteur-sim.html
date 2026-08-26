@@ -411,9 +411,10 @@
     running: false,
   };
 
-  // débug (pédales manuelles) vs réel (vitesse GPS navigateur) — désactivé par défaut
+  // débug (pédales manuelles) vs réel (vitesse GPS navigateur) — toujours désactivé au
+  // chargement, jamais mémorisé d'une visite à l'autre (sécurité : on ne veut jamais
+  // démarrer en pédales simulées sans un choix explicite de l'utilisateur ce jour-là)
   let debugMode = false;
-  try{ debugMode = localStorage.getItem('vroom_debug') === '1'; }catch(e){}
 
   // vitesse réelle issue de la géolocalisation navigateur, utilisée quand debugMode est faux
   let geoWatchId = null;
@@ -1063,7 +1064,6 @@
 
   debugToggle.addEventListener('click', () => {
     debugMode = !debugMode;
-    try{ localStorage.setItem('vroom_debug', debugMode ? '1' : '0'); }catch(e){}
     applyDebugUI();
   });
 
