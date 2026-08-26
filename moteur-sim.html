@@ -371,6 +371,14 @@
     grogne:    { name:'V8 Big Block', cylinders:8, idleRPM:650, maxRPM:6000, redline:5800, harmonics:[0.5,1,1.5,2,3], roughness:0.55, brightness:0.32, crackle:0.8, turbo:false, growl:0.9 },
     funky:     { name:'Funk Machine', cylinders:6, idleRPM:800, maxRPM:6500, redline:6300, harmonics:[1,2,3,4], roughness:0.5, brightness:0.9, crackle:0.55, turbo:false, funkyWah:true },
     tondeuse:  { name:'Tondeuse à Gazon', cylinders:1, idleRPM:550, maxRPM:3200, redline:3000, harmonics:[1,2], roughness:0.75, brightness:0.35, crackle:0.7, turbo:false, mechanical:1 },
+
+    // --- véhicules iconiques : mêmes paramètres de synthèse, réglés pour évoquer leur timbre propre ---
+    ferrari: { name:'Ferrari F40', cylinders:8, idleRPM:900, maxRPM:7750, redline:7500, harmonics:[1,2,3,4,5], roughness:0.18, brightness:1.1,  crackle:0.5,  turbo:true },
+    porsche: { name:'Porsche 911', cylinders:6, idleRPM:850, maxRPM:7500, redline:7200, harmonics:[1,2,2.5,3,4], roughness:0.35, brightness:0.9, crackle:0.15, turbo:false },
+    harley:  { name:'Harley-Davidson', cylinders:2, idleRPM:650, maxRPM:5500, redline:5300, harmonics:[0.5,1,1.5], roughness:0.7, brightness:0.4, crackle:0.6, turbo:false, growl:0.7, mechanical:0.6 },
+    bugatti: { name:'Bugatti Veyron', cylinders:16, idleRPM:900, maxRPM:6600, redline:6400, harmonics:[1,2,3,4,5,6,7,8], roughness:0.05, brightness:1.2, crackle:0.2, turbo:true },
+    lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false },
+    amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true },
   };
 
   // ---------------------------------------------------------------------
@@ -426,7 +434,14 @@
 
       let speedMps = physics.speed / 3.6;
       let a = 0;
-      if(physics.brake > 0.02){
+      if(cruiseControlOn && physics.brake < 0.02){
+        // régulateur : rappel proportionnel vers la vitesse verrouillée à l'activation, plutôt
+        // qu'un pied fixe à valeur constante (qui ne peut pas tenir une vitesse stable — l'accélération
+        // et le frein moteur du modèle physique ne s'équilibrent à aucune position fixe de pédale).
+        const targetMps = cruiseTargetSpeed / 3.6;
+        a = (targetMps - speedMps) * 0.8;
+        physics.throttle = Math.max(0, Math.min(1, a / maxAccel + 0.05));
+      } else if(physics.brake > 0.02){
         a = -maxDecel * physics.brake;
       } else if(physics.throttle > 0.02){
         // le nitro garde de la patate même à haute vitesse, contrairement à l'accélération normale
@@ -496,6 +511,7 @@
   let wahLFO = null, wahDepth = null;     // "funky" : balayage rythmique du filtre
   let pulseLFO = null, pulseDepth = null; // "mécanique" : pulsation réelle par cycle de combustion
   let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
+  let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
 
   function spawnPop(intensity){
     popFlash = Math.min(1, 0.6 + intensity * 0.6);
@@ -703,6 +719,26 @@
     noiseGain.connect(master);
     noiseNode.start();
 
+    // échappement en bruit filtré en peigne : un délai rebouclé sur lui-même, calé sur la
+    // période d'allumage réelle (1/firingFreq), transforme le bruit blanc en une série
+    // d'harmoniques qui suit le régime — plus organique que des oscillateurs purs, sans
+    // ajouter le moindre fichier audio.
+    combGainIn = actx.createGain();
+    combGainIn.gain.value = 0;
+    combDelay = actx.createDelay(0.06); // marge au-dessus de 1/18s, le plancher de firingFreq
+    combDelay.delayTime.value = 0.02;
+    combLowpass = actx.createBiquadFilter();
+    combLowpass.type = 'lowpass';
+    combLowpass.frequency.value = 3500;
+    combFeedback = actx.createGain();
+    combFeedback.gain.value = 0.55; // < 1 : boucle stable, ne s'emballe pas
+    noiseNode.connect(combGainIn);
+    combGainIn.connect(combDelay);
+    combDelay.connect(combLowpass);
+    combLowpass.connect(combFeedback);
+    combFeedback.connect(combDelay);
+    combDelay.connect(engineSum);
+
     // LFO "mécanique" : pulsation réelle par cycle de combustion (pas un ton tenu)
     pulseLFO = actx.createOscillator();
     pulseLFO.type = 'sawtooth';
@@ -762,6 +798,12 @@
     noiseFilter.frequency.setTargetAtTime(300 + rpmRatio * 3500, now, 0.05);
     const targetNoise = running ? (0.02 + throttle * 0.10 + rpmRatio * 0.05) * cruiseFade : 0;
     noiseGain.gain.setTargetAtTime(targetNoise, now, 0.08);
+
+    // échappement en peigne : le délai suit la fréquence d'allumage réelle, l'intensité varie
+    // selon la rugosité du profil moteur (plus texturé/buzzy pour les mécaniques rugueuses)
+    combDelay.delayTime.setTargetAtTime(1 / firingFreq, now, 0.02);
+    const combAmt = running ? (0.05 + profile.roughness * 0.22) * (0.3 + throttle * 0.4 + rpmRatio * 0.3) * cruiseFade : 0;
+    combGainIn.gain.setTargetAtTime(combAmt, now, 0.06);
 
     const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
@@ -1093,8 +1135,10 @@
   const fillBrake = document.getElementById('fillBrake');
   const cruiseBtn = document.getElementById('cruiseBtn');
   let cruiseControlOn = false;
+  let cruiseTargetSpeed = 0; // vitesse verrouillée à l'activation, que le régulateur maintient
   cruiseBtn.addEventListener('click', () => {
     cruiseControlOn = !cruiseControlOn;
+    if(cruiseControlOn) cruiseTargetSpeed = physics.speed;
     cruiseBtn.classList.toggle('on', cruiseControlOn);
   });
 
@@ -1267,9 +1311,6 @@
     const dt = Math.min(0.05, (t - lastT) / 1000);
     lastT = t;
 
-    if(debugMode && cruiseControlOn && physics.running && physics.brake < 0.02){
-      physics.throttle = 0.32; // pied fixe simulé, pour tester le comportement à allure stable
-    }
     const profile = ENGINES[currentEngineKey];
     stepPhysics(dt, profile);
 
