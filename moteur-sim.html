@@ -28,14 +28,16 @@
     overflow-x:hidden;
   }
   #visionCanvas{ position:fixed; inset:0; width:100vw; height:100vh; z-index:0; display:block; }
-  .wrap{ position:relative; z-index:1; max-width:520px; margin:0 auto; padding:16px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:14px;}
+  /* le bandeau du haut est réduit au minimum : chaque pixel repris dessus est un pixel de
+     route visible, l'horizon se trouvant précisément derrière lui */
+  .wrap{ position:relative; z-index:1; max-width:520px; margin:0 auto; padding:8px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:9px;}
 
   header{ display:flex; align-items:center; justify-content:space-between; gap:10px;}
   .brand{ font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); text-shadow:0 1px 4px rgba(0,0,0,0.8);}
   .brand b{color:var(--amber); letter-spacing:1px;}
   .debug-badge{
     font-size:10px; letter-spacing:2px; text-transform:uppercase;
-    padding:4px 10px; border-radius:3px; border:1px solid #2c3038;
+    padding:3px 8px; border-radius:3px; border:1px solid #2c3038;
     color:var(--muted); background:rgba(255,255,255,0.02);
     display:flex; align-items:center; gap:6px; cursor:pointer;
   }
@@ -51,7 +53,7 @@
   .picker-slot{ position:relative; display:flex; }
   .picker-slot.engine-slot{ flex:1; min-width:0; }
   .picker-slot.scene-slot{ flex:0 0 auto; }
-  .picker-slot.scene-slot .engine-picker{ font-size:13px; padding:11px 10px; }
+  .picker-slot.scene-slot .engine-picker{ font-size:13px; padding:7px 10px; }
   .picker-slot.scene-slot .engine-dropdown{ left:auto; right:0; min-width:180px; }
 
   /* --- sélecteur moteur : bouton custom, plus de <select> natif --- */
@@ -59,7 +61,7 @@
     flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
     background:linear-gradient(180deg, #1b1f24, #121519);
     color:var(--text); border:1px solid #2c3038; border-top-color:#383d46;
-    border-radius:9px; padding:11px 12px; font-size:15px; font-weight:700;
+    border-radius:9px; padding:7px 12px; font-size:14px; font-weight:700;
     letter-spacing:0.3px; cursor:pointer;
     box-shadow: 0 2px 0 rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03);
   }
@@ -102,24 +104,27 @@
   }
   .phys-btn.on .led{ background:var(--amber); box-shadow: 0 0 6px 1px rgba(255,140,60,0.9); }
 
-  .toggle-btn{
-    width:44px; height:44px; border-radius:11px; cursor:pointer; flex-shrink:0; position:relative;
-    background:linear-gradient(180deg, #22262c, #14161a);
-    border:1px solid #2c3038; border-top-color:#383d46;
-    box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.45);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  /* Rupteur, anti-lag et nitro sont désormais de petits boutons physiques serrés autour du
+     démarreur, entre les deux compteurs : leur ancienne rangée pleine largeur mangeait une
+     bande d'écran juste à hauteur d'horizon, là où la route a le plus besoin de place. */
+  /* Les deux boutons d'effets se mettent côte à côte, le démarreur et le nitro occupent
+     toute la largeur en dessous : une colonne de quatre serait plus haute que les cadrans sur
+     téléphone, et plus haute que le cockpit en mode débug — où elle se ferait rogner, la page
+     ne défilant pas en grand écran. */
+  .gauge-stack{
+    display:grid; grid-template-columns:repeat(2, auto); gap:6px;
+    align-items:center; justify-items:center; flex-shrink:0;
   }
-  .toggle-btn:active{ transform:translateY(2px); box-shadow: 0 1px 0 #05060a, 0 2px 6px rgba(0,0,0,0.4); }
-  .toggle-btn .led{
-    width:6px; height:6px; border-radius:50%; background:#3a2013;
-    box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+  .gauge-stack #powerBtn, .gauge-stack #nitroBtn{ grid-column:1 / -1; }
+  .phys-btn.mini{ width:34px; height:34px; padding:2px; }
+  .phys-btn .lbl{
+    font-size:7px; letter-spacing:0.4px; color:var(--muted);
+    text-transform:uppercase; font-weight:700; line-height:1;
   }
-  .toggle-btn.on .led{ background:var(--red); box-shadow: 0 0 8px 2px rgba(255,59,59,0.8); }
-  .toggle-btn .lbl{ font-size:7px; letter-spacing:0.5px; color:var(--muted); text-transform:uppercase; font-weight:700; }
-  .toggle-btn.on .lbl{ color:var(--text); }
-
-  .effects-row{ display:flex; gap:10px; }
-  .effects-row .toggle-btn{ flex:1; width:auto; }
+  .phys-btn.on .lbl{ color:var(--text); }
+  /* effets sonores : LED rouge allumée, comme sur l'ancienne rangée */
+  .phys-btn.fx.on .cap{ color:var(--red); box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), 0 0 12px rgba(255,59,59,0.45); }
+  .phys-btn.fx.on .led{ background:var(--red); box-shadow: 0 0 8px 2px rgba(255,59,59,0.8); }
 
   .nitro-btn .led{ background:#204030; }
   .nitro-btn.ready .led{ background:#2ecc71; box-shadow:0 0 6px 1px rgba(46,204,113,0.7); }
@@ -130,8 +135,8 @@
   .nitro-btn.cooldown{ opacity:0.5; pointer-events:none; }
   .nitro-btn.cooldown .led{ background:#4a1414; }
   @keyframes nitroPulse{
-    from{ box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.45); }
-    to{ box-shadow: 0 3px 0 #05060a, 0 5px 20px rgba(139,107,255,0.55); }
+    from{ box-shadow: 0 3px 0 #05060a, 0 5px 10px rgba(0,0,0,0.5); }
+    to{ box-shadow: 0 3px 0 #05060a, 0 5px 20px rgba(139,107,255,0.6); }
   }
 
   /* le cockpit n'a plus de panneau opaque : les compteurs flottent directement sur la
@@ -250,7 +255,7 @@
 
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
-    header, .engine-row, .effects-row, #debugPanel, #soundDesignPanel{ flex-shrink:0; }
+    header, .engine-row, #debugPanel, #soundDesignPanel{ flex-shrink:0; }
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
        via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
@@ -262,15 +267,20 @@
        les cadrans occupent le bas du cadre et dégagent la route au-dessus. */
     /* les chiffres restent sous les cadrans ; c'est la marge basse du cadre qui disparaît,
        de sorte que l'ensemble descende sans rien perdre de sa taille */
-    .cockpit{ flex:1; min-height:140px; gap:8px; padding-bottom:0; }
+    /* min-height calé sur la pile de boutons (50 + 76 + 50 + marges) pour qu'elle reste
+       entièrement cliquable même quand les panneaux de débug mangent l'écran */
+    .cockpit{ flex:1; min-height:210px; gap:8px; padding-bottom:0; }
     #soundDesignPanel{ max-height:min(300px, 40vh); }
     .gauges{ flex:1; min-height:0; gap:24px; }
     canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
     .hint{ display:none; }
-    #powerBtn{ width:80px; height:80px; }
-    #powerBtn .cap svg{ width:30px; height:30px; }
+    #powerBtn{ width:76px; height:76px; }
+    #powerBtn .cap svg{ width:28px; height:28px; }
     #powerBtn .led{ width:9px; height:9px; bottom:7px; }
+    .phys-btn.mini{ width:50px; height:50px; }
+    .phys-btn .lbl{ font-size:8px; }
+    .gauge-stack{ gap:10px; }
   }
 </style>
 </head>
@@ -332,33 +342,32 @@
     </div>
   </div>
 
-  <div class="effects-row">
-    <button class="toggle-btn" id="rupteurBtn" type="button" title="Pétarade au lever de pied en surrégime">
-      <span class="led"></span>
-      <span class="lbl">Rupteur</span>
-    </button>
-    <button class="toggle-btn" id="antilagBtn" type="button" title="Pétarade au changement de rapport">
-      <span class="led"></span>
-      <span class="lbl">Anti-lag</span>
-    </button>
-    <button class="toggle-btn nitro-btn ready" id="nitroBtn" type="button" title="Boost nitro">
-      <span class="led"></span>
-      <span class="lbl">Nitro</span>
-    </button>
-  </div>
-
   <div class="cockpit">
     <div class="gauges">
       <canvas class="gauge" id="rpmGauge" width="640" height="640"></canvas>
-      <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
-        <span class="cap">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v9"></path>
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
-          </svg>
-        </span>
-        <span class="led"></span>
-      </button>
+      <div class="gauge-stack">
+        <button class="phys-btn mini fx" id="rupteurBtn" type="button" title="Pétarade au lever de pied en surrégime">
+          <span class="cap"><span class="lbl">Rupt.</span></span>
+          <span class="led"></span>
+        </button>
+        <button class="phys-btn mini fx" id="antilagBtn" type="button" title="Pétarade au changement de rapport">
+          <span class="cap"><span class="lbl">A-lag</span></span>
+          <span class="led"></span>
+        </button>
+        <button class="phys-btn" id="powerBtn" type="button" title="Démarrer / couper le moteur">
+          <span class="cap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v9"></path>
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+            </svg>
+          </span>
+          <span class="led"></span>
+        </button>
+        <button class="phys-btn mini nitro-btn ready" id="nitroBtn" type="button" title="Boost nitro">
+          <span class="cap"><span class="lbl">Nitro</span></span>
+          <span class="led"></span>
+        </button>
+      </div>
       <canvas class="gauge" id="spdGauge" width="640" height="640"></canvas>
     </div>
     <div class="readout-strip">
