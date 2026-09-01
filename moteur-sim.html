@@ -138,10 +138,9 @@
      vision de vitesse en arrière-plan, poussés vers le bas de l'espace disponible */
   .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; }
   .gauges{ display:flex; justify-content:center; align-items:flex-end; gap:10px; }
-  /* Compteurs volontairement compacts : ils flottent sur la route, qui doit rester lisible.
-     `flex:1 1 0` + `min-width:0` : sur un écran étroit ils rétrécissent au lieu de déborder
-     de part et d'autre de la page. */
-  canvas.gauge{ flex:1 1 0; min-width:0; width:100%; max-width:152px; height:auto; }
+  /* `flex:1 1 0` + `min-width:0` : sur un écran étroit les compteurs rétrécissent d'eux-mêmes
+     au lieu de déborder de part et d'autre de la page. */
+  canvas.gauge{ flex:1 1 0; min-width:0; width:100%; max-width:224px; height:auto; }
 
   .readout-strip{ display:flex; justify-content:center; align-items:baseline; flex-wrap:wrap; gap:20px; text-align:center; flex-shrink:0; }
   .readout .l{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; text-shadow:0 1px 4px rgba(0,0,0,0.8); }
@@ -258,10 +257,17 @@
        La vision de vitesse n'est plus dans ce calcul : c'est un canvas plein écran fixe,
        en arrière-plan de toute la page (voir #visionCanvas), donc elle ne dispute plus
        d'espace vertical avec les compteurs. */
-    .cockpit{ flex:1; min-height:140px; gap:16px; }
+    /* Les compteurs sont poussés au plus bas de l'écran : la bande de chiffres passe
+       au-dessus d'eux (order:-1) et il ne reste plus aucune marge en dessous, de sorte que
+       les cadrans occupent le bas du cadre et dégagent la route au-dessus. */
+    .cockpit{ flex:1; min-height:140px; gap:8px; padding-bottom:0; }
+    /* la bande de chiffres passe au-dessus des cadrans et il ne reste plus aucune marge en
+       dessous : les compteurs descendent jusqu'au bord bas du cadre, ce qui dégage la route
+       au-dessus d'eux sans rien leur retirer de leur taille */
+    .cockpit .readout-strip{ order:-1; }
     #soundDesignPanel{ max-height:min(300px, 40vh); }
     .gauges{ flex:1; min-height:0; gap:24px; }
-    canvas.gauge{ width:auto; height:auto; max-width:min(300px, 19vw); max-height:min(100%, 29vh); }
+    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
     .hint{ display:none; }
     #powerBtn{ width:80px; height:80px; }
