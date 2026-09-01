@@ -1459,6 +1459,15 @@
       props: ['cactus', 'rock', 'bush', 'cactus', 'rock'],
       foliage: ['#4d6b40', '#3e5836'], propDark: '#7a6440', propStone: '#a08050',
     },
+    circuit: {
+      name: 'Circuit F1', sky: ['#3d7ec0', '#c3daee'], ground: '#3f7238',
+      road: ['#54585e', '#2c2e33'], edge: 'rgba(255,255,255,0.9)', dash: null,
+      glow: '255,250,235', glowStrength: 0.4, particle: 'streak', particleRGB: [235, 240, 248],
+      haze: 'rgba(195,218,238,0.7)', decor: 'stands', sun: { y: -0.16, r: 0.045, color: '#fffbe8' },
+      carLight: 0.35, kerb: true,
+      props: ['barrier', 'barrier', 'panel', 'tyres', 'fence', 'barrier'],
+      foliage: ['#e8ecf0', '#d8dee6'], propDark: '#9aa3ad', propStone: '#c8ced6',
+    },
     orage: {
       name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
       road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
@@ -1489,6 +1498,9 @@
         // deux échelles superposées : des sommets nettement irréguliers, pas une scie régulière
         h = 0.32 + 0.68 * Math.pow(rnd(), 1.5);
         h *= 0.55 + 0.45 * Math.abs(Math.sin(i * 0.7 + 1.2));
+      } else if(kind === 'stands'){
+        // gradins : des blocs francs et des paliers, pas un relief naturel
+        h = 0.28 + Math.round(rnd() * 3) * 0.2;
       } else if(kind === 'dunes'){
         h = 0.32 + 0.26 * Math.sin(i * 0.55) + 0.16 * Math.sin(i * 1.9 + 0.6) + rnd() * 0.1;
       } else {
@@ -1592,11 +1604,15 @@
   // C'est lui qui porte la sensation de vitesse, bien plus que les traînées : un objet proche
   // balaie l'écran en une fraction de seconde, un objet lointain bouge à peine. Le même
   // défilement, à la même vitesse réelle, mais rendu lisible par le contraste des deux.
-  const PROP_SPAN = 300;        // mètres de décor entretenus devant la voiture
-  const roadProps = Array.from({ length: 30 }, (_, i) => ({
-    dist: 5 + (i / 30) * PROP_SPAN,
+  // Densité et distance d'approche décident à elles seules de la sensation de vitesse : un
+  // élément n'est spectaculaire que dans ses derniers mètres, quand il balaie l'écran d'un
+  // bord à l'autre. On le suit donc jusqu'à ce qu'il sorte du cadre de lui-même, et on en met
+  // assez pour qu'il s'en présente plusieurs par seconde.
+  const PROP_SPAN = 260;        // mètres de décor entretenus devant la voiture
+  const roadProps = Array.from({ length: 52 }, (_, i) => ({
+    dist: 5 + (i / 52) * PROP_SPAN,
     side: Math.random() < 0.5 ? -1 : 1,
-    offset: 6.5 + Math.random() * 9,   // mètres depuis l'axe de la route
+    offset: 4.8 + Math.random() * 11,  // mètres depuis l'axe de la route
     scale: 0.75 + Math.random() * 0.6,
     seed: Math.random(),
     kind: null,                        // choisi dans la palette de la scène au premier rendu
@@ -1604,7 +1620,7 @@
   function respawnProp(pr){
     pr.dist += PROP_SPAN;
     pr.side = Math.random() < 0.5 ? -1 : 1;
-    pr.offset = 6.5 + Math.random() * 9;
+    pr.offset = 4.8 + Math.random() * 11;
     pr.scale = 0.75 + Math.random() * 0.6;
     pr.seed = Math.random();
     pr.kind = null;
@@ -1637,10 +1653,21 @@
     return a + (b - a) * (f * f * (3 - 2 * f)) - 0.5;   // -0.5 .. 0.5
   }
 
+  // Un rail de sécurité longe la piste au plus près, un grillage se tient en retrait, un arbre
+  // pousse où il veut : la distance au bord fait partie de l'identité de l'élément.
+  function propOffset(kind){
+    if(kind === 'barrier') return 5.2 + Math.random() * 0.5;
+    if(kind === 'tyres')   return 5.6 + Math.random() * 1.2;
+    if(kind === 'panel')   return 7.0 + Math.random() * 2.5;
+    if(kind === 'fence')   return 8.5 + Math.random() * 1.5;
+    if(kind === 'marker' || kind === 'snowpole') return 4.8 + Math.random() * 0.8;
+    return 5.5 + Math.random() * 10;
+  }
+
   function updateScenery(dt, speedKmh){
     const mps = Math.max(0, speedKmh) / 3.6;
     travelled += mps * dt;
-    roadProps.forEach(pr => { pr.dist -= mps * dt; if(pr.dist < 3) respawnProp(pr); });
+    roadProps.forEach(pr => { pr.dist -= mps * dt; if(pr.dist < 1.5) respawnProp(pr); });
     roadPatches.forEach(pt => { pt.dist -= mps * dt; if(pt.dist < 3) respawnPatch(pt); });
   }
 
@@ -1651,6 +1678,12 @@
     const leaf = sc.foliage || ['#1e2a1e', '#141c14'];
     const c = leaf[seed < 0.5 ? 0 : 1];
     const ctx = visctx;
+    if(s > 1.6){   // ombre de contact : sans elle, tout a l'air de flotter au-dessus du sol
+      ctx.fillStyle = 'rgba(0,0,0,0.17)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, s * 0.95, s * 0.24, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
     if(kind === 'pole' || kind === 'snowpole' || kind === 'marker'){
       const h = (kind === 'marker' ? 1.1 : kind === 'snowpole' ? 2.6 : 7.5) * s;
       ctx.strokeStyle = kind === 'marker' ? '#d8d4cc' : (sc.propDark || '#2a2f36');
@@ -1718,6 +1751,58 @@
       }
       return;
     }
+    if(kind === 'barrier'){
+      // rail de sécurité : des segments courts et serrés, dont le défilement stroboscopique
+      // est le repère de vitesse le plus fort d'un bord de piste
+      const h = 1.0 * s, w = 1.5 * s;
+      ctx.fillStyle = '#eef1f4';
+      ctx.fillRect(x - w / 2, y - h, w, h * 0.62);
+      ctx.fillStyle = seed < 0.34 ? '#d33a3a' : (seed < 0.67 ? '#2f6fd0' : '#eef1f4');
+      ctx.fillRect(x - w / 2, y - h * 0.38, w, h * 0.2);
+      ctx.fillStyle = sc.propDark || '#9aa3ad';
+      ctx.fillRect(x - w * 0.08, y - h * 0.2, w * 0.16, h * 0.2);
+      return;
+    }
+    if(kind === 'panel'){
+      const h = 1.6 * s, w = 3.4 * s;
+      ctx.fillStyle = ['#d8342f', '#1f6fc4', '#f0c020', '#1d9e5a'][Math.floor(seed * 4) % 4];
+      ctx.fillRect(x - w / 2, y - h, w, h * 0.72);
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fillRect(x - w * 0.4, y - h * 0.78, w * 0.8, h * 0.16);
+      ctx.fillStyle = sc.propDark || '#9aa3ad';
+      ctx.fillRect(x - w * 0.03, y - h * 0.28, w * 0.06, h * 0.28);
+      return;
+    }
+    if(kind === 'tyres'){
+      const r = 0.42 * s;
+      ctx.fillStyle = '#1a1c1f';
+      for(let i = 0; i < 3; i++){
+        ctx.beginPath();
+        ctx.ellipse(x, y - r * (0.7 + i * 1.25), r * 1.15, r * 0.62, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = seed < 0.5 ? '#e8e2d2' : '#d8342f';
+      ctx.beginPath();
+      ctx.ellipse(x, y - r * 3.2, r * 1.15, r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if(kind === 'fence'){
+      // grillage de retenue : mât et maille suggérée, très haut, il raye le ciel au passage
+      const h = 5.5 * s;
+      ctx.strokeStyle = sc.propDark || '#9aa3ad';
+      ctx.lineWidth = Math.max(1, 0.14 * s);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
+      if(s > 2){
+        ctx.strokeStyle = 'rgba(200,210,220,0.30)';
+        ctx.lineWidth = Math.max(1, 0.05 * s);
+        for(let i = 1; i <= 3; i++){
+          const yy = y - h * (i / 3.4);
+          ctx.beginPath(); ctx.moveTo(x - 1.6 * s, yy); ctx.lineTo(x + 1.6 * s, yy); ctx.stroke();
+        }
+      }
+      return;
+    }
     if(kind === 'rock'){
       const h = (0.45 + seed * 1.0) * s, w = h * (1.1 + seed * 0.7);
       ctx.fillStyle = sc.propStone || '#4a4f57';
@@ -1744,8 +1829,22 @@
   const traffic = [];
   let trafficTimer = 2;
 
+  const RACE_COLORS = ['#d8342f', '#1f6fc4', '#f0c020', '#1d9e5a', '#e8e2d2', '#f06a20'];
   function spawnTraffic(ourKmh){
-    const truck = Math.random() < 0.22;
+    // sur un circuit, ce qu'on double est une monoplace : basse, large et vive
+    const racing = (SCENES[currentSceneKey] || {}).kerb === true;
+    const truck = !racing && Math.random() < 0.22;
+    if(racing){
+      traffic.push({
+        dist: 110 + Math.random() * 110,
+        lane: (Math.random() < 0.5 ? 1 : -1) * (0.30 + Math.random() * 0.28),
+        speed: Math.max(8, Math.min(ourKmh - 15, ourKmh - (18 + Math.random() * 45))),
+        width: 2.0, height: 1.0, truck: false, racing: true,
+        color: RACE_COLORS[Math.floor(Math.random() * RACE_COLORS.length)],
+        passed: false,
+      });
+      return;
+    }
     traffic.push({
       dist: 110 + Math.random() * 110,                          // mètres devant nous
       lane: (Math.random() < 0.7 ? 1 : -1) * (0.40 + Math.random() * 0.24), // fraction de demi-route
@@ -1846,10 +1945,15 @@
       const span = W * 1.6;
       let base = -(worldHeading * pxPerDeg) % span;
       if(base > 0) base -= span;
+      const stepped = sc.decor === 'stands'; // des tribunes, ça monte par paliers francs
       visctx.beginPath();
       [base, base + span].forEach(off => {
         visctx.moveTo(pts[0][0] + off, vpY);
-        pts.forEach(pt => visctx.lineTo(pt[0] + off, vpY - pt[1] * maxH));
+        pts.forEach((pt, i) => {
+          const yTop = vpY - pt[1] * maxH;
+          if(stepped && i > 0) visctx.lineTo(pt[0] + off, vpY - pts[i - 1][1] * maxH);
+          visctx.lineTo(pt[0] + off, yTop);
+        });
         visctx.lineTo(pts[pts.length - 1][0] + off, vpY);
         visctx.closePath();
       });
@@ -1861,6 +1965,10 @@
       } else if(sc.decor === 'dunes'){
         dg.addColorStop(0, '#d8b87c');
         dg.addColorStop(1, '#a8874f');
+      } else if(sc.decor === 'stands'){
+        dg.addColorStop(0, '#dfe6ed');
+        dg.addColorStop(0.35, '#8f99a5');
+        dg.addColorStop(1, '#5c646e');
       } else {
         dg.addColorStop(0, '#4a2f4a');
         dg.addColorStop(1, '#241a2c');
@@ -1940,13 +2048,45 @@
       visctx.stroke();
     });
 
+    // Vibreurs rouge et blanc : blocs de 2 m alternés le long des deux bords, posés au sol.
+    // Sur un circuit, c'est le repère de vitesse le plus lisible qui soit — ils se resserrent
+    // vers l'horizon et se mettent à clignoter dès qu'on prend de la vitesse.
+    if(sc.kerb){
+      const KERB = 2;
+      const kerbFirst = Math.ceil(travelled / KERB) * KERB - travelled;
+      for(let k = 0; k < 44; k++){
+        const d0 = kerbFirst + k * KERB;
+        if(d0 < 2) continue;
+        const d1 = d0 + KERB;
+        const tt0 = CAM_NEAR / d0, tt1 = CAM_NEAR / d1;
+        if(tt0 < 0.022) break;
+        if(tt0 > 1.7) continue;
+        // l'alternance est indexée sur la position au sol, sinon les couleurs sauteraient
+        const idx = Math.round((travelled + d0) / KERB);
+        visctx.fillStyle = (idx % 2) ? 'rgba(214,52,45,0.92)' : 'rgba(240,240,242,0.92)';
+        [-1, 1].forEach(side => {
+          const ppm0 = roadHalfAt(tt0) / 4, ppm1 = roadHalfAt(tt1) / 4;
+          const x0 = roadCenterAt(tt0) + side * edgeAt(tt0, side);
+          const x1 = roadCenterAt(tt1) + side * edgeAt(tt1, side);
+          visctx.beginPath();
+          visctx.moveTo(x0, rowY(tt0));
+          visctx.lineTo(x0 + side * 0.8 * ppm0, rowY(tt0));
+          visctx.lineTo(x1 + side * 0.8 * ppm1, rowY(tt1));
+          visctx.lineTo(x1, rowY(tt1));
+          visctx.closePath();
+          visctx.fill();
+        });
+      }
+    }
+
     // Ligne centrale : de vrais tirets posés au sol, un tous les 12 m sur 3 m de long, et non
     // un motif calé sur l'écran. Ils se resserrent d'eux-mêmes vers l'horizon, exactement comme
     // en perspective réelle, et leur défilement suit la vitesse sans qu'on ait à la doser.
+    // Une piste de circuit n'en a pas : `dash` vaut alors null.
     const speedFactor = Math.min(1.4, speedKmh / 140);
-    visctx.fillStyle = sc.dash;
+    visctx.fillStyle = sc.dash || 'rgba(0,0,0,0)';
     const dashFirst = Math.ceil(travelled / 12) * 12 - travelled;
-    for(let k = 0; k < 22; k++){
+    for(let k = 0; sc.dash && k < 22; k++){
       const d0 = dashFirst + k * 12;
       if(d0 < 2.5) continue;
       const d1 = d0 + 3;
@@ -1978,10 +2118,15 @@
     // dessiné juste après la chaussée : les véhicules et les particules passeront devant
     const palette = sc.props || ['pine', 'bush', 'pole'];
     roadProps.forEach(pr => {
-      if(pr.dist < 3) return;
-      if(!pr.kind) pr.kind = palette[Math.floor(Math.random() * palette.length)];
+      if(pr.dist < 1.5) return;
+      if(!pr.kind){
+        pr.kind = palette[Math.floor(Math.random() * palette.length)];
+        pr.offset = propOffset(pr.kind);
+      }
       const tt = CAM_NEAR / pr.dist;
-      if(tt < 0.012 || tt > 0.9) return;
+      // pas de coupure de proximité : c'est le cadre qui élimine ce qui est passé (test sur x
+      // plus bas), sans quoi on supprimerait justement les éléments les plus rapides
+      if(tt < 0.012 || tt > 3.4) return;
       const ppm = roadHalfAt(Math.min(1, tt)) / 4;
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
       if(x < -W * 0.3 || x > W * 1.3) return;
