@@ -30,52 +30,67 @@
   #visionCanvas{ position:fixed; inset:0; width:100vw; height:100vh; z-index:0; display:block; }
   /* le bandeau du haut est réduit au minimum : chaque pixel repris dessus est un pixel de
      route visible, l'horizon se trouvant précisément derrière lui */
-  .wrap{ position:relative; z-index:1; max-width:520px; margin:0 auto; padding:8px 16px 32px; min-height:100vh; display:flex; flex-direction:column; gap:9px;}
+  /* la marge basse laisse passer le bouton de menu flottant sans qu'il recouvre les chiffres */
+  .wrap{ position:relative; z-index:1; max-width:520px; margin:0 auto; padding:0 16px 52px; min-height:100vh; display:flex; flex-direction:column; gap:9px;}
 
-  header{ display:flex; align-items:center; justify-content:space-between; gap:10px;}
-  .brand{ font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--muted); text-shadow:0 1px 4px rgba(0,0,0,0.8);}
-  .brand b{color:var(--amber); letter-spacing:1px;}
-  .debug-badge{
-    font-size:10px; letter-spacing:2px; text-transform:uppercase;
-    padding:3px 8px; border-radius:3px; border:1px solid #2c3038;
-    color:var(--muted); background:rgba(255,255,255,0.02);
-    display:flex; align-items:center; gap:6px; cursor:pointer;
+  /* Hors mode débug il n'y a rien à faire défiler : le cockpit tient dans l'écran. On le
+     verrouille donc en paysage, où un défilement parasite ferait glisser la route sous les
+     doigts au moindre appui sur une pédale ou un bouton. */
+  @media (orientation: landscape){
+    body:not(.debug-on){ overflow:hidden; }
+    body:not(.debug-on) .wrap{ height:100vh; min-height:0; overflow:hidden; }
   }
-  .debug-badge .dot{
+
+  /* --- commandes flottantes ---------------------------------------------------------
+     Plus aucune barre en haut de page : le titre disparaît, le bouton débug et le menu
+     moteur/paysage se posent en transparence sur la route. C'est ce qui rend enfin toute
+     la hauteur à l'animation, l'horizon tombant précisément là où le bandeau se trouvait. */
+  .float-btn{
+    position:fixed; z-index:30; cursor:pointer;
+    display:flex; align-items:center; gap:7px;
+    background:rgba(12,14,18,0.40);
+    backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+    border:1px solid rgba(255,255,255,0.10); border-radius:10px;
+    color:var(--muted); font-size:10px; letter-spacing:1.5px;
+    text-transform:uppercase; font-weight:700; padding:7px 11px;
+  }
+  .float-btn:active{ transform:translateY(1px); }
+  .float-btn .dot{
     width:6px; height:6px; border-radius:50%; background:#3a2013; flex-shrink:0;
     box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
   }
-  .debug-badge.on{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.08); }
-  .debug-badge.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
-
-  .engine-row{ display:flex; gap:10px; align-items:center; }
-  /* chaque sélecteur porte son propre menu déroulant, donc son propre repère de position */
-  .picker-slot{ position:relative; display:flex; }
-  .picker-slot.engine-slot{ flex:1; min-width:0; }
-  .picker-slot.scene-slot{ flex:0 0 auto; }
-  .picker-slot.scene-slot .engine-picker{ font-size:13px; padding:7px 10px; }
-  .picker-slot.scene-slot .engine-dropdown{ left:auto; right:0; min-width:180px; }
-
-  /* --- sélecteur moteur : bouton custom, plus de <select> natif --- */
-  .engine-picker{
-    flex:1; display:flex; align-items:center; justify-content:space-between; gap:8px;
-    background:linear-gradient(180deg, #1b1f24, #121519);
-    color:var(--text); border:1px solid #2c3038; border-top-color:#383d46;
-    border-radius:9px; padding:7px 12px; font-size:14px; font-weight:700;
-    letter-spacing:0.3px; cursor:pointer;
-    box-shadow: 0 2px 0 rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.03);
+  #debugToggle{ top:10px; right:10px; opacity:0.42; }
+  #debugToggle.on{
+    opacity:1; border-color:var(--amber-dim); color:var(--amber);
+    background:rgba(255,140,60,0.16);
   }
-  .engine-picker .chev{ color:var(--muted); flex-shrink:0; transition:transform 0.15s; }
-  .engine-picker.open .chev{ transform:rotate(180deg); }
+  #debugToggle.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  .engine-dropdown{
-    position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:20;
-    background:linear-gradient(180deg, #1a1d22, #101317);
-    border:1px solid #2c3038; border-radius:12px; overflow:hidden;
-    box-shadow: 0 16px 32px rgba(0,0,0,0.55);
+  #menuBtn{ left:10px; bottom:10px; max-width:min(72vw, 340px); }
+  #menuBtn .menu-lbl{
+    font-size:12px; letter-spacing:0.3px; text-transform:none; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #menuBtn.open{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.14); }
+  #menuBtn .menu-icon{ flex-shrink:0; color:var(--amber); }
+
+  .menu-panel{
+    position:fixed; z-index:31; left:10px; bottom:56px;
+    width:min(88vw, 300px); max-height:min(70vh, 520px); overflow-y:auto;
+    background:linear-gradient(180deg, rgba(26,29,34,0.97), rgba(16,19,23,0.97));
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border:1px solid #2c3038; border-radius:12px;
+    box-shadow: 0 18px 40px rgba(0,0,0,0.6);
+  }
+  /* en-têtes collants : la liste des moteurs est longue, on doit savoir en permanence dans
+     quelle section on se trouve en la faisant défiler */
+  .menu-title{
+    position:sticky; top:0; z-index:1;
+    font-size:9px; letter-spacing:2px; text-transform:uppercase; color:var(--muted);
+    padding:9px 14px 7px; background:#141720; border-bottom:1px solid #20242a;
   }
   .engine-option{
-    padding:12px 14px; font-size:14px; font-weight:600; color:var(--text);
+    padding:9px 14px; font-size:14px; font-weight:600; color:var(--text);
     border-bottom:1px solid #20242a; cursor:pointer; letter-spacing:0.2px;
   }
   .engine-option:last-child{ border-bottom:none; }
@@ -141,7 +156,9 @@
 
   /* le cockpit n'a plus de panneau opaque : les compteurs flottent directement sur la
      vision de vitesse en arrière-plan, poussés vers le bas de l'espace disponible */
-  .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; }
+  /* le cockpit prend toute la hauteur restante et se cale en bas : sans barre d'en-tête,
+     c'est lui qui tient les compteurs au ras du bord inférieur, la route occupant le reste */
+  .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; flex:1; min-height:170px; }
   .gauges{ display:flex; justify-content:center; align-items:flex-end; gap:10px; }
   /* `flex:1 1 0` + `min-width:0` : sur un écran étroit les compteurs rétrécissent d'eux-mêmes
      au lieu de déborder de part et d'autre de la page. */
@@ -254,8 +271,10 @@
   .cgu-text strong{ color:var(--text); }
 
   @media (min-width: 700px){
-    .wrap{ max-width:2560px; padding-left:0; padding-right:0; height:100vh; overflow:hidden; }
-    header, .engine-row, #debugPanel, #soundDesignPanel{ flex-shrink:0; }
+    .wrap{ max-width:2560px; padding-left:0; padding-right:0; }
+    /* en mode débug la page peut défiler : sinon l'atelier son passe sous le bord de l'écran */
+    body:not(.debug-on) .wrap{ height:100vh; overflow:hidden; }
+    #debugPanel, #soundDesignPanel{ flex-shrink:0; }
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
        via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
@@ -286,6 +305,21 @@
 </head>
 <body>
 <canvas id="visionCanvas"></canvas>
+
+<button class="float-btn" id="debugToggle" type="button" title="Mode débug : pédales manuelles. Sinon, vitesse réelle via GPS du navigateur.">
+  <span class="dot"></span> Débug
+</button>
+
+<button class="float-btn" id="menuBtn" type="button" title="Choix du moteur et du paysage">
+  <svg class="menu-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+  <span class="menu-lbl" id="menuBtnLabel">Moteur Brut · Nuit</span>
+</button>
+<div class="menu-panel" id="menuPanel" hidden>
+  <div class="menu-title">Moteur</div>
+  <div id="engineDropdown"></div>
+  <div class="menu-title">Paysage</div>
+  <div id="sceneDropdown"></div>
+</div>
 <div class="disclaimer-overlay" id="disclaimerOverlay">
   <div class="disclaimer-box">
     <div class="disclaimer-title">⚠️ Avant de commencer</div>
@@ -317,30 +351,6 @@
 </div>
 
 <div class="wrap">
-
-  <header>
-    <div class="brand"><b>COCKPIT</b> / moteur virtuel</div>
-    <button class="debug-badge" id="debugToggle" type="button" title="Mode débug : pédales manuelles. Sinon, vitesse réelle via GPS du navigateur.">
-      <span class="dot"></span> Débug
-    </button>
-  </header>
-
-  <div class="engine-row">
-    <div class="picker-slot engine-slot">
-      <button class="engine-picker" id="enginePickerBtn" type="button">
-        <span id="enginePickerLabel">Moteur Brut</span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
-      </button>
-      <div class="engine-dropdown" id="engineDropdown" hidden></div>
-    </div>
-    <div class="picker-slot scene-slot">
-      <button class="engine-picker" id="scenePickerBtn" type="button" title="Décor de la route">
-        <span id="scenePickerLabel">Nuit</span>
-        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
-      </button>
-      <div class="engine-dropdown" id="sceneDropdown" hidden></div>
-    </div>
-  </div>
 
   <div class="cockpit">
     <div class="gauges">
@@ -1925,9 +1935,19 @@
     resetHeading();
   }
 
-  const enginePickerBtn = document.getElementById('enginePickerBtn');
-  const enginePickerLabel = document.getElementById('enginePickerLabel');
   const engineDropdown = document.getElementById('engineDropdown');
+  const menuBtn = document.getElementById('menuBtn');
+  const menuPanel = document.getElementById('menuPanel');
+  const menuBtnLabel = document.getElementById('menuBtnLabel');
+
+  // le bouton flottant porte les deux choix en cours, moteur et paysage
+  function refreshMenuLabel(){
+    menuBtnLabel.textContent = ENGINES[currentEngineKey].name + ' · ' + SCENES[currentSceneKey].name;
+  }
+  function closeMenu(){
+    menuPanel.hidden = true;
+    menuBtn.classList.remove('open');
+  }
   const engineLabel = document.getElementById('engineLabel');
   const rupteurBtn = document.getElementById('rupteurBtn');
   const antilagBtn = document.getElementById('antilagBtn');
@@ -1960,6 +1980,8 @@
 
   function applyDebugUI(){
     debugToggle.classList.toggle('on', debugMode);
+    // sert au verrouillage du défilement : la page ne défile qu'en mode débug (voir le CSS)
+    document.body.classList.toggle('debug-on', debugMode);
     debugPanel.hidden = !debugMode;
     soundDesignPanel.hidden = !debugMode;
     if(debugMode){
@@ -2010,22 +2032,13 @@
 
   function selectEngine(key){
     currentEngineKey = key;
-    enginePickerLabel.textContent = ENGINES[key].name;
     engineLabel.textContent = ENGINES[key].name;
     setEngineProfile(key);
-    document.querySelectorAll('.engine-option').forEach(el => {
+    engineDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
-    closeDropdown();
-  }
-
-  function openDropdown(){
-    engineDropdown.hidden = false;
-    enginePickerBtn.classList.add('open');
-  }
-  function closeDropdown(){
-    engineDropdown.hidden = true;
-    enginePickerBtn.classList.remove('open');
+    refreshMenuLabel();
+    closeMenu();
   }
 
   Object.keys(ENGINES).forEach(key => {
@@ -2036,23 +2049,19 @@
     row.addEventListener('click', () => selectEngine(key));
     engineDropdown.appendChild(row);
   });
-  enginePickerLabel.textContent = ENGINES[currentEngineKey].name;
   engineLabel.textContent = ENGINES[currentEngineKey].name;
 
-  // --- sélecteur de scène ---------------------------------------------------------------
-  const scenePickerBtn = document.getElementById('scenePickerBtn');
-  const scenePickerLabel = document.getElementById('scenePickerLabel');
+  // --- choix du paysage (même menu flottant que le moteur) --------------------------------
   const sceneDropdown = document.getElementById('sceneDropdown');
 
   function selectScene(key){
     currentSceneKey = key;
-    scenePickerLabel.textContent = SCENES[key].name;
     decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
     sceneDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
-    sceneDropdown.hidden = true;
-    scenePickerBtn.classList.remove('open');
+    refreshMenuLabel();
+    closeMenu();
     try{ localStorage.setItem('vroomScene', key); }catch(e){}
   }
 
@@ -2064,23 +2073,20 @@
     row.addEventListener('click', () => selectScene(key));
     sceneDropdown.appendChild(row);
   });
-  scenePickerBtn.addEventListener('click', e => {
+  menuBtn.addEventListener('click', e => {
     e.stopPropagation();
-    const opening = sceneDropdown.hidden;
-    sceneDropdown.hidden = !opening;
-    scenePickerBtn.classList.toggle('open', opening);
-    engineDropdown.hidden = true;
-    enginePickerBtn.classList.remove('open');
+    const opening = menuPanel.hidden;
+    menuPanel.hidden = !opening;
+    menuBtn.classList.toggle('open', opening);
   });
-  document.addEventListener('click', () => {
-    sceneDropdown.hidden = true;
-    scenePickerBtn.classList.remove('open');
-  });
+  menuPanel.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', closeMenu);
+
   try{
     const saved = localStorage.getItem('vroomScene');
     if(saved && SCENES[saved]) selectScene(saved);
-    else scenePickerLabel.textContent = SCENES[currentSceneKey].name;
-  }catch(e){ scenePickerLabel.textContent = SCENES[currentSceneKey].name; }
+  }catch(e){}
+  refreshMenuLabel();
 
   // ---------------------------------------------------------------------
   // 5c. ATELIER SON (débug) — composer un moteur aux curseurs, puis exporter
@@ -2244,8 +2250,8 @@
     // rapports séparés par des virgules, aucune limite de nombre — les entrées invalides sont ignorées
     const parsedGears = sdGears.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
     if(parsedGears.length > 0) p.gearRatios = parsedGears;
-    enginePickerLabel.textContent = p.name;
     engineLabel.textContent = p.name;
+    refreshMenuLabel();
     updateSoundDesignLabels();
     // rugosité (détune des oscillateurs) et harmoniques (nombre d'oscillateurs) sont fixées à
     // la création du banc d'oscillateurs : il faut le reconstruire pour les entendre changer
@@ -2297,16 +2303,6 @@
         .catch(() => { sdExportHint.textContent = 'Copie automatique impossible — le texte ci-dessus est sélectionné, copie-le (Ctrl+C).'; });
     } else {
       sdExportHint.textContent = 'Le texte ci-dessus est sélectionné, copie-le (Ctrl+C) et colle-le moi dans le chat.';
-    }
-  });
-
-  enginePickerBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    engineDropdown.hidden ? openDropdown() : closeDropdown();
-  });
-  document.addEventListener('click', (e) => {
-    if(!engineDropdown.hidden && !engineDropdown.contains(e.target) && e.target !== enginePickerBtn){
-      closeDropdown();
     }
   });
 
