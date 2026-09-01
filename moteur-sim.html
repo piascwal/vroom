@@ -260,11 +260,9 @@
     /* Les compteurs sont poussés au plus bas de l'écran : la bande de chiffres passe
        au-dessus d'eux (order:-1) et il ne reste plus aucune marge en dessous, de sorte que
        les cadrans occupent le bas du cadre et dégagent la route au-dessus. */
+    /* les chiffres restent sous les cadrans ; c'est la marge basse du cadre qui disparaît,
+       de sorte que l'ensemble descende sans rien perdre de sa taille */
     .cockpit{ flex:1; min-height:140px; gap:8px; padding-bottom:0; }
-    /* la bande de chiffres passe au-dessus des cadrans et il ne reste plus aucune marge en
-       dessous : les compteurs descendent jusqu'au bord bas du cadre, ce qui dégage la route
-       au-dessus d'eux sans rien leur retirer de leur taille */
-    .cockpit .readout-strip{ order:-1; }
     #soundDesignPanel{ max-height:min(300px, 40vh); }
     .gauges{ flex:1; min-height:0; gap:24px; }
     canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
