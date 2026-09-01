@@ -385,6 +385,7 @@
     <div class="sd-slider"><label>Brillance <span id="sdBrightnessVal"></span></label><input type="range" id="sdBrightness" min="0" max="2" step="0.01"></div>
     <div class="sd-slider"><label>Pétarade <span id="sdCrackleVal"></span></label><input type="range" id="sdCrackle" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Rombissement (bancs décalés) <span id="sdRumbleVal"></span></label><input type="range" id="sdRumble" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
@@ -461,6 +462,26 @@
     // les curseurs, ne pas s'y fier comme préréglage fixe
     custom: { name:'Atelier (réglable)', cylinders:6, idleRPM:800, maxRPM:7000, redline:6800, harmonics:[1,2,3], roughness:0.3, brightness:0.9, crackle:0, turbo:false },
   };
+
+  // « rumble » = irrégularité du calendrier d'allumage entre les deux bancs de cylindres.
+  // C'est de là que vient le rombissement d'un V8 : les cylindres ne s'allument pas à
+  // intervalles parfaitement égaux, ce qui ajoute des demi-ordres (des composantes à la moitié
+  // de la fréquence d'allumage) au spectre. Un V12 ou un W16, quasi parfaitement équilibrés,
+  // n'en ont presque pas — ils sifflent au lieu de gronder.
+  const RUMBLE_OVERRIDES = {
+    harley: 1, grogne: 0.95, mecanique: 0.7, amg: 0.62, v8: 0.55, v8crackle: 0.5,
+    tondeuse: 0.5, porsche: 0.35, turbo4: 0.32, v10rally: 0.26, v6: 0.25, funky: 0.4,
+    ferrari: 0.16, v12: 0.06, lambo: 0.05, bugatti: 0.04,
+  };
+  // calendriers d'allumage réels, quand la signature du moteur en dépend directement
+  // (V-twin Harley à 45° : deuxième cylindre à 405° sur 720, d'où le « potato-potato »)
+  const FIRING_OVERRIDES = { harley: [0, 0.5625] };
+  Object.entries(ENGINES).forEach(([key, p]) => {
+    if(p.rumble == null){
+      p.rumble = RUMBLE_OVERRIDES[key] != null ? RUMBLE_OVERRIDES[key] : Math.min(1, (p.roughness || 0) * 1.1);
+    }
+    if(FIRING_OVERRIDES[key]) p.firingPattern = FIRING_OVERRIDES[key];
+  });
 
   // ---------------------------------------------------------------------
   // 2. PHYSIQUE : vitesse <-> régime via rapports de boîte
@@ -599,8 +620,10 @@
   let fxGain = null;        // canal dédié pétarade/whoosh, non écrasé par le volume moteur
   let growlLFO = null, growlDepth = null; // "grogne" : modulation grave irrégulière au ralenti
   let wahLFO = null, wahDepth = null;     // "funky" : balayage rythmique du filtre
-  let pulseLFO = null, pulseDepth = null; // "mécanique" : pulsation réelle par cycle de combustion
-  let engineSum = null, engineBodyGain = null; // bus interne moteur, traversé par la pulsation
+  let pulseLFO = null, pulseDepth = null; // "mécanique" : cliquetis de distribution, une bouffée de bruit par combustion
+  let engineSum = null, engineBodyGain = null; // bus interne moteur, avant les résonances de caisse
+  let engineHP = null, bodyLow = null, bodyMid = null, bodyHigh = null; // résonances de caisse/échappement
+  let outBus = null;        // limiteur de sortie : empêche la saturation quand tout joue en même temps
   let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
 
   function spawnPop(intensity){
@@ -675,6 +698,30 @@
     g.gain.exponentialRampToValueAtTime(0.001, now + dur);
     src.connect(bp); bp.connect(g); g.connect(fxGain);
     src.start(now); src.stop(now + dur + 0.02);
+  }
+
+  // souffle d'un véhicule qu'on double : bruit large qui enfle puis retombe, avec la bande
+  // passante qui descend au moment du croisement — un Doppler simplifié, mais suffisant pour
+  // que le dépassement s'entende autant qu'il se voit
+  function spawnPassBy(intensity){
+    if(!actx || !noiseNode) return;
+    const now = actx.currentTime;
+    const dur = 0.55 + intensity * 0.35;
+    const src = actx.createBufferSource();
+    src.buffer = noiseNode.buffer;
+    src.loop = true;
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(850 + intensity * 450, now);
+    bp.frequency.exponentialRampToValueAtTime(240, now + dur);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.14 + intensity * 0.20, now + dur * 0.45);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    src.connect(bp); bp.connect(g); g.connect(fxGain);
+    src.start(now);
+    src.stop(now + dur + 0.05);
   }
 
   function spawnNitro(duration){
@@ -753,9 +800,19 @@
     if(actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
 
+    // limiteur de sortie commun : le train d'impulsions moteur est très crêté, et les
+    // pétarades viennent s'ajouter par-dessus — sans ça on sature en numérique sur les pics
+    outBus = actx.createDynamicsCompressor();
+    outBus.threshold.value = -3;
+    outBus.knee.value = 6;
+    outBus.ratio.value = 12;
+    outBus.attack.value = 0.005;
+    outBus.release.value = 0.25;
+    outBus.connect(actx.destination);
+
     master = actx.createGain();
     master.gain.value = 0;
-    master.connect(actx.destination);
+    master.connect(outBus);
 
     lowpass = actx.createBiquadFilter();
     lowpass.type = 'lowpass';
@@ -765,7 +822,7 @@
 
     fxGain = actx.createGain();
     fxGain.gain.value = 0.9;
-    fxGain.connect(actx.destination);
+    fxGain.connect(outBus);
 
     // LFO de "grogne" : irrégularité grave du ralenti, module le volume moteur
     growlLFO = actx.createOscillator();
@@ -787,12 +844,44 @@
     wahDepth.connect(lowpass.frequency);
     wahLFO.start();
 
-    // bus interne moteur : tout le banc d'harmoniques passe par ici avant le filtre
+    // bus interne moteur : tout le moteur passe par ici avant le filtre principal.
+    // Entre les deux, un jeu de résonances fixes (en Hz absolus, pas en multiples du régime)
+    // qui joue le rôle du bloc, de la caisse et de la ligne d'échappement : ce sont elles qui
+    // donnent un corps au son quand le régime monte, au lieu d'un simple glissando.
     engineSum = actx.createGain();
     engineSum.gain.value = 1;
+
+    engineHP = actx.createBiquadFilter();
+    engineHP.type = 'highpass';
+    engineHP.frequency.value = 35;
+    engineHP.Q.value = 0.7;
+
+    bodyLow = actx.createBiquadFilter();   // le grondement qu'on sent dans la poitrine
+    bodyLow.type = 'peaking';
+    bodyLow.frequency.value = 92;
+    bodyLow.Q.value = 1.1;
+    bodyLow.gain.value = 6;
+
+    bodyMid = actx.createBiquadFilter();   // corps du bloc
+    bodyMid.type = 'peaking';
+    bodyMid.frequency.value = 255;
+    bodyMid.Q.value = 1.6;
+    bodyMid.gain.value = 4;
+
+    bodyHigh = actx.createBiquadFilter();  // résonance de la ligne d'échappement
+    bodyHigh.type = 'peaking';
+    bodyHigh.frequency.value = 700;
+    bodyHigh.Q.value = 1.2;
+    bodyHigh.gain.value = 3.5;
+
     engineBodyGain = actx.createGain();
     engineBodyGain.gain.value = 1;
-    engineSum.connect(engineBodyGain);
+
+    engineSum.connect(engineHP);
+    engineHP.connect(bodyLow);
+    bodyLow.connect(bodyMid);
+    bodyMid.connect(bodyHigh);
+    bodyHigh.connect(engineBodyGain);
     engineBodyGain.connect(lowpass);
 
     // couche bruit (air / echappement)
@@ -807,7 +896,7 @@
     noiseGain.gain.value = 0;
     noiseNode.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(master);
+    noiseGain.connect(lowpass);
     noiseNode.start();
 
     // échappement en bruit filtré en peigne : un délai rebouclé sur lui-même, calé sur la
@@ -830,14 +919,15 @@
     combFeedback.connect(combDelay);
     combDelay.connect(engineSum);
 
-    // LFO "mécanique" : pulsation réelle par cycle de combustion (pas un ton tenu)
+    // LFO "mécanique" : cliquetis de distribution, une bouffée de bruit par combustion.
+    // Il ne module plus le corps du moteur : depuis que celui-ci est un vrai train
+    // d'impulsions, la pulsation est déjà dans la forme d'onde, la doubler ici la brouillait.
     pulseLFO = actx.createOscillator();
     pulseLFO.type = 'sawtooth';
     pulseLFO.frequency.value = 40;
     pulseDepth = actx.createGain();
     pulseDepth.gain.value = 0;
     pulseLFO.connect(pulseDepth);
-    pulseDepth.connect(engineBodyGain.gain);
     pulseDepth.connect(noiseGain.gain);
     pulseLFO.start();
 
@@ -852,51 +942,156 @@
     oscBank = [];
   }
 
+  // suite pseudo-aléatoire reproductible : deux chargements du même moteur doivent donner
+  // exactement le même calendrier d'allumage, sinon le timbre change à chaque visite
+  function seededRandom(seed){
+    let a = seed >>> 0;
+    return function(){
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Calendrier d'allumage sur un cycle complet (720°, deux tours en quatre temps) : position
+  // 0..1 et poids de chaque cylindre. Un moteur parfaitement régulier ne produit que des
+  // multiples entiers de la fréquence d'allumage — c'est le sifflement de synthé qu'on avait.
+  // En décalant un banc sur deux et en donnant à chaque cylindre son propre remplissage, on
+  // fait apparaître les demi-ordres : le rombissement.
+  function firingSchedule(profile, seed){
+    const N = Math.max(1, Math.round(profile.cylinders));
+    const rnd = seededRandom(seed);
+    const rumble = Math.max(0, Math.min(1, profile.rumble != null ? profile.rumble : (profile.roughness || 0) * 1.1));
+    const spacing = 1 / N;
+    const base = (profile.firingPattern && profile.firingPattern.length === N) ? profile.firingPattern : null;
+    const phases = [], amps = [];
+    for(let i=0;i<N;i++){
+      const even = base ? base[i] : i * spacing;
+      const bank = (i % 2) ? rumble * spacing * 0.34 : 0;              // décalage systématique d'un banc
+      const scatter = (rnd() * 2 - 1) * rumble * spacing * 0.12;       // dispersion cylindre à cylindre
+      phases.push((((even + bank + scatter) % 1) + 1) % 1);
+      amps.push(1 + ((i % 2) ? -1 : 1) * rumble * 0.22 + (rnd() * 2 - 1) * rumble * 0.12);
+    }
+    return { phases, amps };
+  }
+
+  // Table d'onde du moteur : le train d'impulsions de combustion d'un cycle entier, obtenu par
+  // série de Fourier puis joué par un seul oscillateur à la fréquence du cycle (rpm/120).
+  // `sharp` distingue la pleine charge (impulsion brève, spectre étendu, ça claque) du pied
+  // levé (impulsion molle et sourde). C'est ce changement de timbre selon la charge — et pas
+  // seulement de volume — qui fait entendre un moteur plutôt qu'une sirène.
+  function buildEngineWave(profile, sharp, seed){
+    const N = Math.max(1, Math.round(profile.cylinders));
+    const H = 384;
+    const real = new Float32Array(H + 1);
+    const imag = new Float32Array(H + 1);
+    const sched = firingSchedule(profile, seed);
+    const bright = 0.45 + (profile.brightness != null ? profile.brightness : 0.8) * 0.55;
+    const kc = (sharp ? 8.5 : 2.6) * N * bright;   // ordre de coupure de l'impulsion
+    const poles = sharp ? 2.0 : 3.0;
+
+    // les harmoniques cochées dans l'atelier deviennent des accents sur les ordres
+    // correspondants de la fréquence d'allumage (0.5 = demi-ordre, soit le grondement)
+    const emphasis = new Float32Array(H + 1).fill(1);
+    const harms = (profile.harmonics && profile.harmonics.length) ? profile.harmonics : [1];
+    harms.forEach((h, idx) => {
+      const k0 = h * N;
+      const boost = 0.8 / Math.pow(idx + 1, 0.5);
+      const lo = Math.max(1, Math.floor(k0 - 3)), hi = Math.min(H, Math.ceil(k0 + 3));
+      for(let k=lo;k<=hi;k++){
+        const d = (k - k0) / 0.8;
+        emphasis[k] += boost * Math.exp(-d * d);
+      }
+    });
+
+    for(let k=1;k<=H;k++){
+      const env = Math.pow(1 + Math.pow(k / kc, 2), -poles / 2) * emphasis[k];
+      if(env < 1e-4) continue;
+      let re = 0, im = 0;
+      for(let i=0;i<N;i++){
+        const ph = 2 * Math.PI * k * sched.phases[i];
+        re += sched.amps[i] * Math.cos(ph);
+        im -= sched.amps[i] * Math.sin(ph);
+      }
+      real[k] = re * env;
+      imag[k] = im * env;
+    }
+    return actx.createPeriodicWave(real, imag);
+  }
+
   function setEngineProfile(key){
     currentProfileKey = key;
     if(!actx) return;
     clearOscBank();
     const profile = ENGINES[key];
-    profile.harmonics.forEach((h, idx) => {
+    // deux exemplaires par timbre (charge / pied levé), avec des calendriers d'allumage
+    // légèrement différents et un désaccord de quelques centièmes : les deux trains
+    // d'impulsions dérivent lentement l'un par rapport à l'autre, ce qui évite le bourdon figé
+    // d'un synthétiseur quand le régime ne bouge plus.
+    const seedBase = (Math.round(profile.cylinders) * 7307 + Math.round((profile.roughness || 0) * 1000) * 17 + Math.round(profile.idleRPM)) >>> 0;
+    [[true, 0], [true, 1], [false, 2], [false, 3]].forEach(pair => {
+      const sharp = pair[0], n = pair[1];
       const osc = actx.createOscillator();
-      osc.type = h < 1 ? 'sine' : (idx === 0 ? 'sawtooth' : 'triangle');
+      osc.setPeriodicWave(buildEngineWave(profile, sharp, seedBase + n * 911));
+      osc.frequency.value = 10;
+      osc.detune.value = (n % 2 ? 1 : -1) * (4 + (profile.roughness || 0) * 10);
       const gain = actx.createGain();
-      const baseAmp = 1 / Math.pow(idx + 1, 1.4);
-      gain.gain.value = baseAmp;
+      gain.gain.value = 0;
       osc.connect(gain);
       gain.connect(engineSum);
-      osc.frequency.value = 40;
-      // léger détune pour la texture "rugueuse" (roughness du moteur)
-      osc.detune.value = (Math.random() * 2 - 1) * profile.roughness * 25;
       osc.start();
-      oscBank.push({osc, gain, harmonic: h});
+      oscBank.push({ osc, gain, sharp });
     });
   }
 
+  // cruiseFade : 1 = phase qui compte (accélération, freinage, changement de rapport),
+  // ~0.25 = allure constante. Il ne se contente pas de baisser le volume, il assombrit aussi
+  // le son : le haut du spectre s'efface pendant que la résonance grave est rehaussée, de
+  // sorte qu'il reste un rombissement sourd sous le plancher au lieu d'un moteur coupé.
   function updateAudio(rpm, throttle, running, profile, cruiseFade){
     if(!actx) return;
     const now = actx.currentTime;
-    const firingFreq = Math.max(18, (rpm * profile.cylinders) / 120);
+    const cylinders = Math.max(1, Math.round(profile.cylinders));
+    // fréquence du cycle complet (deux tours) : c'est la période de la table d'onde, qui
+    // contient déjà l'allumage de tous les cylindres
+    const cycleFreq = Math.max(3, rpm / 120);
+    const firingFreq = Math.max(18, cycleFreq * cylinders);
+    const rpmRatio = Math.min(1, rpm / profile.maxRPM);
+    const fade = Math.max(0, Math.min(1, cruiseFade));
 
+    // charge moteur : à pied levé l'impulsion est molle et sourde, à pleine charge elle claque.
+    // À allure constante on tire volontairement vers le timbre « pied levé », plus discret.
+    const load = Math.min(1, throttle * 1.2 + rpmRatio * 0.15) * (0.35 + 0.65 * fade);
     oscBank.forEach(o => {
-      const f = Math.min(firingFreq * o.harmonic, actx.sampleRate/2 - 100);
-      o.osc.frequency.setTargetAtTime(f, now, 0.03);
+      o.osc.frequency.setTargetAtTime(cycleFreq, now, 0.035);
+      const amp = (o.sharp ? load : 1 - load * 0.8) * 0.5;
+      o.gain.gain.setTargetAtTime(running ? amp : 0, now, 0.05);
     });
 
-    const rpmRatio = Math.min(1, rpm / profile.maxRPM);
-    lowpass.frequency.setTargetAtTime(500 + rpmRatio * 6000 * profile.brightness, now, 0.05);
+    // résonances de caisse : fixes en fréquence (elles ne suivent pas le régime), sauf la
+    // grave qu'on rehausse à allure constante pour garder le rombissement audible
+    if(bodyLow){
+      bodyLow.frequency.setTargetAtTime(Math.max(55, 110 - cylinders * 2.2), now, 0.2);
+      bodyLow.gain.setTargetAtTime(5 + (profile.roughness || 0) * 4 + (1 - fade) * 5, now, 0.15);
+      bodyHigh.frequency.setTargetAtTime(Math.max(380, Math.min(1500, 620 * (profile.brightness || 0.8) + 180)), now, 0.2);
+    }
+
+    lowpass.frequency.setTargetAtTime((450 + rpmRatio * 5500 * profile.brightness + throttle * 900) * (0.30 + 0.70 * fade), now, 0.05);
 
     noiseFilter.frequency.setTargetAtTime(300 + rpmRatio * 3500, now, 0.05);
-    const targetNoise = running ? (0.02 + throttle * 0.10 + rpmRatio * 0.05) * cruiseFade : 0;
+    // souffle d'admission et cliquetis : ce sont eux qui « claquent » à l'oreille, donc ils
+    // s'effacent bien plus vite que le grave quand on tient une allure constante
+    const targetNoise = running ? (0.02 + throttle * 0.10 + rpmRatio * 0.05) * fade * fade : 0;
     noiseGain.gain.setTargetAtTime(targetNoise, now, 0.08);
 
     // échappement en peigne : le délai suit la fréquence d'allumage réelle, l'intensité varie
     // selon la rugosité du profil moteur (plus texturé/buzzy pour les mécaniques rugueuses)
     combDelay.delayTime.setTargetAtTime(1 / firingFreq, now, 0.02);
-    const combAmt = running ? (0.05 + profile.roughness * 0.22) * (0.3 + throttle * 0.4 + rpmRatio * 0.3) * cruiseFade : 0;
+    const combAmt = running ? (0.05 + profile.roughness * 0.22) * (0.3 + throttle * 0.4 + rpmRatio * 0.3) * fade * fade : 0;
     combGainIn.gain.setTargetAtTime(combAmt, now, 0.06);
 
-    const targetMaster = running ? (0.22 + rpmRatio * 0.30) * cruiseFade : 0;
+    const targetMaster = running ? (0.26 + rpmRatio * 0.34) * fade : 0;
     master.gain.setTargetAtTime(targetMaster, now, 0.06);
 
 
@@ -915,7 +1110,7 @@
     if(pulseLFO && pulseDepth){
       pulseLFO.frequency.setTargetAtTime(firingFreq, now, 0.02);
       const mech = profile.mechanical || 0;
-      pulseDepth.gain.setTargetAtTime(running ? mech * 0.32 : 0, now, 0.05);
+      pulseDepth.gain.setTargetAtTime(running ? mech * 0.18 * fade : 0, now, 0.05);
     }
   }
 
@@ -1099,10 +1294,119 @@
   }));
   let roadScroll = 0; // défilement des tirets centraux de la route
 
-  function drawVision(speedKmh, throttle, running, dt, kick){
+  // --- VIRAGES ---------------------------------------------------------------------------
+  // En mode réel, la courbure vient du cap : `pos.coords.heading` du GPS, complété par la
+  // boussole du téléphone quand elle est disponible. Ce n'est pas le cap lui-même qui compte
+  // mais sa vitesse de rotation — tourner de 20°/s, c'est un virage franc. En mode débug
+  // (pédales), faute de cap réel, on génère une route qui serpente d'elle-même.
+  const CURVE_FULL_RATE = 22;   // deg/s au-delà desquels le virage est dessiné à fond
+  let headingRate = 0;          // vitesse de rotation du cap, en deg/s signés (+ = à droite)
+  let lastHeadingDeg = null, lastHeadingTime = 0, lastHeadingSample = 0;
+  let roadCurve = 0;            // -1..1 lissé : ce qui est réellement dessiné
+  let simCurve = 0, simCurveTarget = 0, simCurveTimer = 0;
+
+  function applyHeadingSample(deg, tMs){
+    if(deg == null || Number.isNaN(deg)) return;
+    const now = tMs || Date.now();
+    if(lastHeadingDeg != null){
+      let d = deg - lastHeadingDeg;
+      while(d > 180) d -= 360;   // on repasse par le plus court chemin (359° -> 1° = +2°)
+      while(d < -180) d += 360;
+      const dtH = (now - lastHeadingTime) / 1000;
+      if(dtH > 0.05 && dtH < 5){
+        // les relevés de cap sont bruités : on ne prend qu'une fraction de chaque mesure
+        headingRate += (d / dtH - headingRate) * 0.5;
+        lastHeadingSample = now;
+      }
+    }
+    lastHeadingDeg = deg;
+    lastHeadingTime = now;
+  }
+
+  function onDeviceHeading(e){
+    // iOS expose un cap boussole direct ; ailleurs, alpha est un cap absolu compté à l'envers
+    const compass = e.webkitCompassHeading;
+    if(compass != null && !Number.isNaN(compass)){ applyHeadingSample(compass, e.timeStamp && performance.timeOrigin ? performance.timeOrigin + e.timeStamp : Date.now()); return; }
+    if(e.absolute && e.alpha != null) applyHeadingSample((360 - e.alpha) % 360, Date.now());
+  }
+
+  let compassBound = false;
+  function startCompass(){
+    if(compassBound || typeof window.DeviceOrientationEvent === 'undefined') return;
+    const bind = () => {
+      window.addEventListener('deviceorientationabsolute', onDeviceHeading);
+      window.addEventListener('deviceorientation', onDeviceHeading);
+      compassBound = true;
+    };
+    // iOS exige une autorisation, demandée depuis un geste utilisateur (le bouton Démarrer)
+    if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+      DeviceOrientationEvent.requestPermission().then(r => { if(r === 'granted') bind(); }).catch(() => {});
+    } else {
+      bind();
+    }
+  }
+
+  // --- TRAFIC ----------------------------------------------------------------------------
+  // Des véhicules plus lents apparaissent devant, se rapprochent à la différence de vitesse
+  // réelle et finissent par sortir de l'écran quand on les double.
+  const TRAFFIC_MAX = 5;
+  const TRAFFIC_NEAR = 6;       // mètres : distance à laquelle un véhicule occupe le bas de l'écran
+  const TRAFFIC_COLORS = ['#8f2f28', '#2f4d8f', '#7d7f84', '#8a6a2c', '#2f6b4a', '#5a3a6e'];
+  const traffic = [];
+  let trafficTimer = 2;
+
+  function spawnTraffic(ourKmh){
+    const truck = Math.random() < 0.22;
+    traffic.push({
+      dist: 110 + Math.random() * 110,                          // mètres devant nous
+      lane: (Math.random() < 0.7 ? 1 : -1) * (0.40 + Math.random() * 0.24), // fraction de demi-route
+      // toujours plus lents que nous d'au moins ~15 km/h, sinon on ne les rattraperait jamais
+      speed: Math.max(8, Math.min(ourKmh - 15, ourKmh - (18 + Math.random() * 45))),
+      width: truck ? 2.5 : 1.85,
+      height: truck ? 3.1 : 1.42,
+      truck,
+      color: truck ? '#4a5058' : TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)],
+      passed: false,
+    });
+  }
+
+  function updateTraffic(dt, ourKmh, running){
+    if(!running){ traffic.length = 0; trafficTimer = 2; return; }
+    if(ourKmh > 8){
+      trafficTimer -= dt;
+      if(trafficTimer <= 0){
+        if(traffic.length < TRAFFIC_MAX) spawnTraffic(ourKmh);
+        trafficTimer = 1.8 + Math.random() * 4.5;
+      }
+    }
+    const ourMps = ourKmh / 3.6;
+    for(let i = traffic.length - 1; i >= 0; i--){
+      const v = traffic[i];
+      v.dist -= (ourMps - v.speed / 3.6) * dt;
+      if(!v.passed && v.dist < 4){
+        v.passed = true;
+        spawnPassBy(v.truck ? 1 : 0.55);
+      }
+      // sorti par le bas (doublé) ou repris de la distance jusqu'à disparaître
+      if(v.dist < -12 || v.dist > 430) traffic.splice(i, 1);
+    }
+  }
+
+  function drawVision(speedKmh, throttle, running, dt, kick, curve){
     const W = visctx.canvas.width, H = visctx.canvas.height;
     visctx.clearRect(0, 0, W, H);
     const vpX = W / 2, vpY = H * 0.28;
+    const bend = Math.max(-1, Math.min(1, curve || 0));
+
+    // Géométrie de la route en virage : `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
+    // sous le capot). Le décalage latéral croît avec le carré de la distance — sous le capot
+    // la route reste centrée, c'est le lointain qui part sur le côté, comme dans un virage réel.
+    const roadHalfBottom = W * 0.48, roadHalfTop = 3;
+    const bendAt = tt => { const d = 1 - Math.max(0, Math.min(1, tt)); return bend * d * d * W * 0.45; };
+    const roadCenterAt = tt => vpX + bendAt(tt);
+    const roadHalfAt = tt => roadHalfTop + (roadHalfBottom - roadHalfTop) * Math.max(0, Math.min(1.6, tt));
+    const rowY = tt => vpY + (H - vpY) * tt;
+    const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
     const sky = visctx.createLinearGradient(0, 0, 0, vpY);
     sky.addColorStop(0, '#0b0e13');
@@ -1112,13 +1416,17 @@
     visctx.fillStyle = '#08090b';
     visctx.fillRect(0, vpY, W, H - vpY);
 
-    // route en trapèze, convergente vers le point de fuite
-    const roadHalfBottom = W * 0.48, roadHalfTop = 3;
+    // ruban de route : une suite de tranches horizontales, pour pouvoir le courber
+    const SLICES = 28;
     visctx.beginPath();
-    visctx.moveTo(vpX - roadHalfTop, vpY);
-    visctx.lineTo(vpX + roadHalfTop, vpY);
-    visctx.lineTo(vpX + roadHalfBottom, H);
-    visctx.lineTo(vpX - roadHalfBottom, H);
+    for(let i = 0; i <= SLICES; i++){
+      const tt = i / SLICES, y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
+      if(i === 0) visctx.moveTo(c - h, y); else visctx.lineTo(c - h, y);
+    }
+    for(let i = SLICES; i >= 0; i--){
+      const tt = i / SLICES, y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
+      visctx.lineTo(c + h, y);
+    }
     visctx.closePath();
     const roadGrad = visctx.createLinearGradient(0, vpY, 0, H);
     roadGrad.addColorStop(0, '#1c1f24');
@@ -1128,8 +1436,14 @@
 
     visctx.lineWidth = 2;
     visctx.strokeStyle = 'rgba(255,140,60,0.4)';
-    visctx.beginPath(); visctx.moveTo(vpX - roadHalfTop, vpY); visctx.lineTo(vpX - roadHalfBottom, H); visctx.stroke();
-    visctx.beginPath(); visctx.moveTo(vpX + roadHalfTop, vpY); visctx.lineTo(vpX + roadHalfBottom, H); visctx.stroke();
+    [-1, 1].forEach(side => {
+      visctx.beginPath();
+      for(let i = 0; i <= SLICES; i++){
+        const tt = i / SLICES, y = rowY(tt), x = roadCenterAt(tt) + side * roadHalfAt(tt);
+        if(i === 0) visctx.moveTo(x, y); else visctx.lineTo(x, y);
+      }
+      visctx.stroke();
+    });
 
     // ligne centrale pointillée qui défile vers le bas, cadencée par la vitesse réelle —
     // à l'arrêt (point mort), speedFactor est nul donc la route ne défile plus du tout.
@@ -1142,10 +1456,17 @@
     for(let i = 0; i < dashCount; i++){
       const t = (i / dashCount + roadScroll) % 1;
       const tt = t * t; // easing : les tirets s'écartent visuellement en approchant du bas
-      const y = vpY + (H - vpY) * tt;
-      const y2 = vpY + (H - vpY) * Math.min(1, t + 0.05) ** 2;
+      const tt2 = Math.min(1, t + 0.05) ** 2;
+      const y = rowY(tt), y2 = rowY(tt2);
       const halfW = 1 + tt * 4;
-      visctx.fillRect(vpX - halfW, y, halfW * 2, Math.max(2, y2 - y));
+      const cx = roadCenterAt(tt);
+      visctx.beginPath();
+      visctx.moveTo(cx - halfW, y);
+      visctx.lineTo(cx + halfW, y);
+      visctx.lineTo(roadCenterAt(tt2) + halfW, Math.max(y + 2, y2));
+      visctx.lineTo(roadCenterAt(tt2) - halfW, Math.max(y + 2, y2));
+      visctx.closePath();
+      visctx.fill();
     }
 
     // particules de vitesse : traînées radiant depuis le point de fuite vers le bord de l'écran.
@@ -1160,11 +1481,13 @@
       if(p.z > 1){ p.z = 0; p.angle = Math.random() * 2 - 1; }
       if(!running || baseSpeed <= 0) return;
       const zz = p.z * p.z; // accélération visuelle vers les bords, comme en perspective réelle
-      const x = vpX + p.angle * zz * W * 0.55;
+      // l'origine des traînées suit le point de fuite : en virage, tout le flux part de côté
+      const originX = farX + (vpX - farX) * zz;
+      const x = originX + p.angle * zz * W * 0.55;
       const y = vpY + zz * (H - vpY);
       const len = 4 + zz * 26 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5 + kickBoost * 0.9);
-      const mag = Math.hypot(x - vpX, y - vpY) || 1;
-      const tailX = x - (x - vpX) / mag * len;
+      const mag = Math.hypot(x - farX, y - vpY) || 1;
+      const tailX = x - (x - farX) / mag * len;
       const tailY = y - (y - vpY) / mag * len;
       const alpha = Math.min(0.9, 0.15 + zz * 0.6 + accelBoost * 0.3 + kickBoost * 0.4);
       visctx.strokeStyle = `rgba(255,${210 - Math.round(zz * 40)},${150 - Math.round(zz * 60)},${alpha})`;
@@ -1175,12 +1498,69 @@
       visctx.stroke();
     });
 
+    // véhicules devant nous : le plus loin dessiné en premier pour un recouvrement correct.
+    // La perspective est celle d'une vraie caméra (tt = distance de référence / distance),
+    // donc un véhicule doublé grossit vite puis sort par le bas de l'écran.
+    if(running){
+      const ahead = traffic.filter(v => v.dist > 3.2).sort((a, b) => b.dist - a.dist);
+      ahead.forEach(v => {
+        const tt = TRAFFIC_NEAR / v.dist;
+        if(tt < 0.015 || tt > 1.7) return;
+        const half = roadHalfAt(tt);
+        const pxPerMetre = half / 4;              // demi-route ≈ 4 m
+        const carW = v.width * pxPerMetre;
+        if(carW < 1.2) return;
+        const carH = v.height * pxPerMetre;
+        const cx = roadCenterAt(tt) + v.lane * half;
+        const groundY = rowY(tt);
+        const topY = groundY - carH;
+        const fade = Math.min(1, 0.25 + tt * 3);
+
+        // ombre au sol
+        visctx.fillStyle = `rgba(0,0,0,${0.45 * fade})`;
+        visctx.beginPath();
+        visctx.ellipse(cx, groundY, carW * 0.62, Math.max(1, carH * 0.10), 0, 0, Math.PI * 2);
+        visctx.fill();
+
+        // caisse vue de l'arrière
+        visctx.globalAlpha = fade;
+        visctx.fillStyle = v.color;
+        visctx.fillRect(cx - carW / 2, topY, carW, carH);
+        // lunette / bâche plus sombre sur la partie haute
+        visctx.fillStyle = 'rgba(0,0,0,0.45)';
+        visctx.fillRect(cx - carW * 0.42, topY + carH * 0.08, carW * 0.84, carH * (v.truck ? 0.55 : 0.38));
+        if(carW > 6){
+          visctx.strokeStyle = 'rgba(0,0,0,0.55)';
+          visctx.lineWidth = Math.max(1, carW * 0.02);
+          visctx.strokeRect(cx - carW / 2, topY, carW, carH);
+          visctx.fillStyle = 'rgba(255,255,255,0.07)'; // arête de toit, pour le relief
+          visctx.fillRect(cx - carW / 2, topY, carW, Math.max(1, carH * 0.05));
+        }
+        visctx.globalAlpha = 1;
+
+        // feux arrière : c'est ce qu'on voit en premier de loin, donc ils restent lisibles
+        const lampW = Math.max(1, carW * (v.truck ? 0.13 : 0.17));
+        const lampH = Math.max(1, carH * 0.16);
+        const lampY = topY + carH * (v.truck ? 0.74 : 0.60);
+        visctx.fillStyle = 'rgba(255,60,40,0.95)';
+        visctx.fillRect(cx - carW * 0.44, lampY, lampW, lampH);
+        visctx.fillRect(cx + carW * 0.44 - lampW, lampY, lampW, lampH);
+        if(carW > 8){
+          const halo = visctx.createRadialGradient(cx, lampY + lampH / 2, 0, cx, lampY + lampH / 2, carW * 0.8);
+          halo.addColorStop(0, 'rgba(255,60,40,0.28)');
+          halo.addColorStop(1, 'rgba(255,60,40,0)');
+          visctx.fillStyle = halo;
+          visctx.fillRect(cx - carW * 0.8, lampY + lampH / 2 - carW * 0.8, carW * 1.6, carW * 1.6);
+        }
+      });
+    }
+
     // halo au point de fuite (feux lointains), qui s'intensifie à l'accélération et au kick
-    const glow = visctx.createRadialGradient(vpX, vpY, 0, vpX, vpY, W * 0.06);
+    const glow = visctx.createRadialGradient(farX, vpY, 0, farX, vpY, W * 0.06);
     glow.addColorStop(0, `rgba(255,220,180,${running ? 0.5 + accelBoost * 0.3 + kickBoost * 0.4 : 0.15})`);
     glow.addColorStop(1, 'rgba(255,220,180,0)');
     visctx.fillStyle = glow;
-    visctx.fillRect(vpX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
+    visctx.fillRect(farX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
   }
 
   // ---------------------------------------------------------------------
@@ -1196,6 +1576,8 @@
       pos => {
         const spd = pos.coords.speed; // m/s, peut être null selon le capteur
         gpsSpeedKmh = (spd == null || Number.isNaN(spd)) ? null : Math.max(0, spd * 3.6);
+        // cap : seulement exploitable en mouvement, sinon le GPS le renvoie nul ou erratique
+        if(spd == null || spd > 1.2) applyHeadingSample(pos.coords.heading, pos.timestamp);
       },
       () => { gpsSpeedKmh = null; },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
@@ -1271,7 +1653,18 @@
   let nitroState = 'ready'; // 'ready' | 'active' | 'cooldown'
   let nitroTimer = 0;
   let limiterCooldown = 0;        // rebond au rupteur en dernier rapport, plein gaz
-  let prevThrottleCruise = 0, prevGearCruise = 1, cruiseTimer = 0, cruiseFade = 1; // atténuation à allure stable
+  // --- détection d'allure constante (atténuation du son) -----------------------------------
+  // On ne juge plus la stabilité sur la pédale mais sur la vitesse elle-même : tant qu'on
+  // reste dans une fenêtre de +/- STEADY_BAND_KMH autour d'une vitesse de référence, et assez
+  // longtemps, on considère qu'on roule et on efface le moteur. Dès qu'on sort de la fenêtre
+  // (ou qu'on accélère/freine franchement), la référence se recale et le son revient.
+  const STEADY_BAND_KMH = 5;      // +/- 5 km/h autour de la référence = « allure constante »
+  const STEADY_HOLD_S = 3;        // temps à tenir dans la fenêtre avant d'atténuer
+  const STEADY_RATE_KMH_S = 1.5;  // au-delà, on considère qu'on accélère ou qu'on freine
+  const STEADY_LEVEL = 0.25;      // niveau du moteur une fois l'allure stabilisée
+  let steadyRefSpeed = 0, steadyTimer = 0, steadySpeedRate = 0, prevSteadySpeed = 0;
+  let prevThrottleCruise = 0, prevGearCruise = 1, cruiseFade = 1;
+  let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
   const LIMITER_RECOVERY_TIME = 0.24; // secondes pour remonter après une coupure
@@ -1325,6 +1718,7 @@
     brightness: document.getElementById('sdBrightness'),
     crackle: document.getElementById('sdCrackle'),
     growl: document.getElementById('sdGrowl'),
+    rumble: document.getElementById('sdRumble'),
     mechanical: document.getElementById('sdMechanical'),
     shiftDownCoastFrac: document.getElementById('sdShiftDownCoast'),
     shiftDownBrakeFrac: document.getElementById('sdShiftDownBrake'),
@@ -1367,6 +1761,7 @@
     sdControls.brightness.value = p.brightness;
     sdControls.crackle.value = p.crackle;
     sdControls.growl.value = p.growl || 0;
+    sdControls.rumble.value = p.rumble != null ? p.rumble : 0;
     sdControls.mechanical.value = p.mechanical || 0;
     sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.24;
     sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.42;
@@ -1388,6 +1783,7 @@
     document.getElementById('sdBrightnessVal').textContent = parseFloat(sdControls.brightness.value).toFixed(2);
     document.getElementById('sdCrackleVal').textContent = parseFloat(sdControls.crackle.value).toFixed(2);
     document.getElementById('sdGrowlVal').textContent = parseFloat(sdControls.growl.value).toFixed(2);
+    document.getElementById('sdRumbleVal').textContent = parseFloat(sdControls.rumble.value).toFixed(2);
     document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
     document.getElementById('sdShiftDownCoastVal').textContent = parseFloat(sdControls.shiftDownCoastFrac.value).toFixed(2);
     document.getElementById('sdShiftDownBrakeVal').textContent = parseFloat(sdControls.shiftDownBrakeFrac.value).toFixed(2);
@@ -1401,6 +1797,8 @@
       harmonics: src.harmonics.slice(),
       roughness: src.roughness, brightness: src.brightness, crackle: src.crackle,
       turbo: !!src.turbo, growl: src.growl || 0, mechanical: src.mechanical || 0, funkyWah: !!src.funkyWah,
+      rumble: src.rumble != null ? src.rumble : 0,
+      firingPattern: src.firingPattern ? src.firingPattern.slice() : undefined,
       gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
       shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.24,
       shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.42,
@@ -1423,6 +1821,7 @@
     p.brightness = parseFloat(sdControls.brightness.value);
     p.crackle = parseFloat(sdControls.crackle.value);
     p.growl = parseFloat(sdControls.growl.value);
+    p.rumble = parseFloat(sdControls.rumble.value);
     p.mechanical = parseFloat(sdControls.mechanical.value);
     p.turbo = sdTurbo.checked;
     p.funkyWah = sdFunky.checked;
@@ -1443,9 +1842,12 @@
 
   sdBaseSelect.addEventListener('change', () => applySoundDesignBase(sdBaseSelect.value));
   sdName.addEventListener('input', () => onSoundDesignChange(false));
-  sdControls.roughness.addEventListener('input', () => onSoundDesignChange(true));
+  // rugosité, rombissement et nombre de cylindres définissent les tables d'onde : il faut
+  // reconstruire le banc d'oscillateurs pour les entendre changer
+  const REBUILD_CONTROLS = ['roughness', 'rumble', 'cylinders', 'brightness'];
+  REBUILD_CONTROLS.forEach(key => sdControls[key].addEventListener('input', () => onSoundDesignChange(true)));
   Object.entries(sdControls).forEach(([key, el]) => {
-    if(key === 'roughness') return;
+    if(REBUILD_CONTROLS.includes(key)) return;
     el.addEventListener('input', () => onSoundDesignChange(false));
   });
   sdTurbo.addEventListener('change', () => onSoundDesignChange(false));
@@ -1461,6 +1863,7 @@
     const slug = (name.toLowerCase().normalize('NFD').replace(diacritics, '').replace(/[^a-z0-9]+/g, '').slice(0, 20)) || 'custom1';
     const gearRatios = p.gearRatios || DEFAULT_GEAR_RATIOS;
     const extras = [];
+    if(p.rumble != null) extras.push(`rumble:${p.rumble}`);
     if(p.growl) extras.push(`growl:${p.growl}`);
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
@@ -1555,6 +1958,7 @@
         smoothedGpsSpeed = physics.speed;
         prevSpeedForAccel = physics.speed;
         startGeoWatch();
+        startCompass(); // le clic sert de geste utilisateur pour l'autorisation boussole iOS
       }
     } else {
       physics.throttle = 0; physics.brake = 0;
@@ -1615,17 +2019,34 @@
       physics.rpm = Math.max(profile.idleRPM, physics.rpm - limiterDipAmount);
     }
 
-    // détection de croisière : dès qu'on tient une vitesse stable un court instant -> on
-    // atténue le son (une voiture de tourisme roule surtout à allure constante ; l'idée est
-    // de réserver le plein volume aux phases qui comptent : accélération, freinage,
-    // changement de rapport, et de laisser le moteur se faire discret sitôt la vitesse stabilisée)
-    const throttleSteady = physics.throttle > 0.04 && physics.throttle < 0.97 && Math.abs(physics.throttle - prevThrottleCruise) < 0.04;
-    const cruising = physics.running && throttleSteady && physics.brake < 0.02 && physics.gear === prevGearCruise && physics.speed > 15;
-    cruiseTimer = cruising ? cruiseTimer + dt : 0;
+    // détection d'allure constante : seules les phases d'accélération et de décélération
+    // méritent d'être entendues. Tant que la vitesse reste dans une fenêtre de quelques km/h
+    // autour d'une référence, et assez longtemps, on efface le moteur ; dès qu'elle en sort,
+    // ou que ça monte/descend franchement, la référence se recale et le son revient aussitôt.
+    const rawRate = (physics.speed - prevSteadySpeed) / Math.max(dt, 0.001); // km/h par seconde
+    steadySpeedRate += (rawRate - steadySpeedRate) * Math.min(1, dt * 4);
+    prevSteadySpeed = physics.speed;
+
+    const leftBand = Math.abs(physics.speed - steadyRefSpeed) > STEADY_BAND_KMH;
+    const movingFast = Math.abs(steadySpeedRate) > STEADY_RATE_KMH_S;
+    const braking = physics.brake > 0.05;
+    const shifted = physics.gear !== prevGearCruise;
+    const blip = Math.abs(physics.throttle - prevThrottleCruise) > 0.12; // coup de gaz : audible tout de suite
+    if(!physics.running || leftBand || movingFast || braking || shifted || blip){
+      steadyRefSpeed = physics.speed;
+      steadyTimer = 0;
+    } else {
+      steadyTimer += dt;
+    }
     prevThrottleCruise = physics.throttle;
     prevGearCruise = physics.gear;
-    const targetCruiseFade = (cruiseTimer > 1 && !vrombOn) ? 0.15 : 1;
-    cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * 2);
+
+    const steady = physics.running && steadyTimer > STEADY_HOLD_S;
+    const targetCruiseFade = (steady && !vrombOn) ? STEADY_LEVEL : 1;
+    // on s'efface lentement (~1,5 s, ça doit passer inaperçu) mais on revient quasi
+    // instantanément dès qu'il se passe quelque chose
+    const fadeRate = targetCruiseFade < cruiseFade ? 1.1 : 7;
+    cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * fadeRate);
 
     // coup de gaz à l'activation du Nitro : un régime affiché/entendu plus haut en plus du
     // vrai boost de vitesse, sans influencer les rapports de boîte — retombe tout seul.
@@ -1633,7 +2054,42 @@
     const nitroKickIntensity = physics.running ? nitroKickTimer / NITRO_KICK_DURATION : 0;
     const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800);
 
-    updateAudio(displayRpm, physics.throttle, physics.running, profile, cruiseFade);
+    // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
+    // et c'est justement cette instabilité qui distingue un rombissement d'un bourdon de
+    // synthétiseur. Elle ne touche que le son, pas les compteurs ni la boîte.
+    rpmWanderTimer -= dt;
+    if(rpmWanderTimer <= 0){
+      rpmWanderTarget = Math.random() * 2 - 1;
+      rpmWanderTimer = 0.18 + Math.random() * 0.35;
+    }
+    rpmWander += (rpmWanderTarget - rpmWander) * Math.min(1, dt * 3.5);
+    const wanderDepth = physics.throttle > 0.05 ? 0.004 : 0.009; // plus flottant au ralenti / pied levé
+    const audioRpm = Math.max(profile.idleRPM * 0.5, displayRpm * (1 + rpmWander * wanderDepth));
+
+    // virages : cap réel (GPS/boussole) en mode réel, route générée en mode débug.
+    // Faute de relevé récent, la courbure retombe doucement à zéro plutôt que de rester bloquée.
+    if(Date.now() - lastHeadingSample > 1500) headingRate += (0 - headingRate) * Math.min(1, dt * 1.5);
+    let targetCurve;
+    if(debugMode){
+      if(physics.speed > 5){
+        simCurveTimer -= dt;
+        if(simCurveTimer <= 0){
+          simCurveTarget = (Math.random() * 2 - 1) * 0.9;
+          simCurveTimer = 3 + Math.random() * 5;
+        }
+      } else {
+        simCurveTarget = 0;
+      }
+      simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.5);
+      targetCurve = simCurve;
+    } else {
+      targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
+    }
+    roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * 1.6);
+
+    updateTraffic(dt, physics.speed, physics.running);
+
+    updateAudio(audioRpm, physics.throttle, physics.running, profile, cruiseFade);
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
@@ -1661,7 +2117,7 @@
 
     drawGauge(rctx, { value: displayRpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false, flash: popFlash });
     drawGauge(sctx, { value: physics.speed, max: 240, redlineStart: null, unitLabel:'km/h', majorStep: 20, isSpeed:true });
-    drawVision(physics.speed, physics.throttle, physics.running, dt, nitroKickIntensity);
+    drawVision(physics.speed, physics.throttle, physics.running, dt, nitroKickIntensity, roadCurve);
 
     gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
     spdStat.textContent = Math.round(physics.speed) + ' km/h';
