@@ -1430,6 +1430,7 @@
       glow: '255,220,180', glowStrength: 1, particle: 'streak', particleRGB: [255, 205, 150],
       haze: null, decor: null, sun: null, carLight: 1,
       props: ['pine', 'pine', 'pole', 'bush', 'marker'],
+      propsFar: ['pine', 'pine', 'tree'],
       foliage: ['#141d16', '#0f1712'], propDark: '#2a2f36', propStone: '#3a3f46',
     },
     montagne: {
@@ -1438,6 +1439,7 @@
       glow: '255,255,255', glowStrength: 0.3, particle: 'snow', particleRGB: [255, 255, 255],
       haze: 'rgba(207,221,232,0.9)', decor: 'peaks', sun: null, carLight: 0.5,
       props: ['snowfir', 'snowfir', 'snowfir', 'rock', 'snowpole'],
+      propsFar: ['snowfir', 'rock', 'snowfir'],
       foliage: ['#24382b', '#1b2c21'], propDark: '#4c5560', propStone: '#8d97a3', snowy: true,
     },
     sunset: {
@@ -1448,6 +1450,7 @@
       carLight: 0.8,
       // contre-jour : tout ce qui borde la route se réduit à une silhouette presque noire
       props: ['tree', 'cypress', 'tree', 'pole', 'bush'],
+      propsFar: ['tree', 'cypress', 'tree'],
       foliage: ['#241726', '#180f1b'], propDark: '#1a1220', propStone: '#2a1e28',
     },
     desert: {
@@ -1457,6 +1460,7 @@
       haze: 'rgba(240,220,170,0.8)', decor: 'dunes', sun: { y: -0.08, r: 0.05, color: '#fff6cf' },
       carLight: 0.45,
       props: ['cactus', 'rock', 'bush', 'cactus', 'rock'],
+      propsFar: ['rock', 'cactus', 'rock'],
       foliage: ['#4d6b40', '#3e5836'], propDark: '#7a6440', propStone: '#a08050',
     },
     circuit: {
@@ -1464,9 +1468,30 @@
       road: ['#54585e', '#2c2e33'], edge: 'rgba(255,255,255,0.9)', dash: null,
       glow: '255,250,235', glowStrength: 0.4, particle: 'streak', particleRGB: [235, 240, 248],
       haze: 'rgba(195,218,238,0.7)', decor: 'stands', sun: { y: -0.16, r: 0.045, color: '#fffbe8' },
-      carLight: 0.35, kerb: true,
+      carLight: 0.35, kerb: true, racing: true,
       props: ['barrier', 'barrier', 'panel', 'tyres', 'fence', 'barrier'],
+      propsFar: ['fence', 'panel', 'tower'],
       foliage: ['#e8ecf0', '#d8dee6'], propDark: '#9aa3ad', propStone: '#c8ced6',
+    },
+    ville: {
+      name: 'Ville de nuit', sky: ['#06070d', '#221a33'], ground: '#0b0d12',
+      road: ['#20232a', '#0e1014'], edge: 'rgba(240,240,245,0.55)', dash: 'rgba(245,230,180,0.7)',
+      glow: '255,205,150', glowStrength: 1.1, particle: 'streak', particleRGB: [255, 210, 160],
+      haze: 'rgba(60,42,70,0.55)', decor: 'skyline', sun: null, carLight: 1,
+      props: ['streetlight', 'streetlight', 'streetlight', 'pole', 'bush'],
+      propsFar: ['building', 'building', 'building', 'tower'],
+      foliage: ['#141a20', '#0f141a'], propDark: '#3a4048', propStone: '#171b24',
+    },
+    espace: {
+      name: 'Espace', sky: ['#03040a', '#0a0f22'], ground: null,
+      road: ['rgba(40,150,220,0.30)', 'rgba(20,80,160,0.16)'], edge: 'rgba(90,220,255,0.95)',
+      dash: 'rgba(140,235,255,0.55)',
+      glow: '120,220,255', glowStrength: 1.3, particle: 'streak', particleRGB: [180, 235, 255],
+      haze: null, decor: null, sun: null, carLight: 0.9,
+      space: true, grid: true,
+      props: ['lightpost', 'lightpost', 'lightpost', 'pylon'],
+      propsFar: ['planet', 'planet', 'moon'], farSparse: 0.3, racing: true,
+      foliage: ['#1a3550', '#12283c'], propDark: '#3fd0ff', propStone: '#25415c',
     },
     orage: {
       name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
@@ -1474,11 +1499,46 @@
       glow: '200,215,235', glowStrength: 0.6, particle: 'rain', particleRGB: [190, 210, 235],
       haze: 'rgba(58,66,80,0.55)', decor: null, sun: null, carLight: 1, lightning: true,
       props: ['tree', 'pine', 'pole', 'pole', 'bush'],
+      propsFar: ['pine', 'tree', 'pine'],
       foliage: ['#1b2620', '#141c18'], propDark: '#252b32', propStone: '#333940',
     },
   };
   let currentSceneKey = 'nuit';
   let lightningFlash = 0, lightningTimer = 6;
+
+  // Champ d'étoiles de la scène spatiale : positions tirées une fois, puis simplement
+  // décalées avec le cap — elles appartiennent au fond du ciel, pas à la route.
+  const STARS = Array.from({ length: 130 }, () => ({
+    a: Math.random(),            // position angulaire, 0..1 du tour d'horizon
+    v: Math.random(),            // hauteur relative dans le ciel
+    r: 0.4 + Math.random() * 1.3,
+    b: 0.35 + Math.random() * 0.65,
+  }));
+
+  // Halos pré-calculés une fois dans une toile hors écran. Créer un dégradé radial par lampe
+  // et par image est de loin le poste le plus coûteux d'un canvas — un redimensionnement
+  // d'image, lui, est presque gratuit.
+  function makeGlowSprite(rgb){
+    const size = 64;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const g = cv.getContext('2d');
+    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, `rgba(${rgb},0.9)`);
+    grad.addColorStop(0.3, `rgba(${rgb},0.34)`);
+    grad.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    return cv;
+  }
+  const GLOW_WARM = makeGlowSprite('255,205,130');
+  const GLOW_CYAN = makeGlowSprite('90,220,255');
+  const GLOW_RED = makeGlowSprite('255,60,40');
+  function drawGlow(sprite, x, y, r, alpha){
+    visctx.globalAlpha = alpha;
+    visctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+    visctx.globalAlpha = 1;
+  }
 
   // Silhouettes d'horizon : calculées une seule fois par scène et par largeur d'écran, puis
   // simplement décalées à l'écran (parallaxe) — recalculer un profil de montagne à chaque
@@ -1498,6 +1558,9 @@
         // deux échelles superposées : des sommets nettement irréguliers, pas une scie régulière
         h = 0.32 + 0.68 * Math.pow(rnd(), 1.5);
         h *= 0.55 + 0.45 * Math.abs(Math.sin(i * 0.7 + 1.2));
+      } else if(kind === 'skyline'){
+        // gratte-ciel : des hauteurs très contrastées, c'est ce qui fait une ligne de ville
+        h = 0.15 + Math.pow(rnd(), 2.2) * 0.95;
       } else if(kind === 'stands'){
         // gradins : des blocs francs et des paliers, pas un relief naturel
         h = 0.28 + Math.round(rnd() * 3) * 0.2;
@@ -1608,6 +1671,13 @@
   // élément n'est spectaculaire que dans ses derniers mètres, quand il balaie l'écran d'un
   // bord à l'autre. On le suit donc jusqu'à ce qu'il sorte du cadre de lui-même, et on en met
   // assez pour qu'il s'en présente plusieurs par seconde.
+  // Un écran couvre un champ de vision bien plus étroit qu'un pare-brise : à vitesse réelle,
+  // le défilement y paraît toujours trop lent. On l'amplifie donc d'un facteur constant, de
+  // sorte que 130 km/h donnent à voir ce que la version précédente ne montrait qu'à 240.
+  // Seul le défilement est concerné — compteurs, régime et rapports restent la vraie vitesse.
+  const VISUAL_SPEED = 240 / 130;   // ≈ 1,85
+  const visualMps = kmh => Math.max(0, kmh) / 3.6 * VISUAL_SPEED;
+
   const PROP_SPAN = 260;        // mètres de décor entretenus devant la voiture
   const roadProps = Array.from({ length: 52 }, (_, i) => ({
     dist: 5 + (i / 52) * PROP_SPAN,
@@ -1642,6 +1712,35 @@
     pt.dark = Math.random() < 0.65;
   }
 
+  // Seconde couche, bien plus loin de la route : c'est le contraste entre ce qui file au ras
+  // du bitume et ce qui glisse lentement à l'arrière-plan qui donne la profondeur. Sans elle,
+  // tout le décor était collé au bord et la scène paraissait plate.
+  const FAR_SPAN = 640;
+  const farProps = Array.from({ length: 26 }, (_, i) => ({
+    dist: 40 + (i / 26) * FAR_SPAN,
+    side: Math.random() < 0.5 ? -1 : 1,
+    offset: 24 + Math.random() * 72,   // mètres depuis l'axe
+    scale: 0.9 + Math.random() * 0.9,
+    seed: Math.random(),
+    lift: 0.35 + Math.random() * 1.1,   // ce qui flotte ne flotte pas tout à la même hauteur
+    kind: null,
+  }));
+  function respawnFarProp(pr){
+    pr.dist += FAR_SPAN;
+    pr.side = Math.random() < 0.5 ? -1 : 1;
+    pr.offset = 24 + Math.random() * 72;
+    pr.scale = 0.9 + Math.random() * 0.9;
+    pr.seed = Math.random();
+    pr.lift = 0.35 + Math.random() * 1.1;
+    pr.kind = null;
+  }
+  // ce qui flotte au lieu de reposer au sol, en mètres au-dessus de l'horizon local
+  function propLift(kind){
+    if(kind === 'planet') return 55 + 0;
+    if(kind === 'moon') return 40;
+    return 0;
+  }
+
   let travelled = 0;   // mètres parcourus, sert d'ancre à tout ce qui défile avec la route
 
   // bruit lisse déterministe : les irrégularités de bord de chaussée doivent défiler avec la
@@ -1665,9 +1764,10 @@
   }
 
   function updateScenery(dt, speedKmh){
-    const mps = Math.max(0, speedKmh) / 3.6;
+    const mps = visualMps(speedKmh);
     travelled += mps * dt;
     roadProps.forEach(pr => { pr.dist -= mps * dt; if(pr.dist < 1.5) respawnProp(pr); });
+    farProps.forEach(pr => { pr.dist -= mps * dt; if(pr.dist < 12) respawnFarProp(pr); });
     roadPatches.forEach(pt => { pt.dist -= mps * dt; if(pt.dist < 3) respawnPatch(pt); });
   }
 
@@ -1678,18 +1778,18 @@
     const leaf = sc.foliage || ['#1e2a1e', '#141c14'];
     const c = leaf[seed < 0.5 ? 0 : 1];
     const ctx = visctx;
-    if(s > 1.6){   // ombre de contact : sans elle, tout a l'air de flotter au-dessus du sol
+    if(s > 1.6 && !propLift(kind)){   // ombre de contact — sauf pour ce qui flotte vraiment
       ctx.fillStyle = 'rgba(0,0,0,0.17)';
       ctx.beginPath();
       ctx.ellipse(x, y, s * 0.95, s * 0.24, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    if(kind === 'pole' || kind === 'snowpole' || kind === 'marker'){
-      const h = (kind === 'marker' ? 1.1 : kind === 'snowpole' ? 2.6 : 7.5) * s;
+    if(kind === 'pole' || kind === 'snowpole' || kind === 'marker' || kind === 'tower'){
+      const h = (kind === 'marker' ? 1.1 : kind === 'snowpole' ? 2.6 : kind === 'tower' ? 22 : 7.5) * s;
       ctx.strokeStyle = kind === 'marker' ? '#d8d4cc' : (sc.propDark || '#2a2f36');
       ctx.lineWidth = Math.max(1, (kind === 'pole' ? 0.2 : 0.13) * s);
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
-      if(kind === 'pole' && s > 1.5){   // traverse de poteau électrique
+      if((kind === 'pole' || kind === 'tower') && s > 1.5){   // traverse de poteau électrique
         ctx.beginPath(); ctx.moveTo(x - 0.9 * s, y - h * 0.88); ctx.lineTo(x + 0.9 * s, y - h * 0.88); ctx.stroke();
       }
       if(kind !== 'pole' && s > 1){     // bande réfléchissante
@@ -1706,6 +1806,14 @@
       ctx.lineTo(x + w, y - h * 0.12);
       ctx.lineTo(x - w, y - h * 0.12);
       ctx.closePath(); ctx.fill();
+      if(s > 1.4){   // flanc à l'ombre : du volume sans un pixel de plus à couvrir
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath();
+        ctx.moveTo(x, y - h);
+        ctx.lineTo(x + w, y - h * 0.12);
+        ctx.lineTo(x, y - h * 0.12);
+        ctx.closePath(); ctx.fill();
+      }
       if(kind === 'snowfir'){           // la neige tient sur le haut des branches
         ctx.fillStyle = 'rgba(240,247,252,0.88)';
         ctx.beginPath();
@@ -1725,6 +1833,12 @@
       ctx.beginPath();
       ctx.ellipse(x, y - h * 0.68, h * 0.34, h * 0.34, 0, 0, Math.PI * 2);
       ctx.fill();
+      if(s > 1.4){
+        ctx.fillStyle = 'rgba(255,255,255,0.07)';   // le haut du feuillage prend la lumière
+        ctx.beginPath();
+        ctx.ellipse(x - h * 0.09, y - h * 0.76, h * 0.2, h * 0.17, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       return;
     }
     if(kind === 'cypress'){
@@ -1749,6 +1863,83 @@
         ctx.fillRect(x + w / 2, armY + h * 0.15, armLen, w * 0.8);      // bras droit
         ctx.fillRect(x + w / 2 + armLen - w * 0.8, armY - armLen * 0.3, w * 0.8, armLen);
       }
+      return;
+    }
+    if(kind === 'building'){
+      // immeuble : masse sombre, une face plus claire pour le relief, et des fenêtres allumées
+      const h = (11 + seed * 22) * s, w = (7 + seed * 8) * s;
+      ctx.fillStyle = sc.propStone || '#161a22';
+      ctx.fillRect(x - w / 2, y - h, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';   // face éclairée, à peu de frais
+      ctx.fillRect(x - w / 2, y - h, w * 0.28, h);
+      if(s > 1.9){
+        const cols = Math.min(6, Math.max(2, Math.round(w / (1.9 * s))));
+        const rows = Math.min(11, Math.max(3, Math.round(h / (3.2 * s))));
+        const cw = w / cols, ch = h / rows;
+        for(let r = 0; r < rows; r++){
+          for(let cI = 0; cI < cols; cI++){
+            const lit = ((r * 7 + cI * 13 + Math.floor(seed * 100)) % 5) < 2;
+            if(!lit) continue;
+            ctx.fillStyle = ((r + cI) % 3) ? 'rgba(255,214,140,0.85)' : 'rgba(190,220,255,0.75)';
+            ctx.fillRect(x - w / 2 + cI * cw + cw * 0.25, y - h + r * ch + ch * 0.22,
+                         Math.max(1, cw * 0.5), Math.max(1, ch * 0.45));
+          }
+        }
+      }
+      return;
+    }
+    if(kind === 'streetlight'){
+      // lampadaire : mât, crosse et halo — c'est le halo qui fait la nuit urbaine
+      const h = 8 * s, arm = 1.8 * s;
+      const lean = seed < 0.5 ? -1 : 1;
+      ctx.strokeStyle = sc.propDark || '#3a4048';
+      ctx.lineWidth = Math.max(1, 0.16 * s);
+      ctx.beginPath();
+      ctx.moveTo(x, y); ctx.lineTo(x, y - h);
+      ctx.lineTo(x + lean * arm, y - h * 0.97);
+      ctx.stroke();
+      const lx = x + lean * arm, ly = y - h * 0.95;
+      if(s > 0.9) drawGlow(GLOW_WARM, lx, ly, arm * 2.6, 0.6);
+      ctx.fillStyle = '#ffe0a8';
+      ctx.fillRect(lx - 0.22 * s, ly - 0.1 * s, 0.44 * s, 0.2 * s);
+      return;
+    }
+    if(kind === 'planet' || kind === 'moon'){
+      // planète croisée : un disque, son terminateur, et parfois un anneau
+      const r = (kind === 'moon' ? 5 : 9 + seed * 12) * s;
+      const hue = ['#c96a4a', '#4a7fc9', '#c9a84a', '#7a5ac9', '#4ac9a8'][Math.floor(seed * 5) % 5];
+      ctx.fillStyle = kind === 'moon' ? '#c8ccd4' : hue;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      // terminateur : découpé sur le disque, sinon l'ombre déborde et fait une seconde planète
+      ctx.save();
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = 'rgba(0,0,0,0.42)';
+      ctx.beginPath(); ctx.arc(x + r * 0.5, y + r * 0.16, r * 0.95, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      if(kind === 'planet' && seed > 0.55){
+        ctx.strokeStyle = 'rgba(220,225,240,0.5)';
+        ctx.lineWidth = Math.max(1, r * 0.09);
+        ctx.beginPath(); ctx.ellipse(x, y, r * 1.65, r * 0.34, -0.32, 0, Math.PI * 2); ctx.stroke();
+      }
+      return;
+    }
+    if(kind === 'lightpost'){
+      // borne lumineuse : c'est leur défilement serré qui donne la vitesse sur la piste
+      const h = 1.6 * s;
+      ctx.fillStyle = 'rgba(90,220,255,0.9)';
+      ctx.fillRect(x - 0.13 * s, y - h, 0.26 * s, h);
+      if(s > 1.2) drawGlow(GLOW_CYAN, x, y - h, h * 1.7, 0.55);
+      return;
+    }
+    if(kind === 'pylon'){
+      // portique lumineux : deux mâts et une arche, la structure qui borde la piste spatiale
+      const h = 6 * s, w = 2.6 * s;
+      ctx.strokeStyle = 'rgba(63,208,255,0.55)';
+      ctx.lineWidth = Math.max(1, 0.13 * s);
+      ctx.beginPath();
+      ctx.moveTo(x - w / 2, y); ctx.lineTo(x - w / 2, y - h);
+      ctx.lineTo(x + w / 2, y - h); ctx.lineTo(x + w / 2, y);
+      ctx.stroke();
       return;
     }
     if(kind === 'barrier'){
@@ -1813,6 +2004,15 @@
       ctx.lineTo(x + w * 0.75, y - h * 0.55);
       ctx.lineTo(x + w, y);
       ctx.closePath(); ctx.fill();
+      if(s > 1.4){   // pan d'ombre, pour que le rocher ait une face et pas seulement un contour
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.1, y - h);
+        ctx.lineTo(x + w * 0.75, y - h * 0.55);
+        ctx.lineTo(x + w, y);
+        ctx.lineTo(x + w * 0.1, y);
+        ctx.closePath(); ctx.fill();
+      }
       return;
     }
     // buisson
@@ -1832,7 +2032,7 @@
   const RACE_COLORS = ['#d8342f', '#1f6fc4', '#f0c020', '#1d9e5a', '#e8e2d2', '#f06a20'];
   function spawnTraffic(ourKmh){
     // sur un circuit, ce qu'on double est une monoplace : basse, large et vive
-    const racing = (SCENES[currentSceneKey] || {}).kerb === true;
+    const racing = (SCENES[currentSceneKey] || {}).racing === true;
     const truck = !racing && Math.random() < 0.22;
     if(racing){
       traffic.push({
@@ -1867,10 +2067,12 @@
         trafficTimer = 1.8 + Math.random() * 4.5;
       }
     }
-    const ourMps = ourKmh / 3.6;
+    // le trafic se rapproche à la même échelle visuelle que le décor, sans quoi on doublerait
+    // les autres voitures au ralenti pendant que les arbres filent
+    const ourMps = visualMps(ourKmh);
     for(let i = traffic.length - 1; i >= 0; i--){
       const v = traffic[i];
-      v.dist -= (ourMps - v.speed / 3.6) * dt;
+      v.dist -= (ourMps - visualMps(v.speed)) * dt;
       if(!v.passed && v.dist < 4){
         v.passed = true;
         spawnPassBy(v.truck ? 1 : 0.55);
@@ -1904,11 +2106,26 @@
     const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
     // --- ciel ---------------------------------------------------------------------------
-    const sky = visctx.createLinearGradient(0, 0, 0, vpY);
+    // Dans l'espace il n'y a pas de sol : le dégradé couvre toute la hauteur et la piste s'y
+    // pose en transparence, si bien que les étoiles se voient au travers.
+    const skyBottom = sc.space ? H : vpY;
+    const sky = visctx.createLinearGradient(0, 0, 0, skyBottom);
     sky.addColorStop(0, sc.sky[0]);
     sky.addColorStop(1, sc.sky[1]);
     visctx.fillStyle = sky;
-    visctx.fillRect(0, 0, W, vpY);
+    visctx.fillRect(0, 0, W, skyBottom);
+
+    if(sc.space){
+      const starShift = (worldHeading / 360) % 1;
+      STARS.forEach(st => {
+        let u = (st.a - starShift) % 1;
+        if(u < 0) u += 1;
+        const sx = u * W * 1.0;
+        const sy = st.v * H * 0.92;
+        visctx.fillStyle = `rgba(230,244,255,${st.b})`;
+        visctx.fillRect(sx, sy, st.r, st.r);
+      });
+    }
 
     // Tout ce qui suit appartient au paysage et non à la route : sa place à l'écran ne dépend
     // que du cap de la voiture. Le soleil, en particulier, a un azimut fixe une fois pour
@@ -1945,7 +2162,7 @@
       const span = W * 1.6;
       let base = -(worldHeading * pxPerDeg) % span;
       if(base > 0) base -= span;
-      const stepped = sc.decor === 'stands'; // des tribunes, ça monte par paliers francs
+      const stepped = sc.decor === 'stands' || sc.decor === 'skyline'; // tribunes et immeubles montent par paliers francs
       visctx.beginPath();
       [base, base + span].forEach(off => {
         visctx.moveTo(pts[0][0] + off, vpY);
@@ -1969,6 +2186,9 @@
         dg.addColorStop(0, '#dfe6ed');
         dg.addColorStop(0.35, '#8f99a5');
         dg.addColorStop(1, '#5c646e');
+      } else if(sc.decor === 'skyline'){
+        dg.addColorStop(0, '#161a26');
+        dg.addColorStop(1, '#2a2340');   // halo de pollution lumineuse à la base
       } else {
         dg.addColorStop(0, '#4a2f4a');
         dg.addColorStop(1, '#241a2c');
@@ -1978,8 +2198,28 @@
     }
 
     // --- sol ------------------------------------------------------------------------------
-    visctx.fillStyle = sc.ground;
-    visctx.fillRect(0, vpY, W, H - vpY);
+    if(sc.ground){
+      visctx.fillStyle = sc.ground;
+      visctx.fillRect(0, vpY, W, H - vpY);
+    }
+
+    // --- décor lointain --------------------------------------------------------------------
+    // dessiné avant la route : rien de ce qui est à trente mètres du bitume ne doit le recouvrir
+    const farPalette = sc.propsFar || sc.props || ['pine'];
+    // une planète tous les quatre éléments, pas une haie de planètes : `farSparse` dit quelle
+    // proportion du décor lointain est réellement peuplée
+    const farSparse = sc.farSparse != null ? sc.farSparse : 1;
+    farProps.forEach(pr => {
+      if(pr.dist < 12 || pr.seed > farSparse) return;
+      if(!pr.kind) pr.kind = farPalette[Math.floor(Math.random() * farPalette.length)];
+      const tt = CAM_NEAR / pr.dist;
+      if(tt < 0.008 || tt > 0.8) return;
+      const ppm = roadHalfAt(Math.min(1, tt)) / 4;
+      const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
+      if(x < -W * 0.4 || x > W * 1.4) return;
+      const lift = propLift(pr.kind) * pr.lift * ppm;
+      drawProp(pr.kind, x, rowY(tt) - lift, ppm * pr.scale, sc, pr.seed);
+    });
 
     // Bord de chaussée irrégulier : la largeur varie de quelques centimètres, indexée sur la
     // distance réellement parcourue. Une route parfaitement rectiligne au pixel près est ce
@@ -2011,6 +2251,32 @@
     visctx.fillStyle = roadGrad;
     visctx.fill();
 
+    // grille lumineuse de la piste spatiale : barreaux au sol tous les 10 m et rails
+    // longitudinaux, tous ancrés à la distance parcourue comme le reste
+    if(sc.grid){
+      visctx.strokeStyle = 'rgba(120,225,255,0.28)';
+      visctx.lineWidth = 1;
+      const gridFirst = Math.ceil(travelled / 10) * 10 - travelled;
+      for(let k = 0; k < 26; k++){
+        const d = gridFirst + k * 10;
+        if(d < 3) continue;
+        const tt = CAM_NEAR / d;
+        if(tt < 0.02) break;
+        if(tt > 1.7) continue;
+        const y = rowY(tt), c = roadCenterAt(tt), h = edgeAt(tt, 1);
+        visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
+      }
+      [-0.5, 0, 0.5].forEach(frac => {
+        visctx.beginPath();
+        for(let i = 0; i <= SLICES; i++){
+          const tt = i / SLICES;
+          const x = roadCenterAt(tt) + frac * roadHalfAt(tt);
+          if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
+        }
+        visctx.stroke();
+      });
+    }
+
     // rustines et reprises d'enrobé, ancrées au sol : elles défilent donc à la vraie vitesse
     roadPatches.forEach(pt => {
       const tt = CAM_NEAR / pt.dist;
@@ -2022,6 +2288,26 @@
         Math.max(0.6, pt.wid * ppm), Math.max(0.5, pt.len * ppm * 0.22), 0, 0, Math.PI * 2);
       visctx.fill();
     });
+
+    // traces de roues : deux bandes lustrées le long des passages, ce qui use le plus
+    // visiblement une chaussée. Elles suivent la courbure comme le reste du ruban.
+    if(!sc.space){
+      visctx.fillStyle = 'rgba(0,0,0,0.10)';
+      [-1.55, 1.55].forEach(lat => {
+        visctx.beginPath();
+        for(let i = 0; i <= SLICES; i++){
+          const tt = i / SLICES, ppm = roadHalfAt(tt) / 4;
+          const x = roadCenterAt(tt) + (lat - 0.42) * ppm;
+          if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
+        }
+        for(let i = SLICES; i >= 0; i--){
+          const tt = i / SLICES, ppm = roadHalfAt(tt) / 4;
+          visctx.lineTo(roadCenterAt(tt) + (lat + 0.42) * ppm, rowY(tt));
+        }
+        visctx.closePath();
+        visctx.fill();
+      });
+    }
 
     // joints de reprise transversaux, tous les 22 m
     const seamFirst = Math.ceil(travelled / 22) * 22 - travelled;
@@ -2036,17 +2322,23 @@
       visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
     }
 
+    // bords : dans l'espace ce sont deux rubans de lumière, donc un trait large et diffus
+    // sous un trait fin et vif — deux passes suffisent à donner le néon, sans filtre coûteux
+    [sc.space ? { w: 9, c: 'rgba(90,220,255,0.18)' } : null, { w: 2, c: sc.edge }]
+      .filter(Boolean).forEach(pass => {
+        visctx.lineWidth = pass.w;
+        visctx.strokeStyle = pass.c;
+        [-1, 1].forEach(side => {
+          visctx.beginPath();
+          for(let i = 0; i <= SLICES; i++){
+            const tt = i / SLICES;
+            const x = roadCenterAt(tt) + side * edgeAt(tt, side);
+            if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
+          }
+          visctx.stroke();
+        });
+      });
     visctx.lineWidth = 2;
-    visctx.strokeStyle = sc.edge;
-    [-1, 1].forEach(side => {
-      visctx.beginPath();
-      for(let i = 0; i <= SLICES; i++){
-        const tt = i / SLICES;
-        const x = roadCenterAt(tt) + side * edgeAt(tt, side);
-        if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
-      }
-      visctx.stroke();
-    });
 
     // Vibreurs rouge et blanc : blocs de 2 m alternés le long des deux bords, posés au sol.
     // Sur un circuit, c'est le repère de vitesse le plus lisible qui soit — ils se resserrent
@@ -2083,7 +2375,7 @@
     // un motif calé sur l'écran. Ils se resserrent d'eux-mêmes vers l'horizon, exactement comme
     // en perspective réelle, et leur défilement suit la vitesse sans qu'on ait à la doser.
     // Une piste de circuit n'en a pas : `dash` vaut alors null.
-    const speedFactor = Math.min(1.4, speedKmh / 140);
+    const speedFactor = Math.min(1.4, speedKmh * VISUAL_SPEED / 140);
     visctx.fillStyle = sc.dash || 'rgba(0,0,0,0)';
     const dashFirst = Math.ceil(travelled / 12) * 12 - travelled;
     for(let k = 0; sc.dash && k < 22; k++){
@@ -2235,13 +2527,7 @@
         visctx.fillStyle = `rgba(255,60,40,${0.45 + 0.5 * lamp})`;
         visctx.fillRect(cx - carW * 0.44, lampY, lampW, lampH);
         visctx.fillRect(cx + carW * 0.44 - lampW, lampY, lampW, lampH);
-        if(carW > 8 && lamp > 0.4){
-          const halo = visctx.createRadialGradient(cx, lampY + lampH / 2, 0, cx, lampY + lampH / 2, carW * 0.8);
-          halo.addColorStop(0, `rgba(255,60,40,${0.28 * lamp})`);
-          halo.addColorStop(1, 'rgba(255,60,40,0)');
-          visctx.fillStyle = halo;
-          visctx.fillRect(cx - carW * 0.8, lampY + lampH / 2 - carW * 0.8, carW * 1.6, carW * 1.6);
-        }
+        if(carW > 8 && lamp > 0.4) drawGlow(GLOW_RED, cx, lampY + lampH / 2, carW * 0.8, 0.3 * lamp);
       });
     }
 
@@ -2443,6 +2729,8 @@
     currentSceneKey = key;
     decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
     roadProps.forEach(pr => { pr.kind = null; }); // les arbres d'un désert n'ont rien à y faire
+    farProps.forEach(pr => { pr.kind = null; });
+    traffic.length = 0;   // on ne double pas un camion sur une piste spatiale
     sunBearing = null;                            // le soleil se refixe au cap courant
     sceneDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
