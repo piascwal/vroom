@@ -1429,12 +1429,16 @@
       road: ['#1c1f24', '#0e1013'], edge: 'rgba(255,140,60,0.40)', dash: 'rgba(231,228,222,0.55)',
       glow: '255,220,180', glowStrength: 1, particle: 'streak', particleRGB: [255, 205, 150],
       haze: null, decor: null, sun: null, carLight: 1,
+      props: ['pine', 'pine', 'pole', 'bush', 'marker'],
+      foliage: ['#141d16', '#0f1712'], propDark: '#2a2f36', propStone: '#3a3f46',
     },
     montagne: {
       name: 'Montagne', sky: ['#7d99b4', '#cfdde8'], ground: '#e6edf2',
       road: ['#5a6068', '#3c4148'], edge: 'rgba(255,255,255,0.8)', dash: 'rgba(250,250,255,0.9)',
       glow: '255,255,255', glowStrength: 0.3, particle: 'snow', particleRGB: [255, 255, 255],
       haze: 'rgba(207,221,232,0.9)', decor: 'peaks', sun: null, carLight: 0.5,
+      props: ['snowfir', 'snowfir', 'snowfir', 'rock', 'snowpole'],
+      foliage: ['#24382b', '#1b2c21'], propDark: '#4c5560', propStone: '#8d97a3', snowy: true,
     },
     sunset: {
       name: 'Coucher de soleil', sky: ['#2c1a42', '#ff9a4d'], ground: '#2a1f1c',
@@ -1442,6 +1446,9 @@
       glow: '255,175,85', glowStrength: 1.5, particle: 'streak', particleRGB: [255, 190, 120],
       haze: 'rgba(255,154,77,0.5)', decor: 'hills', sun: { y: 0.005, r: 0.085, color: '#ffd08a' },
       carLight: 0.8,
+      // contre-jour : tout ce qui borde la route se réduit à une silhouette presque noire
+      props: ['tree', 'cypress', 'tree', 'pole', 'bush'],
+      foliage: ['#241726', '#180f1b'], propDark: '#1a1220', propStone: '#2a1e28',
     },
     desert: {
       name: 'Désert', sky: ['#6f9dc4', '#f0dcaa'], ground: '#c8a769',
@@ -1449,12 +1456,16 @@
       glow: '255,240,200', glowStrength: 0.45, particle: 'dust', particleRGB: [220, 194, 146],
       haze: 'rgba(240,220,170,0.8)', decor: 'dunes', sun: { y: -0.08, r: 0.05, color: '#fff6cf' },
       carLight: 0.45,
+      props: ['cactus', 'rock', 'bush', 'cactus', 'rock'],
+      foliage: ['#4d6b40', '#3e5836'], propDark: '#7a6440', propStone: '#a08050',
     },
     orage: {
       name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
       road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
       glow: '200,215,235', glowStrength: 0.6, particle: 'rain', particleRGB: [190, 210, 235],
       haze: 'rgba(58,66,80,0.55)', decor: null, sun: null, carLight: 1, lightning: true,
+      props: ['tree', 'pine', 'pole', 'pole', 'bush'],
+      foliage: ['#1b2620', '#141c18'], propDark: '#252b32', propStone: '#333940',
     },
   };
   let currentSceneKey = 'nuit';
@@ -1485,10 +1496,10 @@
       }
       pts.push([x, Math.max(0.05, Math.min(1, h))]);
     }
+    pts[pts.length - 1][1] = pts[0][1]; // profil refermé : il peut se répéter sans marche visible
     decorCache = { key, pts };
     return pts;
   }
-  let roadScroll = 0; // défilement des tirets centraux de la route
 
   // --- VIRAGES ---------------------------------------------------------------------------
   // En mode réel, la courbure vient du cap : `pos.coords.heading` du GPS, complété par la
@@ -1568,8 +1579,167 @@
   // --- TRAFIC ----------------------------------------------------------------------------
   // Des véhicules plus lents apparaissent devant, se rapprochent à la différence de vitesse
   // réelle et finissent par sortir de l'écran quand on les double.
+  // --- CAMÉRA ----------------------------------------------------------------------------
+  // Un seul modèle de perspective pour tout ce qui a une distance : tt = CAM_NEAR / distance.
+  // Ce qui appartient au paysage et non à la route (le soleil, les silhouettes d'horizon) se
+  // place au contraire par rapport au cap monde : c'est la voiture qui tourne, pas le décor.
+  const CAM_NEAR = 6;           // mètres : distance à laquelle un objet occupe le bas de l'écran
+  const CAM_FOV = 70;           // degrés de paysage couverts par la largeur de l'écran
+  let worldHeading = 0;         // cap cumulé, en degrés
+  let sunBearing = null;        // azimut du soleil, fixé une fois pour toutes à la scène
+
+  // --- DÉCOR DE BORD DE ROUTE ------------------------------------------------------------
+  // C'est lui qui porte la sensation de vitesse, bien plus que les traînées : un objet proche
+  // balaie l'écran en une fraction de seconde, un objet lointain bouge à peine. Le même
+  // défilement, à la même vitesse réelle, mais rendu lisible par le contraste des deux.
+  const PROP_SPAN = 300;        // mètres de décor entretenus devant la voiture
+  const roadProps = Array.from({ length: 30 }, (_, i) => ({
+    dist: 5 + (i / 30) * PROP_SPAN,
+    side: Math.random() < 0.5 ? -1 : 1,
+    offset: 6.5 + Math.random() * 9,   // mètres depuis l'axe de la route
+    scale: 0.75 + Math.random() * 0.6,
+    seed: Math.random(),
+    kind: null,                        // choisi dans la palette de la scène au premier rendu
+  }));
+  function respawnProp(pr){
+    pr.dist += PROP_SPAN;
+    pr.side = Math.random() < 0.5 ? -1 : 1;
+    pr.offset = 6.5 + Math.random() * 9;
+    pr.scale = 0.75 + Math.random() * 0.6;
+    pr.seed = Math.random();
+    pr.kind = null;
+  }
+
+  // taches d'usure de la chaussée : rustines, reprises d'enrobé, traces d'huile
+  const roadPatches = Array.from({ length: 14 }, (_, i) => ({
+    dist: 4 + (i / 14) * PROP_SPAN * 0.6,
+    lat: (Math.random() * 2 - 1) * 3.2,
+    len: 0.8 + Math.random() * 2.2,   // demi-longueur, en mètres
+    wid: 0.25 + Math.random() * 0.75, // demi-largeur, en mètres
+    dark: Math.random() < 0.65,
+  }));
+  function respawnPatch(pt){
+    pt.dist += PROP_SPAN * 0.6;
+    pt.lat = (Math.random() * 2 - 1) * 3.2;
+    pt.len = 0.8 + Math.random() * 2.2;
+    pt.wid = 0.25 + Math.random() * 0.75;
+    pt.dark = Math.random() < 0.65;
+  }
+
+  let travelled = 0;   // mètres parcourus, sert d'ancre à tout ce qui défile avec la route
+
+  // bruit lisse déterministe : les irrégularités de bord de chaussée doivent défiler avec la
+  // route et non scintiller d'une image à l'autre, donc elles s'indexent sur la distance réelle
+  function roadNoise(u){
+    const i = Math.floor(u), f = u - i;
+    const h = n => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+    const a = h(i), b = h(i + 1);
+    return a + (b - a) * (f * f * (3 - 2 * f)) - 0.5;   // -0.5 .. 0.5
+  }
+
+  function updateScenery(dt, speedKmh){
+    const mps = Math.max(0, speedKmh) / 3.6;
+    travelled += mps * dt;
+    roadProps.forEach(pr => { pr.dist -= mps * dt; if(pr.dist < 3) respawnProp(pr); });
+    roadPatches.forEach(pt => { pt.dist -= mps * dt; if(pt.dist < 3) respawnPatch(pt); });
+  }
+
+  // Silhouettes de bord de route. Volontairement sommaires : à la vitesse où elles défilent,
+  // c'est la forme générale qui compte, et un détail coûteux ne serait jamais vu.
+  function drawProp(kind, x, y, s, sc, seed){
+    if(s < 0.5) return;   // trop loin pour qu'il en reste quoi que ce soit de lisible
+    const leaf = sc.foliage || ['#1e2a1e', '#141c14'];
+    const c = leaf[seed < 0.5 ? 0 : 1];
+    const ctx = visctx;
+    if(kind === 'pole' || kind === 'snowpole' || kind === 'marker'){
+      const h = (kind === 'marker' ? 1.1 : kind === 'snowpole' ? 2.6 : 7.5) * s;
+      ctx.strokeStyle = kind === 'marker' ? '#d8d4cc' : (sc.propDark || '#2a2f36');
+      ctx.lineWidth = Math.max(1, (kind === 'pole' ? 0.2 : 0.13) * s);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h); ctx.stroke();
+      if(kind === 'pole' && s > 1.5){   // traverse de poteau électrique
+        ctx.beginPath(); ctx.moveTo(x - 0.9 * s, y - h * 0.88); ctx.lineTo(x + 0.9 * s, y - h * 0.88); ctx.stroke();
+      }
+      if(kind !== 'pole' && s > 1){     // bande réfléchissante
+        ctx.fillStyle = '#e0483a';
+        ctx.fillRect(x - 0.16 * s, y - h, 0.32 * s, 0.35 * s);
+      }
+      return;
+    }
+    if(kind === 'pine' || kind === 'snowfir'){
+      const h = (5 + seed * 3) * s, w = h * 0.32;
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(x, y - h);
+      ctx.lineTo(x + w, y - h * 0.12);
+      ctx.lineTo(x - w, y - h * 0.12);
+      ctx.closePath(); ctx.fill();
+      if(kind === 'snowfir'){           // la neige tient sur le haut des branches
+        ctx.fillStyle = 'rgba(240,247,252,0.88)';
+        ctx.beginPath();
+        ctx.moveTo(x, y - h);
+        ctx.lineTo(x + w * 0.34, y - h * 0.62);
+        ctx.lineTo(x - w * 0.34, y - h * 0.62);
+        ctx.closePath(); ctx.fill();
+      }
+      return;
+    }
+    if(kind === 'tree'){
+      const h = (4.5 + seed * 2.5) * s;
+      ctx.strokeStyle = sc.propDark || '#2a2216';
+      ctx.lineWidth = Math.max(1, 0.22 * s);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h * 0.45); ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.ellipse(x, y - h * 0.68, h * 0.34, h * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if(kind === 'cypress'){
+      const h = (5 + seed * 2.5) * s;
+      ctx.strokeStyle = sc.propDark || '#221a20';
+      ctx.lineWidth = Math.max(1, 0.16 * s);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - h * 0.2); ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.ellipse(x, y - h * 0.58, h * 0.11, h * 0.42, 0, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    if(kind === 'cactus'){
+      const h = (2.6 + seed * 2.4) * s, w = Math.max(1, 0.42 * s);
+      ctx.fillStyle = c;
+      ctx.fillRect(x - w / 2, y - h, w, h);
+      const armY = y - h * 0.62, armLen = h * 0.28;
+      ctx.fillRect(x - w / 2 - armLen, armY, armLen, w * 0.8);          // bras gauche
+      ctx.fillRect(x - w / 2 - armLen, armY - armLen * 0.8, w * 0.8, armLen * 0.9);
+      if(seed > 0.45){
+        ctx.fillRect(x + w / 2, armY + h * 0.15, armLen, w * 0.8);      // bras droit
+        ctx.fillRect(x + w / 2 + armLen - w * 0.8, armY - armLen * 0.3, w * 0.8, armLen);
+      }
+      return;
+    }
+    if(kind === 'rock'){
+      const h = (0.45 + seed * 1.0) * s, w = h * (1.1 + seed * 0.7);
+      ctx.fillStyle = sc.propStone || '#4a4f57';
+      ctx.beginPath();
+      ctx.moveTo(x - w, y);
+      ctx.lineTo(x - w * 0.6, y - h * 0.75);
+      ctx.lineTo(x + w * 0.1, y - h);
+      ctx.lineTo(x + w * 0.75, y - h * 0.55);
+      ctx.lineTo(x + w, y);
+      ctx.closePath(); ctx.fill();
+      return;
+    }
+    // buisson
+    const h = (0.6 + seed * 1.1) * s;
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.ellipse(x, y - h * 0.45, h * 0.9, h * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   const TRAFFIC_MAX = 5;
-  const TRAFFIC_NEAR = 6;       // mètres : distance à laquelle un véhicule occupe le bas de l'écran
+  const TRAFFIC_NEAR = CAM_NEAR;
   const TRAFFIC_COLORS = ['#8f2f28', '#2f4d8f', '#7d7f84', '#8a6a2c', '#2f6b4a', '#5a3a6e'];
   const traffic = [];
   let trafficTimer = 2;
@@ -1641,31 +1811,48 @@
     visctx.fillStyle = sky;
     visctx.fillRect(0, 0, W, vpY);
 
+    // Tout ce qui suit appartient au paysage et non à la route : sa place à l'écran ne dépend
+    // que du cap de la voiture. Le soleil, en particulier, a un azimut fixe une fois pour
+    // toutes — l'accrocher au point de fuite le faisait glisser dans chaque virage, comme s'il
+    // tournait avec nous.
+    const pxPerDeg = W / CAM_FOV;
+    const relBearing = deg => {
+      const d = ((deg - worldHeading + 180) % 360 + 360) % 360 - 180;
+      return d;
+    };
+
     // --- soleil (couchant / de plein désert) ---------------------------------------------
     if(sc.sun){
-      const sx = farX, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
-      const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.4);
-      halo.addColorStop(0, sc.sun.color);
-      halo.addColorStop(0.22, 'rgba(255,200,120,0.45)');
-      halo.addColorStop(1, 'rgba(255,180,90,0)');
-      visctx.fillStyle = halo;
-      visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
-      visctx.fillStyle = sc.sun.color;
-      visctx.beginPath(); visctx.arc(sx, sy, sr, 0, Math.PI * 2); visctx.fill();
+      if(sunBearing == null) sunBearing = worldHeading - 5;
+      const d = relBearing(sunBearing);
+      if(Math.abs(d) < 95){
+        const sx = W / 2 + d * pxPerDeg, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
+        const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.4);
+        halo.addColorStop(0, sc.sun.color);
+        halo.addColorStop(0.22, 'rgba(255,200,120,0.45)');
+        halo.addColorStop(1, 'rgba(255,180,90,0)');
+        visctx.fillStyle = halo;
+        visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
+        visctx.fillStyle = sc.sun.color;
+        visctx.beginPath(); visctx.arc(sx, sy, sr, 0, Math.PI * 2); visctx.fill();
+      }
     }
 
     // --- silhouette d'horizon (sommets, collines, dunes) ---------------------------------
-    // elle glisse latéralement à l'inverse du virage : c'est ce décalage, plus que la route
-    // elle-même, qui donne la sensation de tourner
+    // elle défile avec le cap, et se répète pour couvrir l'écran quel que soit l'angle
     if(sc.decor){
       const pts = decorProfile(sc.decor, W);
       const maxH = vpY * (sc.decor === 'peaks' ? 0.62 : 0.28);
-      const shift = -bend * W * 0.10;
+      const span = W * 1.6;
+      let base = -(worldHeading * pxPerDeg) % span;
+      if(base > 0) base -= span;
       visctx.beginPath();
-      visctx.moveTo(pts[0][0] + shift, vpY);
-      pts.forEach(pt => visctx.lineTo(pt[0] + shift, vpY - pt[1] * maxH));
-      visctx.lineTo(pts[pts.length - 1][0] + shift, vpY);
-      visctx.closePath();
+      [base, base + span].forEach(off => {
+        visctx.moveTo(pts[0][0] + off, vpY);
+        pts.forEach(pt => visctx.lineTo(pt[0] + off, vpY - pt[1] * maxH));
+        visctx.lineTo(pts[pts.length - 1][0] + off, vpY);
+        visctx.closePath();
+      });
       const dg = visctx.createLinearGradient(0, vpY - maxH, 0, vpY);
       if(sc.decor === 'peaks'){
         dg.addColorStop(0, '#f4f8fb');   // sommets enneigés
@@ -1684,18 +1871,30 @@
 
     // --- sol ------------------------------------------------------------------------------
     visctx.fillStyle = sc.ground;
-    visctx.fillRect(vpY === 0 ? 0 : 0, vpY, W, H - vpY);
+    visctx.fillRect(0, vpY, W, H - vpY);
+
+    // Bord de chaussée irrégulier : la largeur varie de quelques centimètres, indexée sur la
+    // distance réellement parcourue. Une route parfaitement rectiligne au pixel près est ce
+    // qui trahit le plus une image de synthèse.
+    const distAt = tt => CAM_NEAR / Math.max(0.001, tt);
+    const edgeAt = (tt, side) => {
+      const d = distAt(tt);
+      if(d > 240) return roadHalfAt(tt);
+      const ppm = roadHalfAt(tt) / 4;
+      return roadHalfAt(tt) + roadNoise((travelled + d) / 11 + (side > 0 ? 37 : 0)) * 0.30 * ppm;
+    };
 
     // --- ruban de route : une suite de tranches horizontales, pour pouvoir le courber -----
-    const SLICES = 28;
+    const SLICES = 34;
     visctx.beginPath();
     for(let i = 0; i <= SLICES; i++){
-      const tt = i / SLICES, y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
-      if(i === 0) visctx.moveTo(c - h, y); else visctx.lineTo(c - h, y);
+      const tt = i / SLICES, y = rowY(tt);
+      const x = roadCenterAt(tt) - edgeAt(tt, -1);
+      if(i === 0) visctx.moveTo(x, y); else visctx.lineTo(x, y);
     }
     for(let i = SLICES; i >= 0; i--){
-      const tt = i / SLICES, y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
-      visctx.lineTo(c + h, y);
+      const tt = i / SLICES;
+      visctx.lineTo(roadCenterAt(tt) + edgeAt(tt, 1), rowY(tt));
     }
     visctx.closePath();
     const roadGrad = visctx.createLinearGradient(0, vpY, 0, H);
@@ -1704,37 +1903,64 @@
     visctx.fillStyle = roadGrad;
     visctx.fill();
 
+    // rustines et reprises d'enrobé, ancrées au sol : elles défilent donc à la vraie vitesse
+    roadPatches.forEach(pt => {
+      const tt = CAM_NEAR / pt.dist;
+      if(tt < 0.03 || tt > 1.5) return;
+      const ppm = roadHalfAt(tt) / 4;
+      visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.11)' : 'rgba(255,255,255,0.035)';
+      visctx.beginPath();
+      visctx.ellipse(roadCenterAt(tt) + pt.lat * ppm, rowY(tt),
+        Math.max(0.6, pt.wid * ppm), Math.max(0.5, pt.len * ppm * 0.22), 0, 0, Math.PI * 2);
+      visctx.fill();
+    });
+
+    // joints de reprise transversaux, tous les 22 m
+    const seamFirst = Math.ceil(travelled / 22) * 22 - travelled;
+    visctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    visctx.lineWidth = 1;
+    for(let k = 0; k < 9; k++){
+      const d = seamFirst + k * 22;
+      if(d < 4) continue;
+      const tt = CAM_NEAR / d;
+      if(tt < 0.03) break;
+      const y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
+      visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
+    }
+
     visctx.lineWidth = 2;
     visctx.strokeStyle = sc.edge;
     [-1, 1].forEach(side => {
       visctx.beginPath();
       for(let i = 0; i <= SLICES; i++){
-        const tt = i / SLICES, y = rowY(tt), x = roadCenterAt(tt) + side * roadHalfAt(tt);
-        if(i === 0) visctx.moveTo(x, y); else visctx.lineTo(x, y);
+        const tt = i / SLICES;
+        const x = roadCenterAt(tt) + side * edgeAt(tt, side);
+        if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
       }
       visctx.stroke();
     });
 
-    // ligne centrale pointillée qui défile vers le bas, cadencée par la vitesse réelle —
-    // à l'arrêt (point mort), speedFactor est nul donc la route ne défile plus du tout.
-    // Le coup de gaz du Nitro (kick) l'inverse brièvement, comme un à-coup dans l'autre sens.
+    // Ligne centrale : de vrais tirets posés au sol, un tous les 12 m sur 3 m de long, et non
+    // un motif calé sur l'écran. Ils se resserrent d'eux-mêmes vers l'horizon, exactement comme
+    // en perspective réelle, et leur défilement suit la vitesse sans qu'on ait à la doser.
     const speedFactor = Math.min(1.4, speedKmh / 140);
-    const kickScroll = kick > 0 ? -kick * 2.2 : 0;
-    roadScroll = (roadScroll + dt * (speedFactor * 1.1 + kickScroll) + 1) % 1;
     visctx.fillStyle = sc.dash;
-    const dashCount = 8;
-    for(let i = 0; i < dashCount; i++){
-      const t = (i / dashCount + roadScroll) % 1;
-      const tt = t * t; // easing : les tirets s'écartent visuellement en approchant du bas
-      const tt2 = Math.min(1, t + 0.05) ** 2;
-      const y = rowY(tt), y2 = rowY(tt2);
-      const halfW = 1 + tt * 4;
-      const cx = roadCenterAt(tt);
+    const dashFirst = Math.ceil(travelled / 12) * 12 - travelled;
+    for(let k = 0; k < 22; k++){
+      const d0 = dashFirst + k * 12;
+      if(d0 < 2.5) continue;
+      const d1 = d0 + 3;
+      const tt0 = CAM_NEAR / d0, tt1 = CAM_NEAR / d1;
+      if(tt0 < 0.02) break;
+      if(tt0 > 1.6) continue;
+      const w0 = Math.max(0.6, (roadHalfAt(tt0) / 4) * 0.14);
+      const w1 = Math.max(0.4, (roadHalfAt(tt1) / 4) * 0.14);
+      const c0 = roadCenterAt(tt0), c1 = roadCenterAt(tt1);
       visctx.beginPath();
-      visctx.moveTo(cx - halfW, y);
-      visctx.lineTo(cx + halfW, y);
-      visctx.lineTo(roadCenterAt(tt2) + halfW, Math.max(y + 2, y2));
-      visctx.lineTo(roadCenterAt(tt2) - halfW, Math.max(y + 2, y2));
+      visctx.moveTo(c0 - w0, rowY(tt0));
+      visctx.lineTo(c0 + w0, rowY(tt0));
+      visctx.lineTo(c1 + w1, rowY(tt1));
+      visctx.lineTo(c1 - w1, rowY(tt1));
       visctx.closePath();
       visctx.fill();
     }
@@ -1747,6 +1973,20 @@
       visctx.fillStyle = hz;
       visctx.fillRect(0, vpY - H * 0.02, W, H * 0.24);
     }
+
+    // --- décor de bord de route ------------------------------------------------------------
+    // dessiné juste après la chaussée : les véhicules et les particules passeront devant
+    const palette = sc.props || ['pine', 'bush', 'pole'];
+    roadProps.forEach(pr => {
+      if(pr.dist < 3) return;
+      if(!pr.kind) pr.kind = palette[Math.floor(Math.random() * palette.length)];
+      const tt = CAM_NEAR / pr.dist;
+      if(tt < 0.012 || tt > 0.9) return;
+      const ppm = roadHalfAt(Math.min(1, tt)) / 4;
+      const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
+      if(x < -W * 0.3 || x > W * 1.3) return;
+      drawProp(pr.kind, x, rowY(tt), ppm * pr.scale, sc, pr.seed);
+    });
 
     const accelBoost = running ? Math.max(0, throttle) : 0;
     const kickBoost = running ? Math.max(0, kick || 0) : 0;
@@ -2057,6 +2297,8 @@
   function selectScene(key){
     currentSceneKey = key;
     decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
+    roadProps.forEach(pr => { pr.kind = null; }); // les arbres d'un désert n'ont rien à y faire
+    sunBearing = null;                            // le soleil se refixe au cap courant
     sceneDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
@@ -2495,7 +2737,11 @@
       targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
     }
     roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * 1.6);
+    // cap cumulé : en réel il suit la rotation mesurée, en débug la courbure simulée. C'est
+    // lui qui tient le paysage en place pendant que la voiture tourne.
+    worldHeading += (debugMode ? simCurve * CURVE_FULL_RATE : headingRate) * dt;
 
+    updateScenery(dt, physics.speed);
     updateTraffic(dt, physics.speed, physics.running);
 
     updateAudio(audioRpm, physics.throttle, physics.running, profile, cruiseFade);
