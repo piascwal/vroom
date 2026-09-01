@@ -46,7 +46,13 @@
   .debug-badge.on{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.08); }
   .debug-badge.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  .engine-row{ display:flex; gap:10px; align-items:center; position:relative; }
+  .engine-row{ display:flex; gap:10px; align-items:center; }
+  /* chaque sélecteur porte son propre menu déroulant, donc son propre repère de position */
+  .picker-slot{ position:relative; display:flex; }
+  .picker-slot.engine-slot{ flex:1; min-width:0; }
+  .picker-slot.scene-slot{ flex:0 0 auto; }
+  .picker-slot.scene-slot .engine-picker{ font-size:13px; padding:11px 10px; }
+  .picker-slot.scene-slot .engine-dropdown{ left:auto; right:0; min-width:180px; }
 
   /* --- sélecteur moteur : bouton custom, plus de <select> natif --- */
   .engine-picker{
@@ -132,7 +138,10 @@
      vision de vitesse en arrière-plan, poussés vers le bas de l'espace disponible */
   .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; }
   .gauges{ display:flex; justify-content:center; align-items:flex-end; gap:10px; }
-  canvas.gauge{ width:100%; max-width:224px; height:auto; }
+  /* Compteurs volontairement compacts : ils flottent sur la route, qui doit rester lisible.
+     `flex:1 1 0` + `min-width:0` : sur un écran étroit ils rétrécissent au lieu de déborder
+     de part et d'autre de la page. */
+  canvas.gauge{ flex:1 1 0; min-width:0; width:100%; max-width:152px; height:auto; }
 
   .readout-strip{ display:flex; justify-content:center; align-items:baseline; flex-wrap:wrap; gap:20px; text-align:center; flex-shrink:0; }
   .readout .l{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; text-shadow:0 1px 4px rgba(0,0,0,0.8); }
@@ -249,10 +258,10 @@
        La vision de vitesse n'est plus dans ce calcul : c'est un canvas plein écran fixe,
        en arrière-plan de toute la page (voir #visionCanvas), donc elle ne dispute plus
        d'espace vertical avec les compteurs. */
-    .cockpit{ flex:1; min-height:180px; gap:16px; }
+    .cockpit{ flex:1; min-height:140px; gap:16px; }
     #soundDesignPanel{ max-height:min(300px, 40vh); }
     .gauges{ flex:1; min-height:0; gap:24px; }
-    canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
+    canvas.gauge{ width:auto; height:auto; max-width:min(300px, 19vw); max-height:min(100%, 29vh); }
     footer{ display:none; }
     .hint{ display:none; }
     #powerBtn{ width:80px; height:80px; }
@@ -303,11 +312,20 @@
   </header>
 
   <div class="engine-row">
-    <button class="engine-picker" id="enginePickerBtn" type="button">
-      <span id="enginePickerLabel">Moteur Brut</span>
-      <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
-    </button>
-    <div class="engine-dropdown" id="engineDropdown" hidden></div>
+    <div class="picker-slot engine-slot">
+      <button class="engine-picker" id="enginePickerBtn" type="button">
+        <span id="enginePickerLabel">Moteur Brut</span>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="engine-dropdown" id="engineDropdown" hidden></div>
+    </div>
+    <div class="picker-slot scene-slot">
+      <button class="engine-picker" id="scenePickerBtn" type="button" title="Décor de la route">
+        <span id="scenePickerLabel">Nuit</span>
+        <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="engine-dropdown" id="sceneDropdown" hidden></div>
+    </div>
   </div>
 
   <div class="effects-row">
@@ -322,10 +340,6 @@
     <button class="toggle-btn nitro-btn ready" id="nitroBtn" type="button" title="Boost nitro">
       <span class="led"></span>
       <span class="lbl">Nitro</span>
-    </button>
-    <button class="toggle-btn" id="vrombBtn" type="button" title="Grondement grave qui reste audible même à allure constante, sans coupure de croisière">
-      <span class="led"></span>
-      <span class="lbl">Vromb.</span>
     </button>
   </div>
 
@@ -348,6 +362,7 @@
       <div class="readout gear"><div class="l">Rapport</div><div class="v" id="gearVal">N</div></div>
       <div class="readout spd"><div class="l">Vitesse</div><div class="v" id="spdStat">0 km/h</div></div>
       <div class="readout engine"><div class="l">Moteur</div><div class="v" id="engineLabel">Moteur Brut</div></div>
+      <div class="readout cap" id="capReadout" hidden><div class="l">Cap</div><div class="v" id="capVal">—</div></div>
     </div>
   </div>
 
@@ -389,6 +404,17 @@
     <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
+    <div class="sd-slider"><label>Résonance échappement (Hz) <span id="sdPipeHzVal"></span></label><input type="range" id="sdPipeHz" min="55" max="190" step="1"></div>
+    <div class="sd-slider"><label>Longueur du pop <span id="sdPopLengthVal"></span></label><input type="range" id="sdPopLength" min="0.3" max="2.5" step="0.05"></div>
+    <div class="sd-slider"><label>Coupure rupteur (ms) <span id="sdLimiterCutVal"></span></label><input type="range" id="sdLimiterCut" min="5" max="90" step="1"></div>
+    <div class="sd-slider"><label>Densité anti-lag <span id="sdAntilagVal"></span></label><input type="range" id="sdAntilag" min="0.4" max="3" step="0.05"></div>
+
+    <div class="sd-row" style="display:block;">
+      <label>Allure constante (réglages globaux)</label>
+    </div>
+    <div class="sd-slider"><label>Fenêtre de stabilité (± km/h) <span id="sdSteadyBandVal"></span></label><input type="range" id="sdSteadyBand" min="1" max="15" step="0.5"></div>
+    <div class="sd-slider"><label>Délai avant atténuation (s) <span id="sdSteadyHoldVal"></span></label><input type="range" id="sdSteadyHold" min="0.5" max="10" step="0.1"></div>
+    <div class="sd-slider"><label>Niveau une fois stabilisé <span id="sdSteadyLevelVal"></span></label><input type="range" id="sdSteadyLevel" min="0" max="1" step="0.01"></div>
 
     <div class="sd-row">
       <label for="sdGears">Rapports</label>
@@ -639,7 +665,7 @@
     const lp = actx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.Q.value = 0.6;
-    const dur = 0.05 + Math.random() * 0.06;
+    const dur = (0.05 + Math.random() * 0.06) * popLengthFactor();
     lp.frequency.setValueAtTime(1800 + amp * 1800, t0);
     lp.frequency.exponentialRampToValueAtTime(260, t0 + dur); // le claquement s'assombrit en s'éteignant
     const g = actx.createGain();
@@ -653,6 +679,13 @@
   // Souffle de gaz chassé sous la détonation : c'est le corps grave du pop, mais c'est de
   // l'air sous pression, pas une note — un oscillateur à cet endroit sonne immédiatement
   // comme une grosse caisse.
+  // longueur des détonations, réglable à l'atelier : c'est ce qui sépare un crépitement sec
+  // d'une décharge qui traîne
+  function popLengthFactor(){
+    const pr = ENGINES[currentProfileKey];
+    return (pr && pr.popLength != null) ? pr.popLength : 1;
+  }
+
   function exhaustChuff(t0, amp, length){
     const src = actx.createBufferSource();
     src.buffer = noiseNode.buffer;
@@ -685,7 +718,7 @@
     const t0 = Math.max(actx.currentTime, o.at || 0);
     const level = (0.5 + intensity * 0.5) * (o.level != null ? o.level : 1);
 
-    exhaustChuff(t0, 0.55 * level * weight, 0.11 + 0.06 * weight);
+    exhaustChuff(t0, 0.55 * level * weight, (0.11 + 0.06 * weight) * popLengthFactor());
     const count = 1 + Math.floor(Math.random() * (1 + intensity * 2.5 * weight));
     let t = t0;
     for(let i = 0; i < count; i++){
@@ -701,7 +734,9 @@
   function spawnLimiterCut(intensity){
     if(!actx) return;
     const now = actx.currentTime;
-    const hole = 0.03 + Math.random() * 0.025;
+    const pr = ENGINES[currentProfileKey];
+    const base = (pr && pr.limiterCutMs != null ? pr.limiterCutMs : 40) / 1000;
+    const hole = base * (0.8 + Math.random() * 0.4);
     if(engineBodyGain){
       const g = engineBodyGain.gain;
       g.cancelScheduledValues(now);
@@ -1084,7 +1119,9 @@
     // ligne est longue et grave. C'est ce qui fait qu'une pétarade de V8 et une pétarade de
     // 4-cylindres ne claquent pas à la même hauteur.
     if(pipeA){
-      const pipeF = Math.max(70, Math.min(135, 132 - Math.round(profile.cylinders) * 3));
+      const pipeF = profile.pipeHz != null
+        ? profile.pipeHz
+        : Math.max(70, Math.min(135, 132 - Math.round(profile.cylinders) * 3));
       pipeA.frequency.value = pipeF;
       pipeB.frequency.value = pipeF * 3;
       pipeC.frequency.value = pipeF * 5;
@@ -1161,11 +1198,8 @@
 
 
     if(growlDepth){
-      // grondement naturel du moteur (fort au ralenti, s'efface avec le régime) ; le bouton
-      // Vromb. force un grondement fixe qui ne s'efface pas, pour rester audible à allure constante
-      const naturalGrowl = (profile.growl || 0) * (1 - Math.min(1, rpmRatio * 1.3));
-      const forcedGrowl = vrombOn ? 0.6 : 0;
-      const growlAmt = Math.max(naturalGrowl, forcedGrowl) * targetMaster;
+      // grondement naturel du moteur : fort au ralenti, s'efface avec le régime
+      const growlAmt = (profile.growl || 0) * (1 - Math.min(1, rpmRatio * 1.3)) * targetMaster;
       growlDepth.gain.setTargetAtTime(running ? growlAmt * 0.35 : 0, now, 0.05);
     }
     if(wahDepth){
@@ -1352,11 +1386,85 @@
   }
   resizeVisionCanvas();
   window.addEventListener('resize', resizeVisionCanvas);
-  const VISION_PARTICLES = 40;
+  const VISION_PARTICLES = 46;
   const visionParticles = Array.from({ length: VISION_PARTICLES }, () => ({
     angle: Math.random() * 2 - 1, // -1..1, position latérale relative au point de fuite
     z: Math.random(),             // 0 = au point de fuite (loin), 1 = au bord de l'écran (proche)
+    sway: Math.random() * Math.PI * 2, // phase de balancement (flocons, poussière)
+    size: Math.random(),               // dispersion des tailles
   }));
+
+  // ---------------------------------------------------------------------
+  // 4d. SCÈNES — même route, décors et météo différents
+  // ---------------------------------------------------------------------
+  // Chaque scène ne décrit que ce qui change : les couleurs du ciel, du sol et de la route,
+  // le type de particules (traînées de vitesse, flocons, pluie, poussière), une silhouette
+  // d'horizon et une brume. La géométrie de la route, elle, est commune.
+  const SCENES = {
+    nuit: {
+      name: 'Nuit', sky: ['#0b0e13', '#1b212a'], ground: '#08090b',
+      road: ['#1c1f24', '#0e1013'], edge: 'rgba(255,140,60,0.40)', dash: 'rgba(231,228,222,0.55)',
+      glow: '255,220,180', glowStrength: 1, particle: 'streak', particleRGB: [255, 205, 150],
+      haze: null, decor: null, sun: null, carLight: 1,
+    },
+    montagne: {
+      name: 'Montagne', sky: ['#7d99b4', '#cfdde8'], ground: '#e6edf2',
+      road: ['#5a6068', '#3c4148'], edge: 'rgba(255,255,255,0.8)', dash: 'rgba(250,250,255,0.9)',
+      glow: '255,255,255', glowStrength: 0.3, particle: 'snow', particleRGB: [255, 255, 255],
+      haze: 'rgba(207,221,232,0.9)', decor: 'peaks', sun: null, carLight: 0.5,
+    },
+    sunset: {
+      name: 'Coucher de soleil', sky: ['#2c1a42', '#ff9a4d'], ground: '#2a1f1c',
+      road: ['#3b2f2c', '#191412'], edge: 'rgba(255,190,120,0.55)', dash: 'rgba(255,240,220,0.7)',
+      glow: '255,175,85', glowStrength: 1.5, particle: 'streak', particleRGB: [255, 190, 120],
+      haze: 'rgba(255,154,77,0.5)', decor: 'hills', sun: { y: 0.005, r: 0.085, color: '#ffd08a' },
+      carLight: 0.8,
+    },
+    desert: {
+      name: 'Désert', sky: ['#6f9dc4', '#f0dcaa'], ground: '#c8a769',
+      road: ['#6d6354', '#484037'], edge: 'rgba(255,255,255,0.5)', dash: 'rgba(255,250,235,0.75)',
+      glow: '255,240,200', glowStrength: 0.45, particle: 'dust', particleRGB: [220, 194, 146],
+      haze: 'rgba(240,220,170,0.8)', decor: 'dunes', sun: { y: -0.08, r: 0.05, color: '#fff6cf' },
+      carLight: 0.45,
+    },
+    orage: {
+      name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
+      road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
+      glow: '200,215,235', glowStrength: 0.6, particle: 'rain', particleRGB: [190, 210, 235],
+      haze: 'rgba(58,66,80,0.55)', decor: null, sun: null, carLight: 1, lightning: true,
+    },
+  };
+  let currentSceneKey = 'nuit';
+  let lightningFlash = 0, lightningTimer = 6;
+
+  // Silhouettes d'horizon : calculées une seule fois par scène et par largeur d'écran, puis
+  // simplement décalées à l'écran (parallaxe) — recalculer un profil de montagne à chaque
+  // image le ferait grouiller.
+  let decorCache = { key: null, pts: null };
+  function decorProfile(kind, W){
+    const key = kind + ':' + W;
+    if(decorCache.key === key) return decorCache.pts;
+    const rnd = seededRandom(kind.length * 7919 + Math.round(W));
+    const n = kind === 'peaks' ? 30 : 20;
+    const span = W * 1.6;
+    const pts = [];
+    for(let i = 0; i <= n; i++){
+      const x = -W * 0.3 + (i / n) * span;
+      let h;
+      if(kind === 'peaks'){
+        // deux échelles superposées : des sommets nettement irréguliers, pas une scie régulière
+        h = 0.32 + 0.68 * Math.pow(rnd(), 1.5);
+        h *= 0.55 + 0.45 * Math.abs(Math.sin(i * 0.7 + 1.2));
+      } else if(kind === 'dunes'){
+        h = 0.32 + 0.26 * Math.sin(i * 0.55) + 0.16 * Math.sin(i * 1.9 + 0.6) + rnd() * 0.1;
+      } else {
+        h = 0.28 + 0.22 * Math.sin(i * 0.42 + 0.4) + 0.1 * Math.sin(i * 1.3) + rnd() * 0.07;
+      }
+      pts.push([x, Math.max(0.05, Math.min(1, h))]);
+    }
+    decorCache = { key, pts };
+    return pts;
+  }
   let roadScroll = 0; // défilement des tirets centraux de la route
 
   // --- VIRAGES ---------------------------------------------------------------------------
@@ -1367,11 +1475,32 @@
   const CURVE_FULL_RATE = 22;   // deg/s au-delà desquels le virage est dessiné à fond
   let headingRate = 0;          // vitesse de rotation du cap, en deg/s signés (+ = à droite)
   let lastHeadingDeg = null, lastHeadingTime = 0, lastHeadingSample = 0;
+  let headingSource = null;     // 'gps' | 'trajet' | 'boussole' — d'où vient le cap, affiché en mode réel
+  let lastFixLat = null, lastFixLon = null;
   let roadCurve = 0;            // -1..1 lissé : ce qui est réellement dessiné
   let simCurve = 0, simCurveTarget = 0, simCurveTimer = 0;
 
-  function applyHeadingSample(deg, tMs){
+  // Cap déduit de deux positions successives. Beaucoup de navigateurs embarqués (dont celui
+  // de la Tesla) renvoient toujours `heading: null` : le cap doit alors se calculer à partir
+  // du trajet réellement parcouru, ce qui marche partout dès qu'on avance assez pour que le
+  // déplacement dépasse le bruit du GPS.
+  function bearingBetween(lat1, lon1, lat2, lon2){
+    const rad = d => d * Math.PI / 180;
+    const f1 = rad(lat1), f2 = rad(lat2), dl = rad(lon2 - lon1);
+    const y = Math.sin(dl) * Math.cos(f2);
+    const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  // distance approchée en mètres entre deux points proches (projection plane, suffisant ici)
+  function metresBetween(lat1, lon1, lat2, lon2){
+    const dLat = (lat2 - lat1) * 111320;
+    const dLon = (lon2 - lon1) * 111320 * Math.cos(lat1 * Math.PI / 180);
+    return Math.hypot(dLat, dLon);
+  }
+
+  function applyHeadingSample(deg, tMs, source){
     if(deg == null || Number.isNaN(deg)) return;
+    if(source) headingSource = source;
     const now = tMs || Date.now();
     if(lastHeadingDeg != null){
       let d = deg - lastHeadingDeg;
@@ -1391,8 +1520,10 @@
   function onDeviceHeading(e){
     // iOS expose un cap boussole direct ; ailleurs, alpha est un cap absolu compté à l'envers
     const compass = e.webkitCompassHeading;
-    if(compass != null && !Number.isNaN(compass)){ applyHeadingSample(compass, e.timeStamp && performance.timeOrigin ? performance.timeOrigin + e.timeStamp : Date.now()); return; }
-    if(e.absolute && e.alpha != null) applyHeadingSample((360 - e.alpha) % 360, Date.now());
+    // la boussole ne sert que de dernier recours : le GPS et le trajet sont plus fiables en voiture
+    if(headingSource === 'gps' || headingSource === 'trajet') return;
+    if(compass != null && !Number.isNaN(compass)){ applyHeadingSample(compass, Date.now(), 'boussole'); return; }
+    if(e.absolute && e.alpha != null) applyHeadingSample((360 - e.alpha) % 360, Date.now(), 'boussole');
   }
 
   let compassBound = false;
@@ -1459,29 +1590,80 @@
 
   function drawVision(speedKmh, throttle, running, dt, kick, curve){
     const W = visctx.canvas.width, H = visctx.canvas.height;
+    const sc = SCENES[currentSceneKey] || SCENES.nuit;
     visctx.clearRect(0, 0, W, H);
     const vpX = W / 2, vpY = H * 0.28;
     const bend = Math.max(-1, Math.min(1, curve || 0));
 
-    // Géométrie de la route en virage : `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
-    // sous le capot). Le décalage latéral croît avec le carré de la distance — sous le capot
-    // la route reste centrée, c'est le lointain qui part sur le côté, comme dans un virage réel.
+    // Géométrie de la route en virage. `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
+    // sous le capot). Le quart le plus proche reste rigoureusement droit : on roule toujours
+    // dans l'axe de sa propre voie, ce sont les lointains qui s'infléchissent. Sans cette zone
+    // morte, tout le ruban penche d'un bloc et on a l'impression de rouler en crabe.
     const roadHalfBottom = W * 0.48, roadHalfTop = 3;
-    const bendAt = tt => { const d = 1 - Math.max(0, Math.min(1, tt)); return bend * d * d * W * 0.45; };
+    const CURVE_STRAIGHT = 0.28;
+    const bendAt = tt => {
+      const d = 1 - Math.max(0, Math.min(1, tt));
+      const far = Math.max(0, d - CURVE_STRAIGHT) / (1 - CURVE_STRAIGHT);
+      return bend * Math.pow(far, 2.6) * W * 0.30;
+    };
     const roadCenterAt = tt => vpX + bendAt(tt);
     const roadHalfAt = tt => roadHalfTop + (roadHalfBottom - roadHalfTop) * Math.max(0, Math.min(1.6, tt));
     const rowY = tt => vpY + (H - vpY) * tt;
     const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
+    // --- ciel ---------------------------------------------------------------------------
     const sky = visctx.createLinearGradient(0, 0, 0, vpY);
-    sky.addColorStop(0, '#0b0e13');
-    sky.addColorStop(1, '#1b212a');
+    sky.addColorStop(0, sc.sky[0]);
+    sky.addColorStop(1, sc.sky[1]);
     visctx.fillStyle = sky;
     visctx.fillRect(0, 0, W, vpY);
-    visctx.fillStyle = '#08090b';
-    visctx.fillRect(0, vpY, W, H - vpY);
 
-    // ruban de route : une suite de tranches horizontales, pour pouvoir le courber
+    // --- soleil (couchant / de plein désert) ---------------------------------------------
+    if(sc.sun){
+      const sx = farX, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
+      const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.4);
+      halo.addColorStop(0, sc.sun.color);
+      halo.addColorStop(0.22, 'rgba(255,200,120,0.45)');
+      halo.addColorStop(1, 'rgba(255,180,90,0)');
+      visctx.fillStyle = halo;
+      visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
+      visctx.fillStyle = sc.sun.color;
+      visctx.beginPath(); visctx.arc(sx, sy, sr, 0, Math.PI * 2); visctx.fill();
+    }
+
+    // --- silhouette d'horizon (sommets, collines, dunes) ---------------------------------
+    // elle glisse latéralement à l'inverse du virage : c'est ce décalage, plus que la route
+    // elle-même, qui donne la sensation de tourner
+    if(sc.decor){
+      const pts = decorProfile(sc.decor, W);
+      const maxH = vpY * (sc.decor === 'peaks' ? 0.62 : 0.28);
+      const shift = -bend * W * 0.10;
+      visctx.beginPath();
+      visctx.moveTo(pts[0][0] + shift, vpY);
+      pts.forEach(pt => visctx.lineTo(pt[0] + shift, vpY - pt[1] * maxH));
+      visctx.lineTo(pts[pts.length - 1][0] + shift, vpY);
+      visctx.closePath();
+      const dg = visctx.createLinearGradient(0, vpY - maxH, 0, vpY);
+      if(sc.decor === 'peaks'){
+        dg.addColorStop(0, '#f4f8fb');   // sommets enneigés
+        dg.addColorStop(0.45, '#8fa2b3');
+        dg.addColorStop(1, '#5d6f80');
+      } else if(sc.decor === 'dunes'){
+        dg.addColorStop(0, '#d8b87c');
+        dg.addColorStop(1, '#a8874f');
+      } else {
+        dg.addColorStop(0, '#4a2f4a');
+        dg.addColorStop(1, '#241a2c');
+      }
+      visctx.fillStyle = dg;
+      visctx.fill();
+    }
+
+    // --- sol ------------------------------------------------------------------------------
+    visctx.fillStyle = sc.ground;
+    visctx.fillRect(vpY === 0 ? 0 : 0, vpY, W, H - vpY);
+
+    // --- ruban de route : une suite de tranches horizontales, pour pouvoir le courber -----
     const SLICES = 28;
     visctx.beginPath();
     for(let i = 0; i <= SLICES; i++){
@@ -1494,13 +1676,13 @@
     }
     visctx.closePath();
     const roadGrad = visctx.createLinearGradient(0, vpY, 0, H);
-    roadGrad.addColorStop(0, '#1c1f24');
-    roadGrad.addColorStop(1, '#0e1013');
+    roadGrad.addColorStop(0, sc.road[0]);
+    roadGrad.addColorStop(1, sc.road[1]);
     visctx.fillStyle = roadGrad;
     visctx.fill();
 
     visctx.lineWidth = 2;
-    visctx.strokeStyle = 'rgba(255,140,60,0.4)';
+    visctx.strokeStyle = sc.edge;
     [-1, 1].forEach(side => {
       visctx.beginPath();
       for(let i = 0; i <= SLICES; i++){
@@ -1516,7 +1698,7 @@
     const speedFactor = Math.min(1.4, speedKmh / 140);
     const kickScroll = kick > 0 ? -kick * 2.2 : 0;
     roadScroll = (roadScroll + dt * (speedFactor * 1.1 + kickScroll) + 1) % 1;
-    visctx.fillStyle = 'rgba(231,228,222,0.55)';
+    visctx.fillStyle = sc.dash;
     const dashCount = 8;
     for(let i = 0; i < dashCount; i++){
       const t = (i / dashCount + roadScroll) % 1;
@@ -1534,36 +1716,70 @@
       visctx.fill();
     }
 
-    // particules de vitesse : traînées radiant depuis le point de fuite vers le bord de l'écran.
-    // Sans vitesse réelle ni accélération ni coup de gaz, baseSpeed est nul : à l'arrêt/au point
-    // mort, rien ne bouge — seule une vraie vitesse, un coup d'accélérateur ou le kick du Nitro anime la scène.
+    // --- brume d'horizon : les lointains se fondent dans le ciel de la scène --------------
+    if(sc.haze){
+      const hz = visctx.createLinearGradient(0, vpY - H * 0.02, 0, vpY + H * 0.22);
+      hz.addColorStop(0, sc.haze);
+      hz.addColorStop(1, sc.haze.replace(/[\d.]+\)$/, '0)'));
+      visctx.fillStyle = hz;
+      visctx.fillRect(0, vpY - H * 0.02, W, H * 0.24);
+    }
+
     const accelBoost = running ? Math.max(0, throttle) : 0;
     const kickBoost = running ? Math.max(0, kick || 0) : 0;
     const baseSpeed = running ? (speedFactor * 0.9 + accelBoost * 0.6 + kickBoost * 1.4) : 0;
+
+    // --- particules : traînées de vitesse, flocons, pluie ou poussière selon la scène ------
     visctx.lineCap = 'round';
+    const [pr, pg, pb] = sc.particleRGB;
     visionParticles.forEach(p => {
-      p.z += dt * baseSpeed * (0.6 + Math.abs(p.angle) * 0.4);
-      if(p.z > 1){ p.z = 0; p.angle = Math.random() * 2 - 1; }
-      if(!running || baseSpeed <= 0) return;
+      // la neige et la poussière flottent : elles avancent moins vite que le paysage
+      const drift = sc.particle === 'snow' ? 0.35 : sc.particle === 'dust' ? 0.7 : 1;
+      p.z += dt * (baseSpeed * drift + (sc.particle === 'snow' ? 0.12 : 0)) * (0.6 + Math.abs(p.angle) * 0.4);
+      p.sway += dt * (sc.particle === 'snow' ? 1.6 : 3.2);
+      if(p.z > 1){ p.z = 0; p.angle = Math.random() * 2 - 1; p.size = Math.random(); }
+      if(!running && sc.particle !== 'snow') return;
+      if(baseSpeed <= 0 && sc.particle !== 'snow') return;
       const zz = p.z * p.z; // accélération visuelle vers les bords, comme en perspective réelle
       // l'origine des traînées suit le point de fuite : en virage, tout le flux part de côté
       const originX = farX + (vpX - farX) * zz;
-      const x = originX + p.angle * zz * W * 0.55;
+      const swayX = sc.particle === 'snow' ? Math.sin(p.sway) * zz * W * 0.05 : 0;
+      const x = originX + p.angle * zz * W * 0.55 + swayX;
       const y = vpY + zz * (H - vpY);
-      const len = 4 + zz * 26 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5 + kickBoost * 0.9);
+
+      if(sc.particle === 'snow'){
+        const r = 0.8 + zz * (2 + p.size * 3.5);
+        visctx.fillStyle = `rgba(${pr},${pg},${pb},${Math.min(0.95, 0.25 + zz * 0.7)})`;
+        visctx.beginPath(); visctx.arc(x, y, r, 0, Math.PI * 2); visctx.fill();
+        return;
+      }
+      if(sc.particle === 'rain'){
+        // la pluie tombe presque à la verticale, à peine inclinée par la vitesse
+        const len = 10 + zz * 55;
+        visctx.strokeStyle = `rgba(${pr},${pg},${pb},${Math.min(0.75, 0.12 + zz * 0.5)})`;
+        visctx.lineWidth = 0.8 + zz * 1.2;
+        visctx.beginPath();
+        visctx.moveTo(x, y);
+        visctx.lineTo(x - (x - originX) * 0.12, y - len);
+        visctx.stroke();
+        return;
+      }
+      // traînées radiales (nuit, coucher de soleil) et poussière rasante (désert)
+      const lenScale = sc.particle === 'dust' ? 0.55 : 1;
+      const len = (4 + zz * 26 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5 + kickBoost * 0.9)) * lenScale;
       const mag = Math.hypot(x - farX, y - vpY) || 1;
-      const tailX = x - (x - farX) / mag * len;
-      const tailY = y - (y - vpY) / mag * len;
-      const alpha = Math.min(0.9, 0.15 + zz * 0.6 + accelBoost * 0.3 + kickBoost * 0.4);
-      visctx.strokeStyle = `rgba(255,${210 - Math.round(zz * 40)},${150 - Math.round(zz * 60)},${alpha})`;
+      const alpha = Math.min(0.9, (0.15 + zz * 0.6 + accelBoost * 0.3 + kickBoost * 0.4) * (sc.particle === 'dust' ? 0.6 : 1));
+      visctx.strokeStyle = `rgba(${pr},${pg - Math.round(zz * 25)},${pb - Math.round(zz * 40)},${alpha})`;
       visctx.lineWidth = 1 + zz * 1.5;
       visctx.beginPath();
       visctx.moveTo(x, y);
-      visctx.lineTo(tailX, tailY);
+      visctx.lineTo(x - (x - farX) / mag * len, y - (y - vpY) / mag * len);
       visctx.stroke();
     });
 
-    // véhicules devant nous : le plus loin dessiné en premier pour un recouvrement correct.
+    // --- véhicules devant nous ------------------------------------------------------------
+    // le plus loin dessiné en premier pour un recouvrement correct, et après les particules
+    // pour qu'une traînée ne traverse pas une voiture qu'on est en train de doubler.
     // La perspective est celle d'une vraie caméra (tt = distance de référence / distance),
     // donc un véhicule doublé grossit vite puis sort par le bas de l'écran.
     if(running){
@@ -1603,16 +1819,17 @@
         }
         visctx.globalAlpha = 1;
 
-        // feux arrière : c'est ce qu'on voit en premier de loin, donc ils restent lisibles
+        // feux arrière : très présents de nuit, discrets en plein jour
+        const lamp = sc.carLight;
         const lampW = Math.max(1, carW * (v.truck ? 0.13 : 0.17));
         const lampH = Math.max(1, carH * 0.16);
         const lampY = topY + carH * (v.truck ? 0.74 : 0.60);
-        visctx.fillStyle = 'rgba(255,60,40,0.95)';
+        visctx.fillStyle = `rgba(255,60,40,${0.45 + 0.5 * lamp})`;
         visctx.fillRect(cx - carW * 0.44, lampY, lampW, lampH);
         visctx.fillRect(cx + carW * 0.44 - lampW, lampY, lampW, lampH);
-        if(carW > 8){
+        if(carW > 8 && lamp > 0.4){
           const halo = visctx.createRadialGradient(cx, lampY + lampH / 2, 0, cx, lampY + lampH / 2, carW * 0.8);
-          halo.addColorStop(0, 'rgba(255,60,40,0.28)');
+          halo.addColorStop(0, `rgba(255,60,40,${0.28 * lamp})`);
           halo.addColorStop(1, 'rgba(255,60,40,0)');
           visctx.fillStyle = halo;
           visctx.fillRect(cx - carW * 0.8, lampY + lampH / 2 - carW * 0.8, carW * 1.6, carW * 1.6);
@@ -1620,12 +1837,31 @@
       });
     }
 
-    // halo au point de fuite (feux lointains), qui s'intensifie à l'accélération et au kick
-    const glow = visctx.createRadialGradient(farX, vpY, 0, farX, vpY, W * 0.06);
-    glow.addColorStop(0, `rgba(255,220,180,${running ? 0.5 + accelBoost * 0.3 + kickBoost * 0.4 : 0.15})`);
-    glow.addColorStop(1, 'rgba(255,220,180,0)');
-    visctx.fillStyle = glow;
-    visctx.fillRect(farX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
+    // --- halo au point de fuite (feux lointains), discret en plein jour --------------------
+    const gs = sc.glowStrength;
+    if(gs > 0.02){
+      const glow = visctx.createRadialGradient(farX, vpY, 0, farX, vpY, W * 0.06);
+      glow.addColorStop(0, `rgba(${sc.glow},${(running ? 0.5 + accelBoost * 0.3 + kickBoost * 0.4 : 0.15) * gs})`);
+      glow.addColorStop(1, `rgba(${sc.glow},0)`);
+      visctx.fillStyle = glow;
+      visctx.fillRect(farX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
+    }
+
+    // --- éclairs (orage) : un flash bref sur toute la scène --------------------------------
+    if(sc.lightning){
+      lightningTimer -= dt;
+      if(lightningTimer <= 0){
+        lightningFlash = 0.55 + Math.random() * 0.35;
+        lightningTimer = 4 + Math.random() * 9;
+      }
+      if(lightningFlash > 0){
+        lightningFlash = Math.max(0, lightningFlash - dt * 4.5);
+        visctx.fillStyle = `rgba(210,225,245,${lightningFlash * 0.5})`;
+        visctx.fillRect(0, 0, W, H);
+      }
+    } else {
+      lightningFlash = 0;
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1641,12 +1877,30 @@
       pos => {
         const spd = pos.coords.speed; // m/s, peut être null selon le capteur
         gpsSpeedKmh = (spd == null || Number.isNaN(spd)) ? null : Math.max(0, spd * 3.6);
+        const c = pos.coords;
+        const moving = spd == null || spd > 1.2;
+        const moved = lastFixLat == null ? 0 : metresBetween(lastFixLat, lastFixLon, c.latitude, c.longitude);
         // cap : seulement exploitable en mouvement, sinon le GPS le renvoie nul ou erratique
-        if(spd == null || spd > 1.2) applyHeadingSample(pos.coords.heading, pos.timestamp);
+        if(moving && c.heading != null && !Number.isNaN(c.heading)){
+          applyHeadingSample(c.heading, pos.timestamp, 'gps');
+        } else if(moving && lastFixLat != null && moved > 4){
+          // repli : le cap se déduit du trajet entre deux points, dès que le déplacement
+          // dépasse le bruit du GPS (sinon on lirait une direction au hasard à l'arrêt)
+          applyHeadingSample(bearingBetween(lastFixLat, lastFixLon, c.latitude, c.longitude), pos.timestamp, 'trajet');
+        }
+        // le point de référence suit toujours le trajet, y compris quand le cap vient du GPS :
+        // si celui-ci vient à manquer, le repli doit repartir d'un point récent
+        if(lastFixLat == null || moved > 4){ lastFixLat = c.latitude; lastFixLon = c.longitude; }
       },
       () => { gpsSpeedKmh = null; },
       { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
     );
+  }
+
+  // à l'arrêt du suivi, on oublie le cap : mieux vaut afficher « aucun » qu'une valeur figée
+  function resetHeading(){
+    lastHeadingDeg = null; lastHeadingTime = 0; lastHeadingSample = 0;
+    headingRate = 0; headingSource = null; lastFixLat = null; lastFixLon = null;
   }
 
   function stopGeoWatch(){
@@ -1655,6 +1909,7 @@
       geoWatchId = null;
     }
     gpsSpeedKmh = null;
+    resetHeading();
   }
 
   const enginePickerBtn = document.getElementById('enginePickerBtn');
@@ -1670,6 +1925,8 @@
   const rpmStat = document.getElementById('rpmStat');
   const pedalGas = document.getElementById('pedalGas');
   const pedalBrake = document.getElementById('pedalBrake');
+  const capReadout = document.getElementById('capReadout');
+  const capVal = document.getElementById('capVal');
   const fillGas = document.getElementById('fillGas');
   const fillBrake = document.getElementById('fillBrake');
   const cruiseBtn = document.getElementById('cruiseBtn');
@@ -1712,7 +1969,6 @@
   let currentEngineKey = 'mecanique';
   let rupteurOn = false;
   let antilagOn = false;
-  let vrombOn = false; // grondement forcé, audible même à allure constante (annule l'atténuation de croisière)
   let nitroKickTimer = 0; // à l'activation du Nitro : pic de régime affiché/son + route qui défile à l'envers
   const NITRO_KICK_DURATION = 0.6;
   let nitroState = 'ready'; // 'ready' | 'active' | 'cooldown'
@@ -1723,10 +1979,12 @@
   // reste dans une fenêtre de +/- STEADY_BAND_KMH autour d'une vitesse de référence, et assez
   // longtemps, on considère qu'on roule et on efface le moteur. Dès qu'on sort de la fenêtre
   // (ou qu'on accélère/freine franchement), la référence se recale et le son revient.
-  const STEADY_BAND_KMH = 5;      // +/- 5 km/h autour de la référence = « allure constante »
-  const STEADY_HOLD_S = 3;        // temps à tenir dans la fenêtre avant d'atténuer
+  // réglables depuis l'atelier son (débug), d'où des `let` : ce sont les trois valeurs qu'on
+  // a envie de tâtonner à l'oreille en roulant
+  let STEADY_BAND_KMH = 5;        // +/- 5 km/h autour de la référence = « allure constante »
+  let STEADY_HOLD_S = 3;          // temps à tenir dans la fenêtre avant d'atténuer
+  let STEADY_LEVEL = 0.25;        // niveau du moteur une fois l'allure stabilisée
   const STEADY_RATE_KMH_S = 1.5;  // au-delà, on considère qu'on accélère ou qu'on freine
-  const STEADY_LEVEL = 0.25;      // niveau du moteur une fois l'allure stabilisée
   let steadyRefSpeed = 0, steadyTimer = 0, steadySpeedRate = 0, prevSteadySpeed = 0;
   let prevThrottleCruise = 0, prevGearCruise = 1, cruiseFade = 1;
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
@@ -1768,6 +2026,49 @@
   enginePickerLabel.textContent = ENGINES[currentEngineKey].name;
   engineLabel.textContent = ENGINES[currentEngineKey].name;
 
+  // --- sélecteur de scène ---------------------------------------------------------------
+  const scenePickerBtn = document.getElementById('scenePickerBtn');
+  const scenePickerLabel = document.getElementById('scenePickerLabel');
+  const sceneDropdown = document.getElementById('sceneDropdown');
+
+  function selectScene(key){
+    currentSceneKey = key;
+    scenePickerLabel.textContent = SCENES[key].name;
+    decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
+    sceneDropdown.querySelectorAll('.engine-option').forEach(el => {
+      el.classList.toggle('selected', el.dataset.key === key);
+    });
+    sceneDropdown.hidden = true;
+    scenePickerBtn.classList.remove('open');
+    try{ localStorage.setItem('vroomScene', key); }catch(e){}
+  }
+
+  Object.keys(SCENES).forEach(key => {
+    const row = document.createElement('div');
+    row.className = 'engine-option' + (key === currentSceneKey ? ' selected' : '');
+    row.dataset.key = key;
+    row.textContent = SCENES[key].name;
+    row.addEventListener('click', () => selectScene(key));
+    sceneDropdown.appendChild(row);
+  });
+  scenePickerBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const opening = sceneDropdown.hidden;
+    sceneDropdown.hidden = !opening;
+    scenePickerBtn.classList.toggle('open', opening);
+    engineDropdown.hidden = true;
+    enginePickerBtn.classList.remove('open');
+  });
+  document.addEventListener('click', () => {
+    sceneDropdown.hidden = true;
+    scenePickerBtn.classList.remove('open');
+  });
+  try{
+    const saved = localStorage.getItem('vroomScene');
+    if(saved && SCENES[saved]) selectScene(saved);
+    else scenePickerLabel.textContent = SCENES[currentSceneKey].name;
+  }catch(e){ scenePickerLabel.textContent = SCENES[currentSceneKey].name; }
+
   // ---------------------------------------------------------------------
   // 5c. ATELIER SON (débug) — composer un moteur aux curseurs, puis exporter
   // ---------------------------------------------------------------------
@@ -1787,6 +2088,16 @@
     mechanical: document.getElementById('sdMechanical'),
     shiftDownCoastFrac: document.getElementById('sdShiftDownCoast'),
     shiftDownBrakeFrac: document.getElementById('sdShiftDownBrake'),
+    pipeHz: document.getElementById('sdPipeHz'),
+    popLength: document.getElementById('sdPopLength'),
+    limiterCutMs: document.getElementById('sdLimiterCut'),
+    antilagWeight: document.getElementById('sdAntilag'),
+  };
+  // réglages globaux d'allure constante : ils ne dépendent pas du moteur choisi
+  const sdSteady = {
+    band: document.getElementById('sdSteadyBand'),
+    hold: document.getElementById('sdSteadyHold'),
+    level: document.getElementById('sdSteadyLevel'),
   };
   const sdGears = document.getElementById('sdGears');
   const sdTurbo = document.getElementById('sdTurbo');
@@ -1827,6 +2138,13 @@
     sdControls.crackle.value = p.crackle;
     sdControls.growl.value = p.growl || 0;
     sdControls.rumble.value = p.rumble != null ? p.rumble : 0;
+    sdControls.pipeHz.value = p.pipeHz != null ? p.pipeHz : Math.max(70, Math.min(135, 132 - p.cylinders * 3));
+    sdControls.popLength.value = p.popLength != null ? p.popLength : 1;
+    sdControls.limiterCutMs.value = p.limiterCutMs != null ? p.limiterCutMs : 40;
+    sdControls.antilagWeight.value = p.antilagWeight != null ? p.antilagWeight : 1.8;
+    sdSteady.band.value = STEADY_BAND_KMH;
+    sdSteady.hold.value = STEADY_HOLD_S;
+    sdSteady.level.value = STEADY_LEVEL;
     sdControls.mechanical.value = p.mechanical || 0;
     sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.24;
     sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.42;
@@ -1849,6 +2167,13 @@
     document.getElementById('sdCrackleVal').textContent = parseFloat(sdControls.crackle.value).toFixed(2);
     document.getElementById('sdGrowlVal').textContent = parseFloat(sdControls.growl.value).toFixed(2);
     document.getElementById('sdRumbleVal').textContent = parseFloat(sdControls.rumble.value).toFixed(2);
+    document.getElementById('sdPipeHzVal').textContent = Math.round(sdControls.pipeHz.value) + ' Hz';
+    document.getElementById('sdPopLengthVal').textContent = parseFloat(sdControls.popLength.value).toFixed(2) + '×';
+    document.getElementById('sdLimiterCutVal').textContent = Math.round(sdControls.limiterCutMs.value) + ' ms';
+    document.getElementById('sdAntilagVal').textContent = parseFloat(sdControls.antilagWeight.value).toFixed(2);
+    document.getElementById('sdSteadyBandVal').textContent = '± ' + parseFloat(sdSteady.band.value).toFixed(1) + ' km/h';
+    document.getElementById('sdSteadyHoldVal').textContent = parseFloat(sdSteady.hold.value).toFixed(1) + ' s';
+    document.getElementById('sdSteadyLevelVal').textContent = Math.round(parseFloat(sdSteady.level.value) * 100) + ' %';
     document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
     document.getElementById('sdShiftDownCoastVal').textContent = parseFloat(sdControls.shiftDownCoastFrac.value).toFixed(2);
     document.getElementById('sdShiftDownBrakeVal').textContent = parseFloat(sdControls.shiftDownBrakeFrac.value).toFixed(2);
@@ -1863,6 +2188,8 @@
       roughness: src.roughness, brightness: src.brightness, crackle: src.crackle,
       turbo: !!src.turbo, growl: src.growl || 0, mechanical: src.mechanical || 0, funkyWah: !!src.funkyWah,
       rumble: src.rumble != null ? src.rumble : 0,
+      pipeHz: src.pipeHz, popLength: src.popLength,
+      limiterCutMs: src.limiterCutMs, antilagWeight: src.antilagWeight,
       firingPattern: src.firingPattern ? src.firingPattern.slice() : undefined,
       gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
       shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.24,
@@ -1887,6 +2214,13 @@
     p.crackle = parseFloat(sdControls.crackle.value);
     p.growl = parseFloat(sdControls.growl.value);
     p.rumble = parseFloat(sdControls.rumble.value);
+    p.pipeHz = parseFloat(sdControls.pipeHz.value);
+    p.popLength = parseFloat(sdControls.popLength.value);
+    p.limiterCutMs = parseFloat(sdControls.limiterCutMs.value);
+    p.antilagWeight = parseFloat(sdControls.antilagWeight.value);
+    STEADY_BAND_KMH = parseFloat(sdSteady.band.value);
+    STEADY_HOLD_S = parseFloat(sdSteady.hold.value);
+    STEADY_LEVEL = parseFloat(sdSteady.level.value);
     p.mechanical = parseFloat(sdControls.mechanical.value);
     p.turbo = sdTurbo.checked;
     p.funkyWah = sdFunky.checked;
@@ -1909,8 +2243,11 @@
   sdName.addEventListener('input', () => onSoundDesignChange(false));
   // rugosité, rombissement et nombre de cylindres définissent les tables d'onde : il faut
   // reconstruire le banc d'oscillateurs pour les entendre changer
-  const REBUILD_CONTROLS = ['roughness', 'rumble', 'cylinders', 'brightness'];
+  // le nombre de cylindres, la rugosité, le rombissement, la brillance et la résonance du
+  // tube sont figés à la construction des tables d'onde et des filtres : il faut reconstruire
+  const REBUILD_CONTROLS = ['roughness', 'rumble', 'cylinders', 'brightness', 'pipeHz'];
   REBUILD_CONTROLS.forEach(key => sdControls[key].addEventListener('input', () => onSoundDesignChange(true)));
+  Object.values(sdSteady).forEach(el => el.addEventListener('input', () => onSoundDesignChange(false)));
   Object.entries(sdControls).forEach(([key, el]) => {
     if(REBUILD_CONTROLS.includes(key)) return;
     el.addEventListener('input', () => onSoundDesignChange(false));
@@ -1929,6 +2266,10 @@
     const gearRatios = p.gearRatios || DEFAULT_GEAR_RATIOS;
     const extras = [];
     if(p.rumble != null) extras.push(`rumble:${p.rumble}`);
+    if(p.pipeHz != null) extras.push(`pipeHz:${p.pipeHz}`);
+    if(p.popLength != null && p.popLength !== 1) extras.push(`popLength:${p.popLength}`);
+    if(p.limiterCutMs != null && p.limiterCutMs !== 40) extras.push(`limiterCutMs:${p.limiterCutMs}`);
+    if(p.antilagWeight != null && p.antilagWeight !== 1.8) extras.push(`antilagWeight:${p.antilagWeight}`);
     if(p.growl) extras.push(`growl:${p.growl}`);
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
@@ -1968,12 +2309,6 @@
     antilagBtn.classList.toggle('on', antilagOn);
   });
 
-  const vrombBtn = document.getElementById('vrombBtn');
-  vrombBtn.classList.toggle('on', vrombOn);
-  vrombBtn.addEventListener('click', () => {
-    vrombOn = !vrombOn;
-    vrombBtn.classList.toggle('on', vrombOn);
-  });
 
   nitroBtn.addEventListener('click', () => {
     initAudio();
@@ -2107,7 +2442,7 @@
     prevGearCruise = physics.gear;
 
     const steady = physics.running && steadyTimer > STEADY_HOLD_S;
-    const targetCruiseFade = (steady && !vrombOn) ? STEADY_LEVEL : 1;
+    const targetCruiseFade = steady ? STEADY_LEVEL : 1;
     // on s'efface lentement (~1,5 s, ça doit passer inaperçu) mais on revient quasi
     // instantanément dès qu'il se passe quelque chose
     const fadeRate = targetCruiseFade < cruiseFade ? 1.1 : 7;
@@ -2139,13 +2474,13 @@
       if(physics.speed > 5){
         simCurveTimer -= dt;
         if(simCurveTimer <= 0){
-          simCurveTarget = (Math.random() * 2 - 1) * 0.9;
-          simCurveTimer = 3 + Math.random() * 5;
+          simCurveTarget = (Math.random() * 2 - 1) * 0.75;
+          simCurveTimer = 4 + Math.random() * 6;
         }
       } else {
         simCurveTarget = 0;
       }
-      simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.5);
+      simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.35);
       targetCurve = simCurve;
     } else {
       targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
@@ -2170,7 +2505,7 @@
     if(physics.running && antilagOn && physics.gear !== prevGear){
       const baseCrackle = profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE;
       // décharge anti-lag : plus longue, plus grave et plus fournie qu'un crépitement de lever de pied
-      spawnPop(baseCrackle, { weight: 1.8, level: 1.15 });
+      spawnPop(baseCrackle, { weight: profile.antilagWeight != null ? profile.antilagWeight : 1.8, level: 1.15 });
     }
     prevGear = physics.gear;
     // anti-lag turbo : souffle de décharge au lâcher brusque de l'accélérateur
@@ -2184,6 +2519,15 @@
     drawGauge(rctx, { value: displayRpm, max: Math.ceil(profile.maxRPM/1000)*1000, redlineStart: profile.redline, unitLabel:'tr/min', majorStep: 1000, isSpeed:false, flash: popFlash });
     drawGauge(sctx, { value: physics.speed, max: 240, redlineStart: null, unitLabel:'km/h', majorStep: 20, isSpeed:true });
     drawVision(physics.speed, physics.throttle, physics.running, dt, nitroKickIntensity, roadCurve);
+
+    // témoin de cap : en conduite réelle, il dit tout de suite si les virages ont une source
+    // (et laquelle), au lieu de laisser deviner pourquoi la route reste droite
+    capReadout.hidden = debugMode;
+    if(!debugMode){
+      capVal.textContent = lastHeadingDeg == null
+        ? 'aucun'
+        : Math.round(lastHeadingDeg) + '° ' + (headingSource === 'gps' ? 'GPS' : headingSource === 'trajet' ? 'trajet' : 'boussole');
+    }
 
     gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
     spdStat.textContent = Math.round(physics.speed) + ' km/h';
