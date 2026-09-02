@@ -66,16 +66,24 @@
   }
   #debugToggle.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  #menuBtn{ left:10px; bottom:10px; max-width:min(72vw, 340px); }
-  #menuBtn .menu-lbl{
+  #gaugeToggle{ top:10px; left:10px; opacity:0.55; padding:8px; }
+  #gaugeToggle.off{ opacity:1; border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.16); }
+
+  /* Moteur et paysage sont deux choix distincts : deux boutons côte à côte plutôt qu'un menu
+     unique, pour que ce soit lisible d'un coup d'œil comme deux réglages différents. Chacun
+     ouvre son propre panneau, ancré juste au-dessus de lui. */
+  .picker-bar{ position:fixed; z-index:30; left:10px; bottom:10px; display:flex; gap:8px; max-width:calc(100vw - 20px); }
+  .picker{ position:relative; display:flex; min-width:0; }
+  .picker .float-btn{ position:static; max-width:min(46vw, 230px); }
+  .picker .menu-lbl{
     font-size:12px; letter-spacing:0.3px; text-transform:none; color:var(--text);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  #menuBtn.open{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.14); }
-  #menuBtn .menu-icon{ flex-shrink:0; color:var(--amber); }
+  .picker .float-btn.open{ border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.14); }
+  .picker .menu-icon{ flex-shrink:0; color:var(--amber); }
 
   .menu-panel{
-    position:fixed; z-index:31; left:10px; bottom:56px;
+    position:absolute; z-index:31; left:0; bottom:calc(100% + 8px);
     width:min(88vw, 300px); max-height:min(70vh, 520px); overflow-y:auto;
     background:linear-gradient(180deg, rgba(26,29,34,0.97), rgba(16,19,23,0.97));
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
@@ -159,6 +167,8 @@
   /* le cockpit prend toute la hauteur restante et se cale en bas : sans barre d'en-tête,
      c'est lui qui tient les compteurs au ras du bord inférieur, la route occupant le reste */
   .cockpit{ display:flex; flex-direction:column; justify-content:flex-end; gap:10px; flex:1; min-height:170px; }
+  /* on cache le tableau de bord entier : la route, elle, occupe déjà tout l'écran derrière */
+  body.gauges-hidden .cockpit{ display:none; }
   .gauges{ display:flex; justify-content:center; align-items:flex-end; gap:10px; }
   /* `flex:1 1 0` + `min-width:0` : sur un écran étroit les compteurs rétrécissent d'eux-mêmes
      au lieu de déborder de part et d'autre de la page. */
@@ -310,15 +320,32 @@
   <span class="dot"></span> Débug
 </button>
 
-<button class="float-btn" id="menuBtn" type="button" title="Choix du moteur et du paysage">
-  <svg class="menu-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
-  <span class="menu-lbl" id="menuBtnLabel">Moteur Brut · Nuit</span>
+<button class="float-btn" id="gaugeToggle" type="button" title="Afficher / masquer les compteurs">
+  <svg class="menu-icon eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+  <svg class="menu-icon eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 1 11s4 7 11 7a9.26 9.26 0 0 0 5.39-1.61"></path><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
 </button>
-<div class="menu-panel" id="menuPanel" hidden>
-  <div class="menu-title">Moteur</div>
-  <div id="engineDropdown"></div>
-  <div class="menu-title">Paysage</div>
-  <div id="sceneDropdown"></div>
+
+<div class="picker-bar">
+  <div class="picker">
+    <button class="float-btn menu-btn" id="engineBtn" type="button" title="Choix du moteur">
+      <svg class="menu-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15a8 8 0 1 1 16 0"></path><path d="M12 15 16 10"></path><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none"></circle></svg>
+      <span class="menu-lbl" id="engineBtnLabel">Moteur Brut</span>
+    </button>
+    <div class="menu-panel" id="enginePanel" hidden>
+      <div class="menu-title">Moteur</div>
+      <div id="engineDropdown"></div>
+    </div>
+  </div>
+  <div class="picker">
+    <button class="float-btn menu-btn" id="sceneBtn" type="button" title="Choix du paysage">
+      <svg class="menu-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 9 8 13 14 16 10 21 18Z"></path></svg>
+      <span class="menu-lbl" id="sceneBtnLabel">Nuit</span>
+    </button>
+    <div class="menu-panel" id="scenePanel" hidden>
+      <div class="menu-title">Paysage</div>
+      <div id="sceneDropdown"></div>
+    </div>
+  </div>
 </div>
 <div class="disclaimer-overlay" id="disclaimerOverlay">
   <div class="disclaimer-box">
@@ -384,7 +411,6 @@
       <div class="readout rpm"><div class="l">Régime</div><div class="v" id="rpmStat">0 tr/min</div></div>
       <div class="readout gear"><div class="l">Rapport</div><div class="v" id="gearVal">N</div></div>
       <div class="readout spd"><div class="l">Vitesse</div><div class="v" id="spdStat">0 km/h</div></div>
-      <div class="readout engine"><div class="l">Moteur</div><div class="v" id="engineLabel">Moteur Brut</div></div>
       <div class="readout cap" id="capReadout" hidden><div class="l">Cap</div><div class="v" id="capVal">—</div></div>
     </div>
   </div>
@@ -1614,8 +1640,18 @@
   // mais sa vitesse de rotation — tourner de 20°/s, c'est un virage franc. En mode débug
   // (pédales), faute de cap réel, on génère une route qui serpente d'elle-même.
   const CURVE_FULL_RATE = 22;   // deg/s au-delà desquels le virage est dessiné à fond
-  let headingRate = 0;          // vitesse de rotation du cap, en deg/s signés (+ = à droite)
-  let lastHeadingDeg = null, lastHeadingTime = 0, lastHeadingSample = 0;
+  let headingRate = 0;          // vitesse de rotation du cap, déduite chaque image du suivi lissé
+  let lastHeadingDeg = null, lastHeadingSample = 0;   // pour l'affichage brut (0..360°)
+  // Accumulateur continu (jamais de saut 359°→0°) et cap réellement suivi par la caméra,
+  // lissé image par image plutôt que recalculé à chaque relevé GPS. La fréquence des relevés
+  // watchPosition est très irrégulière selon navigateur/appareil (parfois plusieurs par
+  // seconde, parfois un toutes les 5-10 s sur un système qui économise la batterie) : asservir
+  // la courbure à un delta calculé ENTRE DEUX RELEVÉS la rendait fragile à ce rythme — le cap
+  // affiché changeait bien (lastHeadingDeg suit chaque relevé) mais la vitesse de rotation
+  // retombait à zéro avant d'avoir pu produire un virage visible. Le cap suivi progresse
+  // maintenant à chaque image, à une vitesse plafonnée, vers le dernier cap connu : la
+  // courbure ne dépend plus du rythme auquel le navigateur livre ses positions.
+  let headingTargetDeg = null, headingFollowed = null;
   let headingSource = null;     // 'gps' | 'trajet' | 'boussole' — d'où vient le cap, affiché en mode réel
   let lastFixLat = null, lastFixLon = null;
   let roadCurve = 0;            // -1..1 lissé : ce qui est réellement dessiné
@@ -1642,20 +1678,17 @@
   function applyHeadingSample(deg, tMs, source){
     if(deg == null || Number.isNaN(deg)) return;
     if(source) headingSource = source;
-    const now = tMs || Date.now();
-    if(lastHeadingDeg != null){
-      let d = deg - lastHeadingDeg;
+    if(headingTargetDeg == null){
+      headingTargetDeg = deg;
+      headingFollowed = deg;
+    } else {
+      let d = deg - (((headingTargetDeg % 360) + 360) % 360);
       while(d > 180) d -= 360;   // on repasse par le plus court chemin (359° -> 1° = +2°)
       while(d < -180) d += 360;
-      const dtH = (now - lastHeadingTime) / 1000;
-      if(dtH > 0.05 && dtH < 5){
-        // les relevés de cap sont bruités : on ne prend qu'une fraction de chaque mesure
-        headingRate += (d / dtH - headingRate) * 0.5;
-        lastHeadingSample = now;
-      }
+      headingTargetDeg += d;    // accumulateur continu, jamais de saut 359°→0°
     }
     lastHeadingDeg = deg;
-    lastHeadingTime = now;
+    lastHeadingSample = tMs || Date.now();
   }
 
   function onDeviceHeading(e){
@@ -2852,7 +2885,8 @@
 
   // à l'arrêt du suivi, on oublie le cap : mieux vaut afficher « aucun » qu'une valeur figée
   function resetHeading(){
-    lastHeadingDeg = null; lastHeadingTime = 0; lastHeadingSample = 0;
+    lastHeadingDeg = null; lastHeadingSample = 0;
+    headingTargetDeg = null; headingFollowed = null;
     headingRate = 0; headingSource = null; lastFixLat = null; lastFixLon = null;
   }
 
@@ -2866,19 +2900,24 @@
   }
 
   const engineDropdown = document.getElementById('engineDropdown');
-  const menuBtn = document.getElementById('menuBtn');
-  const menuPanel = document.getElementById('menuPanel');
-  const menuBtnLabel = document.getElementById('menuBtnLabel');
+  const engineBtn = document.getElementById('engineBtn');
+  const enginePanel = document.getElementById('enginePanel');
+  const engineBtnLabel = document.getElementById('engineBtnLabel');
+  const sceneBtn = document.getElementById('sceneBtn');
+  const scenePanel = document.getElementById('scenePanel');
+  const sceneBtnLabel = document.getElementById('sceneBtnLabel');
 
-  // le bouton flottant porte les deux choix en cours, moteur et paysage
-  function refreshMenuLabel(){
-    menuBtnLabel.textContent = ENGINES[currentEngineKey].name + ' · ' + SCENES[currentSceneKey].name;
+  // deux boutons indépendants : ouvrir l'un ferme l'autre, un clic ailleurs ferme les deux
+  function closeMenus(){
+    enginePanel.hidden = true; engineBtn.classList.remove('open');
+    scenePanel.hidden = true; sceneBtn.classList.remove('open');
   }
-  function closeMenu(){
-    menuPanel.hidden = true;
-    menuBtn.classList.remove('open');
+  function toggleMenu(btn, panel){
+    const opening = panel.hidden;
+    closeMenus();
+    panel.hidden = !opening;
+    btn.classList.toggle('open', opening);
   }
-  const engineLabel = document.getElementById('engineLabel');
   const rupteurBtn = document.getElementById('rupteurBtn');
   const antilagBtn = document.getElementById('antilagBtn');
   const nitroBtn = document.getElementById('nitroBtn');
@@ -2962,13 +3001,12 @@
 
   function selectEngine(key){
     currentEngineKey = key;
-    engineLabel.textContent = ENGINES[key].name;
     setEngineProfile(key);
     engineDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
-    refreshMenuLabel();
-    closeMenu();
+    engineBtnLabel.textContent = ENGINES[key].name;
+    closeMenus();
   }
 
   Object.keys(ENGINES).forEach(key => {
@@ -2979,9 +3017,9 @@
     row.addEventListener('click', () => selectEngine(key));
     engineDropdown.appendChild(row);
   });
-  engineLabel.textContent = ENGINES[currentEngineKey].name;
+  engineBtnLabel.textContent = ENGINES[currentEngineKey].name;
 
-  // --- choix du paysage (même menu flottant que le moteur) --------------------------------
+  // --- choix du paysage : bouton et panneau propres, indépendants du moteur ---------------
   const sceneDropdown = document.getElementById('sceneDropdown');
 
   function selectScene(key){
@@ -2994,8 +3032,8 @@
     sceneDropdown.querySelectorAll('.engine-option').forEach(el => {
       el.classList.toggle('selected', el.dataset.key === key);
     });
-    refreshMenuLabel();
-    closeMenu();
+    sceneBtnLabel.textContent = SCENES[key].name;
+    closeMenus();
     try{ localStorage.setItem('vroomScene', key); }catch(e){}
   }
 
@@ -3007,20 +3045,34 @@
     row.addEventListener('click', () => selectScene(key));
     sceneDropdown.appendChild(row);
   });
-  menuBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    const opening = menuPanel.hidden;
-    menuPanel.hidden = !opening;
-    menuBtn.classList.toggle('open', opening);
-  });
-  menuPanel.addEventListener('click', e => e.stopPropagation());
-  document.addEventListener('click', closeMenu);
+  engineBtn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(engineBtn, enginePanel); });
+  sceneBtn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(sceneBtn, scenePanel); });
+  enginePanel.addEventListener('click', e => e.stopPropagation());
+  scenePanel.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', closeMenus);
 
   try{
     const saved = localStorage.getItem('vroomScene');
     if(saved && SCENES[saved]) selectScene(saved);
   }catch(e){}
-  refreshMenuLabel();
+  sceneBtnLabel.textContent = SCENES[currentSceneKey].name;
+
+  // --- afficher / masquer le tableau de bord : la route occupe déjà tout l'écran derrière -
+  const gaugeToggle = document.getElementById('gaugeToggle');
+  const eyeOn = gaugeToggle.querySelector('.eye-on');
+  const eyeOff = gaugeToggle.querySelector('.eye-off');
+  function applyGaugeVisibility(hiddenState){
+    document.body.classList.toggle('gauges-hidden', hiddenState);
+    gaugeToggle.classList.toggle('off', hiddenState);
+    eyeOn.hidden = hiddenState;
+    eyeOff.hidden = !hiddenState;
+  }
+  gaugeToggle.addEventListener('click', () => {
+    const next = !document.body.classList.contains('gauges-hidden');
+    applyGaugeVisibility(next);
+    try{ localStorage.setItem('vroomGaugesHidden', next ? '1' : '0'); }catch(e){}
+  });
+  try{ applyGaugeVisibility(localStorage.getItem('vroomGaugesHidden') === '1'); }catch(e){ applyGaugeVisibility(false); }
 
   // ---------------------------------------------------------------------
   // 5c. ATELIER SON (débug) — composer un moteur aux curseurs, puis exporter
@@ -3184,8 +3236,7 @@
     // rapports séparés par des virgules, aucune limite de nombre — les entrées invalides sont ignorées
     const parsedGears = sdGears.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
     if(parsedGears.length > 0) p.gearRatios = parsedGears;
-    engineLabel.textContent = p.name;
-    refreshMenuLabel();
+    engineBtnLabel.textContent = p.name;
     updateSoundDesignLabels();
     // rugosité (détune des oscillateurs) et harmoniques (nombre d'oscillateurs) sont fixées à
     // la création du banc d'oscillateurs : il faut le reconstruire pour les entendre changer
@@ -3410,8 +3461,6 @@
     const audioRpm = Math.max(profile.idleRPM * 0.5, displayRpm * (1 + rpmWander * wanderDepth));
 
     // virages : cap réel (GPS/boussole) en mode réel, route générée en mode débug.
-    // Faute de relevé récent, la courbure retombe doucement à zéro plutôt que de rester bloquée.
-    if(Date.now() - lastHeadingSample > 1500) headingRate += (0 - headingRate) * Math.min(1, dt * 1.5);
     let targetCurve;
     if(debugMode){
       if(physics.speed > 5){
@@ -3425,8 +3474,20 @@
       }
       simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.35);
       targetCurve = simCurve;
-    } else {
+    } else if(headingTargetDeg != null){
+      // rattrapage borné : la caméra suit le cap réel sans jamais dépasser une vitesse de
+      // rotation plausible, ce qui lisse un relevé GPS pauvre en fréquence au lieu de le
+      // subir tel quel — et ce rattrapage tourne à chaque image, pas seulement à l'arrivée
+      // d'un nouveau relevé
+      const MAX_TURN_RATE = 45; // deg/s
+      const diff = headingTargetDeg - headingFollowed;
+      const step = Math.max(-MAX_TURN_RATE * dt, Math.min(MAX_TURN_RATE * dt, diff));
+      headingFollowed += step;
+      headingRate = dt > 0 ? step / dt : 0;
       targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
+    } else {
+      headingRate = 0;
+      targetCurve = 0;
     }
     roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * 1.6);
     // cap cumulé : en réel il suit la rotation mesurée, en débug la courbure simulée. C'est
