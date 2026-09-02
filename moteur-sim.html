@@ -451,6 +451,7 @@
     <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Rombissement (bancs décalés) <span id="sdRumbleVal"></span></label><input type="range" id="sdRumble" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
+    <div class="sd-slider"><label>Passage de vitesse (% zone) <span id="sdShiftUpVal"></span></label><input type="range" id="sdShiftUp" min="0.2" max="0.95" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Résonance échappement (Hz) <span id="sdPipeHzVal"></span></label><input type="range" id="sdPipeHz" min="55" max="190" step="1"></div>
@@ -565,6 +566,16 @@
   // profile.gearRatios — le nombre de rapports n'est plus limité à 8, il suit simplement
   // la longueur du tableau (par défaut ou propre au profil)
   const DEFAULT_GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
+  // Registre « arcade » plutôt que réaliste : en usage réel (GPS), la vitesse ne dépasse
+  // quasiment jamais 90-130 km/h, donc les rapports hauts d'une boîte calée pour tenir la
+  // route jusqu'au rupteur en 8e ne se voient quasiment jamais — toute une accélération en
+  // ville se passait dans un seul rapport, sans le moindre passage de vitesse à entendre. Les
+  // seuils sont maintenant des fractions de la plage ralenti-zone rouge, pas des RPM figés :
+  // on monte bien avant d'approcher le rupteur (comme une vraie boîte automatique, qui ne
+  // tire jamais jusqu'au bout), et on rétrograde sur un simple lever de pied, pas seulement
+  // un freinage franc — de quoi entendre des changements de rapport y compris sur de courtes
+  // relances en ville, pas uniquement sur une pleine accélération jusqu'à l'autoroute.
+  const SHIFT_UP_FRAC_DEFAULT = 0.68;         // passage au rapport supérieur, en % de la plage
   const FINAL_DRIVE = 3.9;
   const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
 
@@ -647,11 +658,12 @@
 
     if(physics.speed < 0.5){ physics.gear = 1; }
 
-    // rapports et zone de rétrogradation : propres au profil s'il les définit, sinon
-    // valeurs par défaut — configurables depuis l'atelier son (curseurs "Rétrogradation")
+    // rapports et seuils de passage : propres au profil s'il les définit, sinon valeurs par
+    // défaut — configurables depuis l'atelier son (curseurs "Passage de vitesse")
     const ratios = profile.gearRatios || DEFAULT_GEAR_RATIOS;
-    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.24;
-    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.42;
+    const shiftUpFrac = profile.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
+    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.40;
+    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.55;
 
     // régime théorique dans le rapport actuel
     let rpm = physics.speed < 0.5
@@ -659,8 +671,8 @@
       : Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear, ratios));
 
     // boîte automatique : monte / rétrograde
-    const shiftUp = profile.redline - 150;
     const range = profile.redline - profile.idleRPM;
+    const shiftUp = profile.idleRPM + range * shiftUpFrac;
     // au freinage, rétrogradage plus franc et progressif (frein moteur) qu'au simple relâchement
     const shiftDown = physics.brake > 0.1
       ? profile.idleRPM + range * shiftDownBrakeFrac
@@ -3135,6 +3147,7 @@
     growl: document.getElementById('sdGrowl'),
     rumble: document.getElementById('sdRumble'),
     mechanical: document.getElementById('sdMechanical'),
+    shiftUpFrac: document.getElementById('sdShiftUp'),
     shiftDownCoastFrac: document.getElementById('sdShiftDownCoast'),
     shiftDownBrakeFrac: document.getElementById('sdShiftDownBrake'),
     pipeHz: document.getElementById('sdPipeHz'),
@@ -3195,8 +3208,9 @@
     sdSteady.hold.value = STEADY_HOLD_S;
     sdSteady.level.value = STEADY_LEVEL;
     sdControls.mechanical.value = p.mechanical || 0;
-    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.24;
-    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.42;
+    sdControls.shiftUpFrac.value = p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
+    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.40;
+    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.55;
     sdGears.value = (p.gearRatios || DEFAULT_GEAR_RATIOS).join(',');
     sdTurbo.checked = !!p.turbo;
     sdFunky.checked = !!p.funkyWah;
@@ -3224,6 +3238,7 @@
     document.getElementById('sdSteadyHoldVal').textContent = parseFloat(sdSteady.hold.value).toFixed(1) + ' s';
     document.getElementById('sdSteadyLevelVal').textContent = Math.round(parseFloat(sdSteady.level.value) * 100) + ' %';
     document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
+    document.getElementById('sdShiftUpVal').textContent = parseFloat(sdControls.shiftUpFrac.value).toFixed(2);
     document.getElementById('sdShiftDownCoastVal').textContent = parseFloat(sdControls.shiftDownCoastFrac.value).toFixed(2);
     document.getElementById('sdShiftDownBrakeVal').textContent = parseFloat(sdControls.shiftDownBrakeFrac.value).toFixed(2);
   }
@@ -3241,8 +3256,9 @@
       limiterCutMs: src.limiterCutMs, antilagWeight: src.antilagWeight,
       firingPattern: src.firingPattern ? src.firingPattern.slice() : undefined,
       gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
-      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.24,
-      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.42,
+      shiftUpFrac: src.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT,
+      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.40,
+      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.55,
     };
     syncSoundDesignControls();
     selectEngine('custom');
@@ -3275,6 +3291,7 @@
     p.funkyWah = sdFunky.checked;
     p.harmonics = HARMONIC_OPTIONS.filter(h => sdHarmonicsContainer.querySelector(`input[data-h="${h}"]`).checked);
     if(p.harmonics.length === 0) p.harmonics = [1];
+    p.shiftUpFrac = parseFloat(sdControls.shiftUpFrac.value);
     p.shiftDownCoastFrac = parseFloat(sdControls.shiftDownCoastFrac.value);
     p.shiftDownBrakeFrac = parseFloat(sdControls.shiftDownBrakeFrac.value);
     // rapports séparés par des virgules, aucune limite de nombre — les entrées invalides sont ignorées
@@ -3321,8 +3338,9 @@
     if(p.growl) extras.push(`growl:${p.growl}`);
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
-    if((p.shiftDownCoastFrac ?? 0.24) !== 0.24) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
-    if((p.shiftDownBrakeFrac ?? 0.42) !== 0.42) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
+    if((p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT) !== SHIFT_UP_FRAC_DEFAULT) extras.push(`shiftUpFrac:${p.shiftUpFrac}`);
+    if((p.shiftDownCoastFrac ?? 0.40) !== 0.40) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
+    if((p.shiftDownBrakeFrac ?? 0.55) !== 0.55) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
     const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}, gearRatios:[${gearRatios.join(',')}]${extras.length ? ', ' + extras.join(', ') : ''} },`;
     sdExportOutput.value = line;
     sdExportOutput.select();
