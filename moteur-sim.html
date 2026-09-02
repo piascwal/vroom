@@ -575,7 +575,7 @@
   // tire jamais jusqu'au bout), et on rétrograde sur un simple lever de pied, pas seulement
   // un freinage franc — de quoi entendre des changements de rapport y compris sur de courtes
   // relances en ville, pas uniquement sur une pleine accélération jusqu'à l'autoroute.
-  const SHIFT_UP_FRAC_DEFAULT = 0.68;         // passage au rapport supérieur, en % de la plage
+  const SHIFT_UP_FRAC_DEFAULT = 0.60;         // passage au rapport supérieur, en % de la plage
   const FINAL_DRIVE = 3.9;
   const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
 
@@ -662,8 +662,8 @@
     // défaut — configurables depuis l'atelier son (curseurs "Passage de vitesse")
     const ratios = profile.gearRatios || DEFAULT_GEAR_RATIOS;
     const shiftUpFrac = profile.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
-    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.40;
-    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.55;
+    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.30;
+    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.45;
 
     // régime théorique dans le rapport actuel
     let rpm = physics.speed < 0.5
@@ -677,9 +677,22 @@
     const shiftDown = physics.brake > 0.1
       ? profile.idleRPM + range * shiftDownBrakeFrac
       : profile.idleRPM + range * shiftDownCoastFrac;
-    if(rpm > shiftUp && physics.gear < ratios.length){
+    // Pompage : avec des seuils rapprochés, le rapport supérieur peut retomber sous le seuil
+    // de rétrogradation à la vitesse même où l'on vient de monter (l'écart entre deux rapports
+    // n'est pas linéaire), et la boîte peut alors basculer d'un rapport à l'autre à CHAQUE
+    // image. C'est exactement ce qui s'est produit en resserrant les seuils pour des passages
+    // plus fréquents : rapports 1 et 2 ont basculé toutes les 17 ms pendant près de 2 s, avec
+    // le crépitement audio et l'aiguille erratique que ça donne. On ne monte donc plus
+    // seulement si le régime le justifie, mais aussi si le rapport visé ne réclamera pas
+    // aussitôt de rétrograder — ce qui protège n'importe quelle combinaison de seuils et de
+    // rapports, y compris ceux réglés à la main dans l'atelier son.
+    const nextGearRpm = physics.gear < ratios.length
+      ? engineRPMForSpeed(physics.speed, physics.gear + 1, ratios)
+      : Infinity;
+    const downFloor = profile.idleRPM + range * shiftDownCoastFrac;
+    if(rpm > shiftUp && physics.gear < ratios.length && nextGearRpm >= downFloor){
       physics.gear++;
-      rpm = Math.max(profile.idleRPM, engineRPMForSpeed(physics.speed, physics.gear, ratios));
+      rpm = Math.max(profile.idleRPM, nextGearRpm);
     } else if(rpm < shiftDown && physics.gear > 1 && physics.speed > 0.5){
       const testRpm = engineRPMForSpeed(physics.speed, physics.gear - 1, ratios);
       if(testRpm < profile.redline){
@@ -3209,8 +3222,8 @@
     sdSteady.level.value = STEADY_LEVEL;
     sdControls.mechanical.value = p.mechanical || 0;
     sdControls.shiftUpFrac.value = p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
-    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.40;
-    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.55;
+    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.30;
+    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.45;
     sdGears.value = (p.gearRatios || DEFAULT_GEAR_RATIOS).join(',');
     sdTurbo.checked = !!p.turbo;
     sdFunky.checked = !!p.funkyWah;
@@ -3257,8 +3270,8 @@
       firingPattern: src.firingPattern ? src.firingPattern.slice() : undefined,
       gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
       shiftUpFrac: src.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT,
-      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.40,
-      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.55,
+      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.30,
+      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.45,
     };
     syncSoundDesignControls();
     selectEngine('custom');
@@ -3339,8 +3352,8 @@
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
     if((p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT) !== SHIFT_UP_FRAC_DEFAULT) extras.push(`shiftUpFrac:${p.shiftUpFrac}`);
-    if((p.shiftDownCoastFrac ?? 0.40) !== 0.40) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
-    if((p.shiftDownBrakeFrac ?? 0.55) !== 0.55) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
+    if((p.shiftDownCoastFrac ?? 0.30) !== 0.30) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
+    if((p.shiftDownBrakeFrac ?? 0.45) !== 0.45) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
     const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}, gearRatios:[${gearRatios.join(',')}]${extras.length ? ', ' + extras.join(', ') : ''} },`;
     sdExportOutput.value = line;
     sdExportOutput.select();
