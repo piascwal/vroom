@@ -2340,11 +2340,16 @@
     const bend = Math.max(-1, Math.min(1, curve || 0));
 
     // Géométrie de la route en virage. `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
-    // sous le capot). Le quart le plus proche reste rigoureusement droit : on roule toujours
-    // dans l'axe de sa propre voie, ce sont les lointains qui s'infléchissent. Sans cette zone
-    // morte, tout le ruban penche d'un bloc et on a l'impression de rouler en crabe.
+    // sous le capot). Seul le tiers le plus lointain de la route s'infléchit ; les deux tiers
+    // proches restent rigoureusement droits, comme dans un vrai virage vu depuis l'habitacle —
+    // ce qui est directement devant le capot ne balaie pas latéralement l'écran, seul le
+    // lointain s'incurve. Une zone morte trop étroite faisait au contraire pencher presque tout
+    // le champ visuel d'un bloc dès qu'un virage apparaissait (bâtiments, décor, chaussée
+    // proche compris) : un mouvement large et rapide de la quasi-totalité de la scène, que
+    // l'œil lit comme un à-coup plutôt que comme un virage — d'où l'impression de lag signalée
+    // alors qu'aucune image n'était réellement perdue.
     const roadHalfTop = 3;
-    const CURVE_STRAIGHT = 0.28;
+    const CURVE_STRAIGHT = 0.62;
     const bendAt = tt => {
       const d = 1 - Math.max(0, Math.min(1, tt));
       const far = Math.max(0, d - CURVE_STRAIGHT) / (1 - CURVE_STRAIGHT);
@@ -2352,7 +2357,7 @@
       // hauteur de caméra) et non plus sur la largeur d'écran : sinon, depuis que la route
       // s'est élargie avec la caméra basse, un virage identique en degrés se noyait dans un
       // ruban bien plus large et devenait quasi invisible.
-      return bend * Math.pow(far, 2.6) * roadSlope * 0.65;
+      return bend * Math.pow(far, 3.2) * roadSlope * 0.65;
     };
     const roadCenterAt = tt => vpX + bendAt(tt);
     // largeur dictée par la hauteur de caméra : plus l'œil est bas, plus la chaussée s'ouvre
@@ -2991,6 +2996,12 @@
   const STEADY_RATE_KMH_S = 1.5;  // au-delà, on considère qu'on accélère ou qu'on freine
   let steadyRefSpeed = 0, steadyTimer = 0, steadySpeedRate = 0, prevSteadySpeed = 0;
   let prevThrottleCruise = 0, prevGearCruise = 1, cruiseFade = 1;
+  // roulage au pas (parking, embouteillage, arrêt) : le moteur perd jusqu'à la moitié de son
+  // volume à mesure que la vitesse tombe sous 10 km/h, et le retrouve dès qu'on réaccélère —
+  // indépendant de l'allure constante ci-dessus, qui juge la stabilité, pas la lenteur
+  let lowSpeedFade = 1;
+  const LOW_SPEED_CEILING = 10;   // km/h : au-delà, aucune atténuation
+  const LOW_SPEED_FLOOR = 0.5;    // niveau minimal, atteint à l'arrêt complet
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
@@ -3442,6 +3453,14 @@
     const fadeRate = targetCruiseFade < cruiseFade ? 1.1 : 7;
     cruiseFade += (targetCruiseFade - cruiseFade) * Math.min(1, dt * fadeRate);
 
+    // roulage au pas : purement fonction de la vitesse courante, donc toujours à jour dès
+    // qu'on réaccélère — contrairement à l'allure constante, qui a besoin de quelques
+    // secondes pour juger qu'on est stabilisé
+    const lowSpeedTarget = physics.running
+      ? LOW_SPEED_FLOOR + (1 - LOW_SPEED_FLOOR) * Math.max(0, Math.min(1, physics.speed / LOW_SPEED_CEILING))
+      : 1;
+    lowSpeedFade += (lowSpeedTarget - lowSpeedFade) * Math.min(1, dt * 3);
+
     // coup de gaz à l'activation du Nitro : un régime affiché/entendu plus haut en plus du
     // vrai boost de vitesse, sans influencer les rapports de boîte — retombe tout seul.
     if(nitroKickTimer > 0) nitroKickTimer = Math.max(0, nitroKickTimer - dt);
@@ -3497,7 +3516,7 @@
     updateScenery(dt, physics.speed);
     updateTraffic(dt, physics.speed, physics.running);
 
-    updateAudio(audioRpm, physics.throttle, physics.running, profile, cruiseFade);
+    updateAudio(audioRpm, physics.throttle, physics.running, profile, cruiseFade * lowSpeedFade);
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
