@@ -1524,16 +1524,6 @@
       propsFar: ['planet', 'planet', 'moon'], farSparse: 0.3, racing: true,
       foliage: ['#1a3550', '#12283c'], propDark: '#3fd0ff', propStone: '#25415c',
     },
-    coaster: {
-      name: 'Grand huit', sky: ['#150c28', '#5c3059'], ground: '#150e24',
-      road: ['rgba(38,32,52,0.55)', 'rgba(22,19,32,0.30)'], edge: 'rgba(255,110,70,0.85)', dash: null,
-      glow: '255,150,90', glowStrength: 1.2, particle: 'streak', particleRGB: [255, 190, 140],
-      haze: 'rgba(92,48,89,0.45)', decor: 'skyline', sun: null, carLight: 0.7,
-      track: true, roadHalfM: 1.15, noTraffic: true,
-      props: ['support', 'lightpost', 'support', 'lightpost'],
-      propsFar: ['tower', 'building'], farSparse: 0.7,
-      foliage: ['#2b1a32', '#1e1324'], propDark: '#6a707c', propStone: '#241a32', trunk: '#2a1c18',
-    },
     orage: {
       name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
       road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
@@ -1622,7 +1612,7 @@
   // boussole du téléphone quand elle est disponible. Ce n'est pas le cap lui-même qui compte
   // mais sa vitesse de rotation — tourner de 20°/s, c'est un virage franc. En mode débug
   // (pédales), faute de cap réel, on génère une route qui serpente d'elle-même.
-  const CURVE_FULL_RATE = 16;   // deg/s au-delà desquels le virage est dessiné à fond
+  const CURVE_FULL_RATE = 22;   // deg/s au-delà desquels le virage est dessiné à fond
   let headingRate = 0;          // vitesse de rotation du cap, en deg/s signés (+ = à droite)
   let lastHeadingDeg = null, lastHeadingTime = 0, lastHeadingSample = 0;
   let headingSource = null;     // 'gps' | 'trajet' | 'boussole' — d'où vient le cap, affiché en mode réel
@@ -1696,30 +1686,6 @@
   // Des véhicules plus lents apparaissent devant, se rapprochent à la différence de vitesse
   // réelle et finissent par sortir de l'écran quand on les double.
   let worldHeading = 0;         // cap cumulé, en degrés
-  // Roulis et pente de caméra. Le roulis est ce qui manquait aux virages : une voiture qui
-  // prend un appui franc penche, et c'est ce basculement — pas la seule courbure du ruban —
-  // qui fait sentir la corde. Il sert aussi, poussé à 360°, aux vrilles du grand huit.
-  let camRoll = 0;              // radians
-  let camPitch = 0;             // >0 : la route monte devant, <0 : elle plonge
-  let hill = 0, hillTarget = 0, hillTimer = 0;   // relief lent des scènes ordinaires
-
-  // --- GRAND HUIT : enchaînement scripté ---------------------------------------------------
-  // Un looping suppose que la voie passe au-dessus puis derrière la caméra : une projection en
-  // ruban plat ne sait pas le représenter, et je ne prétends pas le contraire. Ce qui est
-  // rendu, c'est ce que l'œil lit comme une boucle — la voie se cabre jusqu'à sortir par le
-  // haut du cadre pendant que la caméra fait un tour complet sur elle-même, puis replonge.
-  // La vrille, elle, est exacte : c'est bien une rotation de la caméra autour de son axe.
-  const COASTER = [
-    { len: 95,  pitch: 0.55,  roll: 0,   bend: 0 },     // montée de lift
-    { len: 70,  pitch: -0.95, roll: 0,   bend: 0 },     // première plongée
-    { len: 115, pitch: 0.85,  roll: 360, bend: 0 },     // looping
-    { len: 85,  pitch: -0.25, roll: 0,   bend: 1 },     // virage relevé
-    { len: 130, pitch: 0.1,   roll: 360, bend: 0.15 },  // vrille
-    { len: 85,  pitch: 0.2,   roll: 0,   bend: -1 },    // virage relevé, dans l'autre sens
-    { len: 60,  pitch: -0.8,  roll: 0,   bend: 0 },     // plongée finale
-    { len: 55,  pitch: 0.3,   roll: 0,   bend: 0 },     // relance
-  ];
-  let coasterIdx = 0, coasterStart = 0, coasterRoll = 0;
   let sunBearing = null;        // azimut du soleil, fixé une fois pour toutes à la scène
 
   // --- DÉCOR DE BORD DE ROUTE ------------------------------------------------------------
@@ -1814,7 +1780,6 @@
   // Un rail de sécurité longe la piste au plus près, un grillage se tient en retrait, un arbre
   // pousse où il veut : la distance au bord fait partie de l'identité de l'élément.
   function propOffset(kind){
-    if(kind === 'support') return 4.2 + Math.random() * 1.8;
     if(kind === 'barrier') return 5.2 + Math.random() * 0.5;
     if(kind === 'tyres')   return 5.6 + Math.random() * 1.2;
     if(kind === 'panel')   return 7.0 + Math.random() * 2.5;
@@ -1993,29 +1958,6 @@
       if(s > 1.2) drawGlow(GLOW_CYAN, x, y - h, h * 1.7, 0.55);
       return;
     }
-    if(kind === 'support'){
-      // pile de soutènement : deux montants et leurs croisillons, sous la voie
-      const h = (3.2 + seed * 3) * s, w = 1.5 * s;
-      ctx.strokeStyle = sc.propDark || '#6a707c';
-      ctx.lineWidth = Math.max(1, 0.11 * s);
-      ctx.beginPath();
-      ctx.moveTo(x - w / 2, y); ctx.lineTo(x - w / 2 + w * 0.18, y - h);
-      ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2 - w * 0.18, y - h);
-      ctx.stroke();
-      if(s > 1.1){
-        ctx.lineWidth = Math.max(1, 0.09 * s);
-        for(let i = 0; i < 4; i++){
-          const t0 = i / 4, t1 = (i + 1) / 4;
-          const y0 = y - h * t0, y1 = y - h * t1;
-          const w0 = (w / 2) * (1 - t0 * 0.36), w1 = (w / 2) * (1 - t1 * 0.36);
-          ctx.beginPath();
-          ctx.moveTo(x - w0, y0); ctx.lineTo(x + w1, y1);
-          ctx.moveTo(x + w0, y0); ctx.lineTo(x - w1, y1);
-          ctx.stroke();
-        }
-      }
-      return;
-    }
     if(kind === 'pylon'){
       // portique lumineux : deux mâts et une arche, la structure qui borde la piste spatiale
       const h = 6 * s, w = 2.6 * s;
@@ -2143,7 +2085,7 @@
   }
 
   function updateTraffic(dt, ourKmh, running){
-    if(!running || (SCENES[currentSceneKey] || {}).noTraffic){ traffic.length = 0; trafficTimer = 2; return; }
+    if(!running){ traffic.length = 0; trafficTimer = 2; return; }
     if(ourKmh > 8){
       trafficTimer -= dt;
       if(trafficTimer <= 0){
@@ -2171,18 +2113,6 @@
     const sc = SCENES[currentSceneKey] || SCENES.nuit;
     visctx.clearRect(0, 0, W, H);
     const vpX = W / 2, vpY = H * HORIZON;
-
-    // Le roulis fait pivoter la scène entière autour du point de fuite : c'est la caméra qui
-    // penche, décor compris. Les fonds sont débordés d'autant que la rotation découvre de
-    // coins, sinon on verrait le blanc de la toile aux angles.
-    const rolled = Math.abs(camRoll) > 0.002;
-    const over = rolled ? Math.abs(Math.sin(camRoll)) * Math.hypot(W, H) * 0.55 + 6 : 0;
-    if(rolled){
-      visctx.save();
-      visctx.translate(vpX, vpY);
-      visctx.rotate(camRoll);
-      visctx.translate(-vpX, -vpY);
-    }
     const bend = Math.max(-1, Math.min(1, curve || 0));
 
     // Géométrie de la route en virage. `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
@@ -2190,34 +2120,27 @@
     // dans l'axe de sa propre voie, ce sont les lointains qui s'infléchissent. Sans cette zone
     // morte, tout le ruban penche d'un bloc et on a l'impression de rouler en crabe.
     const roadHalfTop = 3;
-    const CURVE_STRAIGHT = 0.26;
-    const farFrac = tt => {
+    const CURVE_STRAIGHT = 0.28;
+    const bendAt = tt => {
       const d = 1 - Math.max(0, Math.min(1, tt));
-      return Math.max(0, d - CURVE_STRAIGHT) / (1 - CURVE_STRAIGHT);
+      const far = Math.max(0, d - CURVE_STRAIGHT) / (1 - CURVE_STRAIGHT);
+      return bend * Math.pow(far, 2.6) * W * 0.30;
     };
-    const bendAt = tt => bend * Math.pow(farFrac(tt), 2.6) * W * 0.42;
-    // relief : la route monte ou plonge devant nous, exactement comme elle s'infléchit —
-    // même zone morte au premier plan, on roule toujours à plat sous ses propres roues
-    const pitchAt = tt => camPitch * Math.pow(farFrac(tt), 2.2) * (H - vpY) * 0.85;
     const roadCenterAt = tt => vpX + bendAt(tt);
     // largeur dictée par la hauteur de caméra : plus l'œil est bas, plus la chaussée s'ouvre
     const roadHalfAt = tt => roadHalfTop + roadSlope * Math.max(0, Math.min(1.6, tt));
-    const rowY = tt => vpY + (H - vpY) * tt - pitchAt(tt);
-    // Horizon visible : en côte, c'est le sommet qui cache le lointain. Le sol, la silhouette
-    // d'horizon et la brume montent donc avec la route, sinon celle-ci semble décoller et
-    // flotter au-dessus du paysage. Le soleil et les étoiles, eux, sont au-delà : ils ne bougent pas.
-    const hY = rowY(0);
+    const rowY = tt => vpY + (H - vpY) * tt;
     const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
     // --- ciel ---------------------------------------------------------------------------
     // Dans l'espace il n'y a pas de sol : le dégradé couvre toute la hauteur et la piste s'y
     // pose en transparence, si bien que les étoiles se voient au travers.
-    const skyBottom = sc.space ? H : Math.max(0, hY);
+    const skyBottom = sc.space ? H : vpY;
     const sky = visctx.createLinearGradient(0, 0, 0, skyBottom);
     sky.addColorStop(0, sc.sky[0]);
     sky.addColorStop(1, sc.sky[1]);
     visctx.fillStyle = sky;
-    visctx.fillRect(-over, -over, W + over * 2, skyBottom + over);
+    visctx.fillRect(0, 0, W, skyBottom);
 
     if(sc.space){
       const starShift = (worldHeading / 360) % 1;
@@ -2262,23 +2185,23 @@
     // elle défile avec le cap, et se répète pour couvrir l'écran quel que soit l'angle
     if(sc.decor){
       const pts = decorProfile(sc.decor, W);
-      const maxH = Math.max(20, hY) * (sc.decor === 'peaks' ? 0.62 : 0.28);
+      const maxH = vpY * (sc.decor === 'peaks' ? 0.62 : 0.28);
       const span = W * 1.6;
       let base = -(worldHeading * pxPerDeg) % span;
       if(base > 0) base -= span;
       const stepped = sc.decor === 'stands' || sc.decor === 'skyline'; // tribunes et immeubles montent par paliers francs
       visctx.beginPath();
       [base, base + span].forEach(off => {
-        visctx.moveTo(pts[0][0] + off, hY);
+        visctx.moveTo(pts[0][0] + off, vpY);
         pts.forEach((pt, i) => {
-          const yTop = hY - pt[1] * maxH;
-          if(stepped && i > 0) visctx.lineTo(pt[0] + off, hY - pts[i - 1][1] * maxH);
+          const yTop = vpY - pt[1] * maxH;
+          if(stepped && i > 0) visctx.lineTo(pt[0] + off, vpY - pts[i - 1][1] * maxH);
           visctx.lineTo(pt[0] + off, yTop);
         });
-        visctx.lineTo(pts[pts.length - 1][0] + off, hY);
+        visctx.lineTo(pts[pts.length - 1][0] + off, vpY);
         visctx.closePath();
       });
-      const dg = visctx.createLinearGradient(0, hY - maxH, 0, hY);
+      const dg = visctx.createLinearGradient(0, vpY - maxH, 0, vpY);
       if(sc.decor === 'peaks'){
         dg.addColorStop(0, '#f4f8fb');   // sommets enneigés
         dg.addColorStop(0.45, '#8fa2b3');
@@ -2304,7 +2227,7 @@
     // --- sol ------------------------------------------------------------------------------
     if(sc.ground){
       visctx.fillStyle = sc.ground;
-      visctx.fillRect(-over, hY, W + over * 2, H - hY + over);
+      visctx.fillRect(0, vpY, W, H - vpY);
     }
 
     // --- décor lointain --------------------------------------------------------------------
@@ -2329,15 +2252,11 @@
     // distance réellement parcourue. Une route parfaitement rectiligne au pixel près est ce
     // qui trahit le plus une image de synthèse.
     const distAt = tt => camNear / Math.max(0.001, tt);
-    // La voie d'un grand huit ne fait pas huit mètres de large : `roadHalfM` découple la
-    // largeur du ruban de l'échelle métrique, qui reste celle de la caméra.
-    const halfM = sc.roadHalfM || 4;
-    const ribbonAt = tt => roadHalfTop + (roadHalfAt(tt) - roadHalfTop) * (halfM / 4);
     const edgeAt = (tt, side) => {
       const d = distAt(tt);
-      if(d > 240) return ribbonAt(tt);
+      if(d > 240) return roadHalfAt(tt);
       const ppm = roadHalfAt(tt) / 4;
-      return ribbonAt(tt) + roadNoise((travelled + d) / 11 + (side > 0 ? 37 : 0)) * 0.30 * ppm;
+      return roadHalfAt(tt) + roadNoise((travelled + d) / 11 + (side > 0 ? 37 : 0)) * 0.30 * ppm;
     };
 
     // --- ruban de route : une suite de tranches horizontales, pour pouvoir le courber -----
@@ -2378,7 +2297,7 @@
         visctx.beginPath();
         for(let i = 0; i <= SLICES; i++){
           const tt = i / SLICES;
-          const x = roadCenterAt(tt) + frac * ribbonAt(tt);
+          const x = roadCenterAt(tt) + frac * roadHalfAt(tt);
           if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
         }
         visctx.stroke();
@@ -2399,7 +2318,7 @@
 
     // traces de roues : deux bandes lustrées le long des passages, ce qui use le plus
     // visiblement une chaussée. Elles suivent la courbure comme le reste du ruban.
-    if(!sc.space && !sc.track){
+    if(!sc.space){
       visctx.fillStyle = 'rgba(0,0,0,0.10)';
       [-1.55, 1.55].forEach(lat => {
         visctx.beginPath();
@@ -2426,7 +2345,7 @@
       if(d < 4) continue;
       const tt = camNear / d;
       if(tt < 0.03) break;
-      const y = rowY(tt), c = roadCenterAt(tt), h = ribbonAt(tt);
+      const y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
       visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
     }
 
@@ -2479,36 +2398,6 @@
       }
     }
 
-    // Traverses et rails de la voie : ce sont eux qui donnent la vitesse sur un grand huit,
-    // comme les vibreurs sur un circuit — un barreau toutes les deux mètres et deux rails
-    // continus, tous posés au sol donc resserrés d'eux-mêmes vers l'horizon.
-    if(sc.track){
-      const TIE = 2.2;
-      const tieFirst = Math.ceil(travelled / TIE) * TIE - travelled;
-      visctx.strokeStyle = 'rgba(158,168,184,0.85)';
-      for(let k = 0; k < 42; k++){
-        const d = tieFirst + k * TIE;
-        if(d < 2) continue;
-        const tt = camNear / d;
-        if(tt < 0.02) break;
-        if(tt > 1.7) continue;
-        visctx.lineWidth = Math.max(1, ribbonAt(tt) * 0.035);
-        const y = rowY(tt), c = roadCenterAt(tt), h = ribbonAt(tt) * 1.22;
-        visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
-      }
-      visctx.strokeStyle = 'rgba(255,140,100,0.95)';
-      [-0.66, 0.66].forEach(frac => {
-        visctx.lineWidth = 4;
-        visctx.beginPath();
-        for(let i = 0; i <= SLICES; i++){
-          const tt = i / SLICES;
-          const x = roadCenterAt(tt) + frac * ribbonAt(tt);
-          if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
-        }
-        visctx.stroke();
-      });
-    }
-
     // Ligne centrale : de vrais tirets posés au sol, un tous les 12 m sur 3 m de long, et non
     // un motif calé sur l'écran. Ils se resserrent d'eux-mêmes vers l'horizon, exactement comme
     // en perspective réelle, et leur défilement suit la vitesse sans qu'on ait à la doser.
@@ -2537,11 +2426,11 @@
 
     // --- brume d'horizon : les lointains se fondent dans le ciel de la scène --------------
     if(sc.haze){
-      const hz = visctx.createLinearGradient(0, hY - H * 0.02, 0, hY + H * 0.22);
+      const hz = visctx.createLinearGradient(0, vpY - H * 0.02, 0, vpY + H * 0.22);
       hz.addColorStop(0, sc.haze);
       hz.addColorStop(1, sc.haze.replace(/[\d.]+\)$/, '0)'));
       visctx.fillStyle = hz;
-      visctx.fillRect(-over, hY - H * 0.02, W + over * 2, H * 0.24);
+      visctx.fillRect(0, vpY - H * 0.02, W, H * 0.24);
     }
 
     // --- décor de bord de route ------------------------------------------------------------
@@ -2672,14 +2561,12 @@
     // --- halo au point de fuite (feux lointains), discret en plein jour --------------------
     const gs = sc.glowStrength;
     if(gs > 0.02){
-      const glow = visctx.createRadialGradient(farX, hY, 0, farX, hY, W * 0.06);
+      const glow = visctx.createRadialGradient(farX, vpY, 0, farX, vpY, W * 0.06);
       glow.addColorStop(0, `rgba(${sc.glow},${(running ? 0.5 + accelBoost * 0.3 + kickBoost * 0.4 : 0.15) * gs})`);
       glow.addColorStop(1, `rgba(${sc.glow},0)`);
       visctx.fillStyle = glow;
-      visctx.fillRect(farX - W * 0.06, hY - W * 0.06, W * 0.12, W * 0.12);
+      visctx.fillRect(farX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
     }
-
-    if(rolled) visctx.restore();
 
     // --- éclairs (orage) : un flash bref sur toute la scène --------------------------------
     if(sc.lightning){
@@ -3298,56 +3185,18 @@
       if(physics.speed > 5){
         simCurveTimer -= dt;
         if(simCurveTimer <= 0){
-          // une courbe sur trois est un virage serré, pris plus vite et tenu moins longtemps :
-          // une route qui ondule mollement en permanence ne raconte rien
-          const tight = Math.random() < 0.34;
-          simCurveTarget = (Math.random() < 0.5 ? -1 : 1) * (tight ? 0.8 + Math.random() * 0.2 : 0.2 + Math.random() * 0.4);
-          simCurveTimer = tight ? 2.5 + Math.random() * 2 : 4 + Math.random() * 6;
+          simCurveTarget = (Math.random() * 2 - 1) * 0.75;
+          simCurveTimer = 4 + Math.random() * 6;
         }
       } else {
         simCurveTarget = 0;
       }
-      // l'entrée de courbe est plus vive que la sortie, comme un coup de volant suivi d'un
-      // réalignement progressif
-      const rate = Math.abs(simCurveTarget) > Math.abs(simCurve) ? 0.85 : 0.4;
-      simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * rate);
+      simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.35);
       targetCurve = simCurve;
     } else {
       targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
     }
-    // --- grand huit : la voie est écrite d'avance, en mètres parcourus ---------------------
-    const scNow = SCENES[currentSceneKey] || {};
-    let targetPitch, targetRoll;
-    if(scNow.track){
-      const seg = COASTER[coasterIdx];
-      const p = Math.min(1, (travelled - coasterStart) / seg.len);
-      if(travelled < coasterStart) coasterStart = travelled;   // remise à zéro au démarrage
-      // cloche sur la longueur du segment : chaque figure s'amorce et se referme en douceur
-      const ease = Math.sin(p * Math.PI);
-      targetPitch = seg.pitch * ease;
-      targetCurve = seg.bend * ease;
-      coasterRoll = seg.roll ? seg.roll * p * Math.PI / 180 : 0;
-      targetRoll = coasterRoll - seg.bend * ease * 0.16;
-      if(p >= 1){ coasterIdx = (coasterIdx + 1) % COASTER.length; coasterStart = travelled; }
-    } else {
-      // relief lent : une route parfaitement plate sur des kilomètres n'existe pas
-      hillTimer -= dt;
-      if(hillTimer <= 0){
-        hillTarget = (Math.random() * 2 - 1) * 0.16;
-        hillTimer = 5 + Math.random() * 7;
-      }
-      hill += (hillTarget - hill) * Math.min(1, dt * 0.4);
-      targetPitch = physics.running ? hill : 0;
-      // la voiture penche dans l'appui : c'est ce basculement, autant que la courbure du
-      // ruban, qui fait sentir un virage serré
-      targetRoll = -roadCurve * 0.085;
-      coasterIdx = 0; coasterStart = travelled;
-    }
-    camPitch += (targetPitch - camPitch) * Math.min(1, dt * 2.2);
-    // le roulis d'une vrille doit suivre au plus près, celui d'un appui peut traîner un peu
-    camRoll += (targetRoll - camRoll) * Math.min(1, dt * (scNow.track ? 7 : 2.5));
-
-    roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * (scNow.track ? 3.2 : 1.6));
+    roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * 1.6);
     // cap cumulé : en réel il suit la rotation mesurée, en débug la courbure simulée. C'est
     // lui qui tient le paysage en place pendant que la voiture tourne.
     worldHeading += (debugMode ? simCurve * CURVE_FULL_RATE : headingRate) * dt;
