@@ -1499,7 +1499,7 @@
       road: ['#54585e', '#2c2e33'], edge: 'rgba(255,255,255,0.9)', dash: null,
       glow: '255,250,235', glowStrength: 0.4, particle: 'streak', particleRGB: [235, 240, 248],
       haze: 'rgba(195,218,238,0.7)', decor: 'stands', sun: { y: -0.16, r: 0.045, color: '#fffbe8' },
-      carLight: 0.35, kerb: true, racing: true,
+      carLight: 0.35, kerb: true, racing: true, solid: true,
       props: ['barrier', 'barrier', 'panel', 'tyres', 'fence', 'barrier'],
       propsFar: ['fence', 'panel', 'tower'],
       foliage: ['#e8ecf0', '#d8dee6'], propDark: '#9aa3ad', propStone: '#c8ced6',
@@ -1509,6 +1509,7 @@
       road: ['#20232a', '#0e1014'], edge: 'rgba(240,240,245,0.55)', dash: 'rgba(245,230,180,0.7)',
       glow: '255,205,150', glowStrength: 1.1, particle: 'streak', particleRGB: [255, 210, 160],
       haze: 'rgba(60,42,70,0.55)', decor: 'skyline', sun: null, carLight: 1,
+      solid: true,
       props: ['streetlight', 'streetlight', 'streetlight', 'pole', 'bush'],
       propsFar: ['building', 'building', 'building', 'tower'],
       foliage: ['#141a20', '#0f141a'], propDark: '#3a4048', propStone: '#171b24',
@@ -1703,13 +1704,18 @@
   const VISUAL_SPEED = 240 / 130;   // ≈ 1,85
   const visualMps = kmh => Math.max(0, kmh) / 3.6 * VISUAL_SPEED;
 
+  // Depuis que la caméra est descendue à hauteur d'homme, une bonne part du travail est faite
+  // par le sol lui-même — tirets, vibreurs et traces de roue balaient le cadre bien plus vite
+  // qu'à quatre mètres. Le décor peut donc s'alléger d'un tiers sans rien perdre, et ce qui est
+  // économisé finance des volumes autrement plus coûteux à dessiner qu'une silhouette plate.
   const PROP_SPAN = 260;        // mètres de décor entretenus devant la voiture
-  const roadProps = Array.from({ length: 52 }, (_, i) => ({
-    dist: 5 + (i / 52) * PROP_SPAN,
+  const roadProps = Array.from({ length: 34 }, (_, i) => ({
+    dist: 5 + (i / 34) * PROP_SPAN,
     side: Math.random() < 0.5 ? -1 : 1,
     offset: 4.8 + Math.random() * 11,  // mètres depuis l'axe de la route
     scale: 0.75 + Math.random() * 0.6,
     seed: Math.random(),
+    yaw: 0,                            // orientation, donnée en même temps que le type
     kind: null,                        // choisi dans la palette de la scène au premier rendu
   }));
   function respawnProp(pr){
@@ -1719,6 +1725,23 @@
     pr.scale = 0.75 + Math.random() * 0.6;
     pr.seed = Math.random();
     pr.kind = null;
+  }
+
+  // Un rail longe la piste, un panneau se tourne vers elle, une pile de pneus est posée de
+  // travers : l'orientation fait autant que la forme pour qu'un décor ne paraisse pas aligné
+  // au cordeau.
+  // rails, panneaux, grillages et lampadaires sont du mobilier de série : ils ont tous
+  // exactement la même taille, et c'est ce qui les rend crédibles
+  function propScale(kind){
+    if(kind === 'barrier' || kind === 'panel' || kind === 'fence' || kind === 'streetlight') return 1;
+    return 0.75 + Math.random() * 0.6;
+  }
+
+  function propYaw(kind, side){
+    if(kind === 'barrier' || kind === 'fence') return 0;
+    if(kind === 'panel') return side * (0.18 + Math.random() * 0.14);
+    if(kind === 'building' || kind === 'tower' || kind === 'streetlight') return (Math.random() - 0.5) * 0.5;
+    return Math.random() * Math.PI * 2;
   }
 
   // taches d'usure de la chaussée : rustines, reprises d'enrobé, traces d'huile
@@ -1741,13 +1764,14 @@
   // du bitume et ce qui glisse lentement à l'arrière-plan qui donne la profondeur. Sans elle,
   // tout le décor était collé au bord et la scène paraissait plate.
   const FAR_SPAN = 640;
-  const farProps = Array.from({ length: 26 }, (_, i) => ({
-    dist: 40 + (i / 26) * FAR_SPAN,
+  const farProps = Array.from({ length: 20 }, (_, i) => ({
+    dist: 40 + (i / 20) * FAR_SPAN,
     side: Math.random() < 0.5 ? -1 : 1,
     offset: 24 + Math.random() * 72,   // mètres depuis l'axe
     scale: 0.9 + Math.random() * 0.9,
     seed: Math.random(),
     lift: 0.35 + Math.random() * 1.1,   // ce qui flotte ne flotte pas tout à la même hauteur
+    yaw: 0,
     kind: null,
   }));
   function respawnFarProp(pr){
@@ -1798,6 +1822,173 @@
 
   // Silhouettes de bord de route. Volontairement sommaires : à la vitesse où elles défilent,
   // c'est la forme générale qui compte, et un détail coûteux ne serait jamais vu.
+  // ---------------------------------------------------------------------
+  // 4e. MICRO-MOTEUR 3D — volumes de bord de piste
+  // ---------------------------------------------------------------------
+  // Les silhouettes plates grossissent sans jamais montrer un autre côté : quel que soit le
+  // soin mis à les dessiner, elles restent des découpes en carton. Ici les éléments sont de
+  // vrais volumes — une poignée de sommets, projetés UN PAR UN dans la même caméra que la
+  // route, dont on connaît la focale, la hauteur et l'horizon. Chaque sommet a sa propre
+  // distance, donc sa propre échelle : la face avant d'une caisse est plus grande que sa face
+  // arrière, et l'objet pivote réellement sur lui-même quand on le dépasse.
+  //
+  // Pas de bibliothèque : le profil de performance montrait que le JavaScript ne pesait que
+  // 7 % du temps, tout le reste étant du remplissage de pixels. Quelques centaines de
+  // triangles de plus tiennent dans cette marge ; une dépendance WebGL, elle, coûterait
+  // l'autonomie du fichier et supposerait un GPU dont on ne sait rien sur l'écran de la voiture.
+
+  // Caisse : 8 sommets, 5 faces (le dessous ne se voit jamais). Les couleurs sont figées par
+  // face plutôt que recalculées d'un éclairage, ce qui est stable et ne coûte rien.
+  function meshBox(w, h, d, top, side, front, y0){
+    const x = w / 2, z = d / 2, b = y0 || 0, t = b + h;
+    return {
+      v: [[-x,b,-z],[x,b,-z],[x,b,z],[-x,b,z],[-x,t,-z],[x,t,-z],[x,t,z],[-x,t,z]],
+      f: [[0,1,5,4,front],[2,3,7,6,front],[3,0,4,7,side],[1,2,6,5,side],[4,5,6,7,top]],
+    };
+  }
+  // Prisme à n pans, pour tout ce qui est rond de loin (pneus, fûts)
+  function meshPrism(r, h, n, top, side, y0){
+    const v = [], f = [], b = y0 || 0, t = b + h;
+    for(let i = 0; i < n; i++){
+      const a = (i / n) * Math.PI * 2;
+      v.push([Math.cos(a) * r, b, Math.sin(a) * r]);
+      v.push([Math.cos(a) * r, t, Math.sin(a) * r]);
+    }
+    for(let i = 0; i < n; i++){
+      const j = (i + 1) % n;
+      f.push([i * 2, j * 2, j * 2 + 1, i * 2 + 1, side]);
+    }
+    const cap = [];
+    for(let i = 0; i < n; i++) cap.push(i * 2 + 1);
+    cap.push(top);
+    f.push(cap);
+    return { v, f };
+  }
+  // Assemblage : plusieurs volumes translatés en un seul maillage
+  function meshMerge(parts){
+    const v = [], f = [];
+    parts.forEach(pt => {
+      const off = v.length;
+      pt.m.v.forEach(p => v.push([p[0] + (pt.x || 0), p[1] + (pt.y || 0), p[2] + (pt.z || 0)]));
+      pt.m.f.forEach(face => f.push(face.slice(0, -1).map(i => i + off).concat(face[face.length - 1])));
+    });
+    return { v, f };
+  }
+
+  // Immeuble : la caisse, puis les fenêtres allumées posées en très léger relief sur la face
+  // avant. Chaque fenêtre est un vrai quadrilatère à quatre sommets, donc sa perspective est
+  // juste — bien plus convaincant qu'une grille peinte à plat, qui ne se déforme jamais.
+  function meshBuilding(w, h, d, variant){
+    const box = meshBox(w, h, d, '#39415a', '#141924', '#1e2432');
+    const v = box.v.slice(), f = box.f.slice();
+    const cols = 3 + (variant % 2), rows = 5 + (variant % 3);
+    const mw = (w * 0.78) / cols, mh = (h * 0.82) / rows;
+    const z = -d / 2 - 0.05;
+    for(let r = 0; r < rows; r++){
+      for(let c = 0; c < cols; c++){
+        if(((r * 7 + c * 13 + variant * 5) % 5) >= 2) continue;   // toutes ne sont pas allumées
+        const x0 = -w * 0.39 + c * mw + mw * 0.22, x1 = x0 + mw * 0.56;
+        const y0 = h * 0.09 + r * mh + mh * 0.22, y1 = y0 + mh * 0.5;
+        const o = v.length;
+        v.push([x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]);
+        f.push([o, o + 1, o + 2, o + 3, ((r + c) % 3) ? '#ffd68c' : '#bcdcff']);
+      }
+    }
+    return { v, f };
+  }
+
+  // Lampadaire : mât, crosse et boîtier. Le halo reste une image pré-calculée par-dessus.
+  function meshStreetlight(){
+    return meshMerge([
+      { m: meshBox(0.26, 7.6, 0.26, '#5a626c', '#343a42', '#454c55') },
+      { m: meshBox(1.9, 0.20, 0.20, '#5a626c', '#343a42', '#454c55'), x: 0.95, y: 7.4 },
+      { m: meshBox(0.7, 0.22, 0.34, '#ffe6b4', '#8a7c5e', '#d8c496'), x: 1.9, y: 7.2 },
+    ]);
+  }
+
+  // Les volumes. Dimensions en mètres, comme tout le reste de la scène.
+  const MESHES = {
+    barrier: meshMerge([
+      { m: meshBox(1.55, 0.52, 0.30, '#f2f5f8', '#c8cdd4', '#eef1f4', 0.42) },   // lisse haute
+      { m: meshBox(1.55, 0.22, 0.30, '#d33a3a', '#a52c2c', '#d33a3a', 0.20) },   // bande rouge
+      { m: meshBox(0.16, 0.62, 0.16, '#8d949c', '#6e747b', '#7d848c') },         // poteau
+    ]),
+    panel: meshMerge([
+      { m: meshBox(3.4, 1.5, 0.22, '#e8ecf0', '#9aa3ad', '#1f6fc4', 1.1) },
+      { m: meshBox(0.18, 1.15, 0.18, '#8d949c', '#6e747b', '#7d848c'), x: -1.2 },
+      { m: meshBox(0.18, 1.15, 0.18, '#8d949c', '#6e747b', '#7d848c'), x: 1.2 },
+    ]),
+    tyres: meshMerge([
+      { m: meshPrism(0.48, 0.30, 7, '#2a2d31', '#1a1c1f', 0.00) },
+      { m: meshPrism(0.48, 0.30, 7, '#2a2d31', '#1a1c1f', 0.31) },
+      { m: meshPrism(0.48, 0.30, 7, '#3a3d41', '#1a1c1f', 0.62) },
+      { m: meshBox(1.15, 0.10, 1.15, '#e8e2d2', '#c0bba9', '#d8d2c2', 0.92) },   // couvercle
+    ]),
+    fence: meshMerge([
+      { m: meshBox(0.20, 5.2, 0.20, '#aab2bb', '#7d848c', '#9aa3ad') },
+      { m: meshBox(0.14, 0.14, 1.6, '#aab2bb', '#7d848c', '#9aa3ad'), y: 5.0 },  // potence
+    ]),
+    streetlight: meshStreetlight(),
+    building: meshBuilding(9, 21, 9, 0),
+    building1: meshBuilding(12, 15, 8, 1),
+    building2: meshBuilding(7, 28, 7, 2),
+    tower: meshMerge([
+      { m: meshBox(0.5, 21, 0.5, '#5a626c', '#2e343c', '#41474f') },
+      { m: meshBox(3.2, 0.3, 0.3, '#5a626c', '#2e343c', '#41474f'), y: 18.5 },
+      { m: meshBox(2.4, 0.3, 0.3, '#5a626c', '#2e343c', '#41474f'), y: 20 },
+    ]),
+  };
+  // trois gabarits d'immeuble, tirés d'après la graine pour ne pas aligner des jumeaux
+  function meshFor(kind, seed){
+    if(kind === 'building') return MESHES[['building', 'building1', 'building2'][Math.floor(seed * 3) % 3]];
+    return MESHES[kind];
+  }
+
+  // Rendu d'un maillage : chaque sommet projeté avec sa propre distance, faces triées de la
+  // plus lointaine à la plus proche (peintre) et faces arrière écartées au signe de leur aire.
+  function drawMesh(mesh, project, oLat, oDist, s, yaw){
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const n = mesh.v.length;
+    const px = new Array(n), py = new Array(n), pz = new Array(n);
+    for(let i = 0; i < n; i++){
+      const p = mesh.v[i];
+      const x = p[0] * s, y = p[1] * s, z = p[2] * s;
+      const rx = x * cy + z * sy;
+      const rz = -x * sy + z * cy;
+      const d = oDist + rz;
+      if(d < 0.4) return;            // le volume traverse la caméra : on l'abandonne
+      pz[i] = d;
+      const q = project(oLat + rx, y, d);
+      px[i] = q[0]; py[i] = q[1];
+    }
+    const faces = mesh.f;
+    const order = [];
+    for(let k = 0; k < faces.length; k++){
+      const f = faces[k];
+      let acc = 0;
+      for(let i = 0; i < f.length - 1; i++) acc += pz[f[i]];
+      order.push([acc / (f.length - 1), k]);
+    }
+    order.sort((a, b) => b[0] - a[0]);
+    for(let o = 0; o < order.length; o++){
+      const f = faces[order[o][1]];
+      const m = f.length - 1;
+      // aire signée : négative ou positive selon le sens de parcours, donc face cachée
+      let area = 0;
+      for(let i = 0; i < m; i++){
+        const a = f[i], b = f[(i + 1) % m];
+        area += px[a] * py[b] - px[b] * py[a];
+      }
+      if(area >= 0) continue;   // face tournant à l'envers : elle nous montre son dos
+      visctx.fillStyle = f[m];
+      visctx.beginPath();
+      visctx.moveTo(px[f[0]], py[f[0]]);
+      for(let i = 1; i < m; i++) visctx.lineTo(px[f[i]], py[f[i]]);
+      visctx.closePath();
+      visctx.fill();
+    }
+  }
+
   function drawProp(kind, x, y, s, sc, seed){
     if(s < 0.5) return;   // trop loin pour qu'il en reste quoi que ce soit de lisible
     const leaf = sc.foliage || ['#1e2a1e', '#141c14'];
@@ -2132,6 +2323,16 @@
     const rowY = tt => vpY + (H - vpY) * tt;
     const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
+    // Projecteur commun aux volumes : latéral et hauteur en mètres, distance en mètres.
+    // Chaque sommet passe par ici avec SA distance, d'où la vraie perspective — et la
+    // courbure de la route est prise en compte, puisque roadCenterAt en dépend.
+    const project3d = (lat, hgt, dist) => {
+      const tt = camNear / Math.max(0.4, dist);
+      const ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+      return [roadCenterAt(tt) + lat * ppm, rowY(tt) - hgt * ppm];
+    };
+
+
     // --- ciel ---------------------------------------------------------------------------
     // Dans l'espace il n'y a pas de sol : le dégradé couvre toute la hauteur et la piste s'y
     // pose en transparence, si bien que les étoiles se voient au travers.
@@ -2238,13 +2439,21 @@
     const farSparse = sc.farSparse != null ? sc.farSparse : 1;
     farProps.forEach(pr => {
       if(pr.dist < 12 || pr.seed > farSparse) return;
-      if(!pr.kind) pr.kind = farPalette[Math.floor(Math.random() * farPalette.length)];
+      if(!pr.kind){
+        pr.kind = farPalette[Math.floor(Math.random() * farPalette.length)];
+        pr.yaw = propYaw(pr.kind, pr.side);
+      }
       const tt = camNear / pr.dist;
       if(tt < 0.008 || tt > 0.8) return;
       const ppm = roadHalfAt(Math.min(1, tt)) / 4;
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
       if(x < -W * 0.4 || x > W * 1.4) return;
       const lift = propLift(pr.kind) * pr.lift * ppm;
+      const fm = sc.solid && meshFor(pr.kind, pr.seed);
+      if(fm && ppm * pr.scale > 0.55){
+        drawMesh(fm, project3d, pr.side * pr.offset, pr.dist, pr.scale, pr.yaw);
+        return;
+      }
       drawProp(pr.kind, x, rowY(tt) - lift, ppm * pr.scale, sc, pr.seed);
     });
 
@@ -2441,6 +2650,8 @@
       if(!pr.kind){
         pr.kind = palette[Math.floor(Math.random() * palette.length)];
         pr.offset = propOffset(pr.kind);
+        pr.yaw = propYaw(pr.kind, pr.side);
+        pr.scale = propScale(pr.kind);
       }
       const tt = camNear / pr.dist;
       // pas de coupure de proximité : c'est le cadre qui élimine ce qui est passé (test sur x
@@ -2449,6 +2660,23 @@
       const ppm = roadHalfAt(Math.min(1, tt)) / 4;
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
       if(x < -W * 0.3 || x > W * 1.3) return;
+      // volumes sur les scènes qui les demandent, silhouettes plates ailleurs
+      const s3 = ppm * pr.scale;
+      // sous une certaine taille un volume ne montre plus qu'un aplat : la silhouette plate
+      // fait aussi bien pour bien moins cher, et sert donc de niveau de détail lointain
+      const mesh = sc.solid && s3 > 1.1 && meshFor(pr.kind, pr.seed);
+      if(mesh){
+        {
+          if(s3 > 1.6){
+            visctx.fillStyle = 'rgba(0,0,0,0.17)';
+            visctx.beginPath();
+            visctx.ellipse(x, rowY(tt), s3 * 0.95, s3 * 0.24, 0, 0, Math.PI * 2);
+            visctx.fill();
+          }
+          drawMesh(mesh, project3d, pr.side * pr.offset, pr.dist, pr.scale, pr.yaw);
+        }
+        return;
+      }
       drawProp(pr.kind, x, rowY(tt), ppm * pr.scale, sc, pr.seed);
     });
 
