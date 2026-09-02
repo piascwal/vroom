@@ -2996,12 +2996,17 @@
   const STEADY_RATE_KMH_S = 1.5;  // au-delà, on considère qu'on accélère ou qu'on freine
   let steadyRefSpeed = 0, steadyTimer = 0, steadySpeedRate = 0, prevSteadySpeed = 0;
   let prevThrottleCruise = 0, prevGearCruise = 1, cruiseFade = 1;
-  // roulage au pas (parking, embouteillage, arrêt) : le moteur perd jusqu'à la moitié de son
-  // volume à mesure que la vitesse tombe sous 10 km/h, et le retrouve dès qu'on réaccélère —
-  // indépendant de l'allure constante ci-dessus, qui juge la stabilité, pas la lenteur
+  // Décélération : toute perte de vitesse, à n'importe quelle allure (75->70, 110->105,
+  // 5->0…), efface jusqu'à la moitié du volume sur les 5 premiers km/h perdus, et le rend
+  // dès qu'on réaccélère. `decelRefSpeed` suit le dernier pic de vitesse tant qu'on freine ou
+  // qu'on lève le pied ; dès qu'on repousse l'accélérateur, il se recale instantanément sur
+  // la vitesse courante — la perte repart de zéro tout de suite, sans attendre d'avoir
+  // regagné la vitesse perdue. Indépendant de l'allure constante ci-dessus, qui juge la
+  // stabilité prolongée, pas le sens dans lequel la vitesse évolue.
   let lowSpeedFade = 1;
-  const LOW_SPEED_CEILING = 10;   // km/h : au-delà, aucune atténuation
-  const LOW_SPEED_FLOOR = 0.5;    // niveau minimal, atteint à l'arrêt complet
+  let decelRefSpeed = 0;
+  const DECEL_FADE_SPAN = 5;      // km/h de perte pour atteindre l'atténuation maximale
+  const DECEL_FADE_FLOOR = 0.5;   // niveau minimal, atteint dès 5 km/h de perte
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
@@ -3456,8 +3461,16 @@
     // roulage au pas : purement fonction de la vitesse courante, donc toujours à jour dès
     // qu'on réaccélère — contrairement à l'allure constante, qui a besoin de quelques
     // secondes pour juger qu'on est stabilisé
+    if(!physics.running){
+      decelRefSpeed = 0;
+    } else if(physics.throttle > 0.04){
+      decelRefSpeed = physics.speed;                          // on réaccélère : la perte repart de zéro
+    } else {
+      decelRefSpeed = Math.max(decelRefSpeed, physics.speed);  // pied levé ou frein : on garde le dernier pic
+    }
+    const decelDrop = Math.max(0, decelRefSpeed - physics.speed);
     const lowSpeedTarget = physics.running
-      ? LOW_SPEED_FLOOR + (1 - LOW_SPEED_FLOOR) * Math.max(0, Math.min(1, physics.speed / LOW_SPEED_CEILING))
+      ? 1 - (1 - DECEL_FADE_FLOOR) * Math.min(1, decelDrop / DECEL_FADE_SPAN)
       : 1;
     lowSpeedFade += (lowSpeedTarget - lowSpeedFade) * Math.min(1, dt * 3);
 
