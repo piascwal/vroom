@@ -1640,18 +1640,32 @@
   // mais sa vitesse de rotation — tourner de 20°/s, c'est un virage franc. En mode débug
   // (pédales), faute de cap réel, on génère une route qui serpente d'elle-même.
   const CURVE_FULL_RATE = 22;   // deg/s au-delà desquels le virage est dessiné à fond
-  let headingRate = 0;          // vitesse de rotation du cap, déduite chaque image du suivi lissé
+  // Vitesse de rotation TENUE entre deux relevés, plutôt que rattrapée puis relâchée.
+  // Premier essai : faire suivre à la caméra un cap cible avec un rattrapage borné (45°/s).
+  // Sur un virage réel, pris en douceur sur plusieurs secondes, chaque relevé GPS ne décale la
+  // cible que de quelques degrés — largement de quoi être rattrapé en une fraction de seconde à
+  // 45°/s. Résultat : la route se cabrait un instant à l'arrivée de chaque relevé puis
+  // retombait droite en l'attendant le suivant, un cycle « saute puis se fige » calé sur le
+  // rythme, très irrégulier, des relevés GPS — exactement ce qui se voit comme du lag,
+  // d'autant plus marqué que les relevés sont rares (un navigateur embarqué peut aller bien
+  // plus lentement qu'un téléphone).
+  // La vitesse de rotation déduite d'un relevé est donc désormais TENUE, appliquée en continu
+  // image après image, jusqu'à ce qu'un nouveau relevé la corrige ou qu'elle s'éteigne faute de
+  // relevé récent — la route reste courbée en continu pendant tout un virage au lieu de
+  // clignoter à chaque nouvelle position.
+  let headingRate = 0;          // deg/s, tenue jusqu'au prochain relevé pris en compte
   let lastHeadingDeg = null, lastHeadingSample = 0;   // pour l'affichage brut (0..360°)
-  // Accumulateur continu (jamais de saut 359°→0°) et cap réellement suivi par la caméra,
-  // lissé image par image plutôt que recalculé à chaque relevé GPS. La fréquence des relevés
-  // watchPosition est très irrégulière selon navigateur/appareil (parfois plusieurs par
-  // seconde, parfois un toutes les 5-10 s sur un système qui économise la batterie) : asservir
-  // la courbure à un delta calculé ENTRE DEUX RELEVÉS la rendait fragile à ce rythme — le cap
-  // affiché changeait bien (lastHeadingDeg suit chaque relevé) mais la vitesse de rotation
-  // retombait à zéro avant d'avoir pu produire un virage visible. Le cap suivi progresse
-  // maintenant à chaque image, à une vitesse plafonnée, vers le dernier cap connu : la
-  // courbure ne dépend plus du rythme auquel le navigateur livre ses positions.
-  let headingTargetDeg = null, headingFollowed = null;
+  // Zone morte de bruit : en ligne droite, un relevé GPS dérive facilement de quelques degrés
+  // (position dans la voie, dévers de la chaussée, imprécision du capteur) sans qu'on ait
+  // tourné — et jusqu'ici tout delta, aussi petit soit-il, était pris pour un virage. Les
+  // petits deltas s'accumulent maintenant dans un résidu et ne produisent une vitesse de
+  // rotation qu'une fois ce résidu passé le seuil. Un bruit qui oscille dans les deux sens s'y
+  // annule la plupart du temps ; une dérive lente et régulière (un virage large pris en
+  // douceur) continue de s'accumuler et finit par le franchir — elle n'est donc pas perdue,
+  // juste un peu retardée et quantifiée par paliers de HEADING_DEADBAND degrés.
+  let lastRawHeadingDeg = null, headingResidual = 0, lastCommitTime = 0;
+  const HEADING_DEADBAND = 4;      // degrés : en dessous, considéré comme du bruit de relevé
+  const HEADING_RATE_HOLD = 2.5;   // s sans nouveau relevé au-delà desquelles la rotation s'éteint
   let headingSource = null;     // 'gps' | 'trajet' | 'boussole' — d'où vient le cap, affiché en mode réel
   let lastFixLat = null, lastFixLon = null;
   let roadCurve = 0;            // -1..1 lissé : ce qui est réellement dessiné
@@ -1678,17 +1692,31 @@
   function applyHeadingSample(deg, tMs, source){
     if(deg == null || Number.isNaN(deg)) return;
     if(source) headingSource = source;
-    if(headingTargetDeg == null){
-      headingTargetDeg = deg;
-      headingFollowed = deg;
+    const now = tMs || Date.now();
+    if(lastRawHeadingDeg == null){
+      lastRawHeadingDeg = deg;
+      lastCommitTime = now;
+      headingResidual = 0;
     } else {
-      let d = deg - (((headingTargetDeg % 360) + 360) % 360);
+      let d = deg - lastRawHeadingDeg;
       while(d > 180) d -= 360;   // on repasse par le plus court chemin (359° -> 1° = +2°)
       while(d < -180) d += 360;
-      headingTargetDeg += d;    // accumulateur continu, jamais de saut 359°→0°
+      lastRawHeadingDeg = deg;
+      headingResidual += d;
+      if(Math.abs(headingResidual) >= HEADING_DEADBAND){
+        // vitesse moyenne depuis le dernier relevé pris en compte (pas depuis le dernier
+        // relevé brut : plusieurs petits deltas peuvent avoir été fondus dans ce résidu),
+        // tenue telle quelle jusqu'au prochain commit plutôt que rattrapée puis relâchée
+        const dtC = Math.max(0.2, (now - lastCommitTime) / 1000);
+        headingRate = headingResidual / dtC;
+        headingResidual = 0;
+        lastCommitTime = now;
+      }
     }
+    // le cap affiché (readout) reste le relevé brut, sans filtre : on veut y voir le vrai
+    // bruit du GPS, c'est ce qui distingue une lecture qui fonctionne d'un capteur figé
     lastHeadingDeg = deg;
-    lastHeadingSample = tMs || Date.now();
+    lastHeadingSample = now;
   }
 
   function onDeviceHeading(e){
@@ -2891,7 +2919,7 @@
   // à l'arrêt du suivi, on oublie le cap : mieux vaut afficher « aucun » qu'une valeur figée
   function resetHeading(){
     lastHeadingDeg = null; lastHeadingSample = 0;
-    headingTargetDeg = null; headingFollowed = null;
+    lastRawHeadingDeg = null; headingResidual = 0; lastCommitTime = 0;
     headingRate = 0; headingSource = null; lastFixLat = null; lastFixLon = null;
   }
 
@@ -3506,20 +3534,13 @@
       }
       simCurve += (simCurveTarget - simCurve) * Math.min(1, dt * 0.35);
       targetCurve = simCurve;
-    } else if(headingTargetDeg != null){
-      // rattrapage borné : la caméra suit le cap réel sans jamais dépasser une vitesse de
-      // rotation plausible, ce qui lisse un relevé GPS pauvre en fréquence au lieu de le
-      // subir tel quel — et ce rattrapage tourne à chaque image, pas seulement à l'arrivée
-      // d'un nouveau relevé
-      const MAX_TURN_RATE = 45; // deg/s
-      const diff = headingTargetDeg - headingFollowed;
-      const step = Math.max(-MAX_TURN_RATE * dt, Math.min(MAX_TURN_RATE * dt, diff));
-      headingFollowed += step;
-      headingRate = dt > 0 ? step / dt : 0;
-      targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
     } else {
-      headingRate = 0;
-      targetCurve = 0;
+      // faute de relevé depuis un moment, la rotation tenue s'éteint en douceur plutôt que
+      // de rester bloquée sur la dernière valeur connue
+      if(lastCommitTime && Date.now() - lastCommitTime > HEADING_RATE_HOLD * 1000){
+        headingRate += (0 - headingRate) * Math.min(1, dt * 1.2);
+      }
+      targetCurve = Math.max(-1, Math.min(1, headingRate / CURVE_FULL_RATE));
     }
     roadCurve += (targetCurve - roadCurve) * Math.min(1, dt * 1.6);
     // cap cumulé : en réel il suit la rotation mesurée, en débug la courbure simulée. C'est
