@@ -1403,9 +1403,40 @@
   const visionCanvas = document.getElementById('visionCanvas');
   const visctx = visionCanvas.getContext('2d');
   // toile plein écran, en arrière-plan de toute la page : sa résolution suit la fenêtre
+  // --- CAMÉRA ----------------------------------------------------------------------------
+  // Un seul modèle de perspective pour tout ce qui a une distance : tt = camNear / distance,
+  // tt valant 0 à l'horizon et 1 au bas de l'écran.
+  // Ce qui appartient au paysage et non à la route (le soleil, les silhouettes d'horizon) se
+  // place au contraire par rapport au cap monde : c'est la voiture qui tourne, pas le décor.
+  //
+  // La hauteur de caméra décide de l'impression de vitesse bien plus que la vitesse
+  // elle-même : au ras du sol le bitume s'écarte violemment sous le capot, en position haute
+  // il défile mollement. Dans une caméra sténopé à hauteur h et focale f, un point du sol à
+  // la distance d se projette en y = horizon + f·h/d, et la demi-chaussée (4 m) y mesure
+  // f·4/d pixels. En posant tt = (y-horizon)/(H-horizon), il vient :
+  //     demi-chaussée(tt) = 4·(H-horizon)·tt / h        — ne dépend que de la hauteur
+  //     camNear           = f·h / (H-horizon)
+  // La pente de la chaussée mesure donc directement la hauteur de caméra. L'ancienne valeur
+  // (0,48·W) correspondait à 4 m sur grand écran et 13 m sur téléphone : la vue d'un car.
+  const CAM_H = 1.8;            // mètres : hauteur de l'œil — c'est le réglage de l'impression de vitesse
+  const CAM_F_FRAC = 0.72;      // focale en fraction de largeur d'écran (champ ≈ 70°)
+  const HORIZON = 0.28;         // position de l'horizon, en fraction de la hauteur d'écran
+  const CAM_FOV = 70;           // degrés de paysage couverts par la largeur de l'écran
+  let camNear = 6;              // mètres : distance du bas de l'écran (recalculé au redimensionnement)
+  let roadSlope = 400;          // pixels de demi-chaussée par unité de tt
+
+  function updateCamera(){
+    const W = visionCanvas.width, H = visionCanvas.height;
+    const below = H - H * HORIZON;
+    // En portrait, la hauteur voulue étalerait la chaussée sur près de dix largeurs d'écran
+    // et il ne resterait que du bitume : on plafonne, quitte à relever un peu la caméra.
+    roadSlope = Math.min(4 * below / CAM_H, W * 1.9);
+    camNear = W * CAM_F_FRAC * 4 / roadSlope;
+  }
   function resizeVisionCanvas(){
     visionCanvas.width = window.innerWidth;
     visionCanvas.height = window.innerHeight;
+    updateCamera();
   }
   resizeVisionCanvas();
   window.addEventListener('resize', resizeVisionCanvas);
@@ -1654,12 +1685,6 @@
   // --- TRAFIC ----------------------------------------------------------------------------
   // Des véhicules plus lents apparaissent devant, se rapprochent à la différence de vitesse
   // réelle et finissent par sortir de l'écran quand on les double.
-  // --- CAMÉRA ----------------------------------------------------------------------------
-  // Un seul modèle de perspective pour tout ce qui a une distance : tt = CAM_NEAR / distance.
-  // Ce qui appartient au paysage et non à la route (le soleil, les silhouettes d'horizon) se
-  // place au contraire par rapport au cap monde : c'est la voiture qui tourne, pas le décor.
-  const CAM_NEAR = 6;           // mètres : distance à laquelle un objet occupe le bas de l'écran
-  const CAM_FOV = 70;           // degrés de paysage couverts par la largeur de l'écran
   let worldHeading = 0;         // cap cumulé, en degrés
   let sunBearing = null;        // azimut du soleil, fixé une fois pour toutes à la scène
 
@@ -2024,7 +2049,6 @@
   }
 
   const TRAFFIC_MAX = 5;
-  const TRAFFIC_NEAR = CAM_NEAR;
   const TRAFFIC_COLORS = ['#8f2f28', '#2f4d8f', '#7d7f84', '#8a6a2c', '#2f6b4a', '#5a3a6e'];
   const traffic = [];
   let trafficTimer = 2;
@@ -2086,14 +2110,14 @@
     const W = visctx.canvas.width, H = visctx.canvas.height;
     const sc = SCENES[currentSceneKey] || SCENES.nuit;
     visctx.clearRect(0, 0, W, H);
-    const vpX = W / 2, vpY = H * 0.28;
+    const vpX = W / 2, vpY = H * HORIZON;
     const bend = Math.max(-1, Math.min(1, curve || 0));
 
     // Géométrie de la route en virage. `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
     // sous le capot). Le quart le plus proche reste rigoureusement droit : on roule toujours
     // dans l'axe de sa propre voie, ce sont les lointains qui s'infléchissent. Sans cette zone
     // morte, tout le ruban penche d'un bloc et on a l'impression de rouler en crabe.
-    const roadHalfBottom = W * 0.48, roadHalfTop = 3;
+    const roadHalfTop = 3;
     const CURVE_STRAIGHT = 0.28;
     const bendAt = tt => {
       const d = 1 - Math.max(0, Math.min(1, tt));
@@ -2101,7 +2125,8 @@
       return bend * Math.pow(far, 2.6) * W * 0.30;
     };
     const roadCenterAt = tt => vpX + bendAt(tt);
-    const roadHalfAt = tt => roadHalfTop + (roadHalfBottom - roadHalfTop) * Math.max(0, Math.min(1.6, tt));
+    // largeur dictée par la hauteur de caméra : plus l'œil est bas, plus la chaussée s'ouvre
+    const roadHalfAt = tt => roadHalfTop + roadSlope * Math.max(0, Math.min(1.6, tt));
     const rowY = tt => vpY + (H - vpY) * tt;
     const farX = roadCenterAt(0); // point de fuite réel, décalé par le virage
 
@@ -2212,7 +2237,7 @@
     farProps.forEach(pr => {
       if(pr.dist < 12 || pr.seed > farSparse) return;
       if(!pr.kind) pr.kind = farPalette[Math.floor(Math.random() * farPalette.length)];
-      const tt = CAM_NEAR / pr.dist;
+      const tt = camNear / pr.dist;
       if(tt < 0.008 || tt > 0.8) return;
       const ppm = roadHalfAt(Math.min(1, tt)) / 4;
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
@@ -2224,7 +2249,7 @@
     // Bord de chaussée irrégulier : la largeur varie de quelques centimètres, indexée sur la
     // distance réellement parcourue. Une route parfaitement rectiligne au pixel près est ce
     // qui trahit le plus une image de synthèse.
-    const distAt = tt => CAM_NEAR / Math.max(0.001, tt);
+    const distAt = tt => camNear / Math.max(0.001, tt);
     const edgeAt = (tt, side) => {
       const d = distAt(tt);
       if(d > 240) return roadHalfAt(tt);
@@ -2260,7 +2285,7 @@
       for(let k = 0; k < 26; k++){
         const d = gridFirst + k * 10;
         if(d < 3) continue;
-        const tt = CAM_NEAR / d;
+        const tt = camNear / d;
         if(tt < 0.02) break;
         if(tt > 1.7) continue;
         const y = rowY(tt), c = roadCenterAt(tt), h = edgeAt(tt, 1);
@@ -2279,7 +2304,7 @@
 
     // rustines et reprises d'enrobé, ancrées au sol : elles défilent donc à la vraie vitesse
     roadPatches.forEach(pt => {
-      const tt = CAM_NEAR / pt.dist;
+      const tt = camNear / pt.dist;
       if(tt < 0.03 || tt > 1.5) return;
       const ppm = roadHalfAt(tt) / 4;
       visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.11)' : 'rgba(255,255,255,0.035)';
@@ -2316,7 +2341,7 @@
     for(let k = 0; k < 9; k++){
       const d = seamFirst + k * 22;
       if(d < 4) continue;
-      const tt = CAM_NEAR / d;
+      const tt = camNear / d;
       if(tt < 0.03) break;
       const y = rowY(tt), c = roadCenterAt(tt), h = roadHalfAt(tt);
       visctx.beginPath(); visctx.moveTo(c - h, y); visctx.lineTo(c + h, y); visctx.stroke();
@@ -2350,7 +2375,7 @@
         const d0 = kerbFirst + k * KERB;
         if(d0 < 2) continue;
         const d1 = d0 + KERB;
-        const tt0 = CAM_NEAR / d0, tt1 = CAM_NEAR / d1;
+        const tt0 = camNear / d0, tt1 = camNear / d1;
         if(tt0 < 0.022) break;
         if(tt0 > 1.7) continue;
         // l'alternance est indexée sur la position au sol, sinon les couleurs sauteraient
@@ -2382,7 +2407,7 @@
       const d0 = dashFirst + k * 12;
       if(d0 < 2.5) continue;
       const d1 = d0 + 3;
-      const tt0 = CAM_NEAR / d0, tt1 = CAM_NEAR / d1;
+      const tt0 = camNear / d0, tt1 = camNear / d1;
       if(tt0 < 0.02) break;
       if(tt0 > 1.6) continue;
       const w0 = Math.max(0.6, (roadHalfAt(tt0) / 4) * 0.14);
@@ -2415,7 +2440,7 @@
         pr.kind = palette[Math.floor(Math.random() * palette.length)];
         pr.offset = propOffset(pr.kind);
       }
-      const tt = CAM_NEAR / pr.dist;
+      const tt = camNear / pr.dist;
       // pas de coupure de proximité : c'est le cadre qui élimine ce qui est passé (test sur x
       // plus bas), sans quoi on supprimerait justement les éléments les plus rapides
       if(tt < 0.012 || tt > 3.4) return;
@@ -2485,7 +2510,7 @@
     if(running){
       const ahead = traffic.filter(v => v.dist > 3.2).sort((a, b) => b.dist - a.dist);
       ahead.forEach(v => {
-        const tt = TRAFFIC_NEAR / v.dist;
+        const tt = camNear / v.dist;
         if(tt < 0.015 || tt > 1.7) return;
         const half = roadHalfAt(tt);
         const pxPerMetre = half / 4;              // demi-route ≈ 4 m
