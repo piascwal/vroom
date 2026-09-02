@@ -695,7 +695,11 @@
       rpm = Math.max(profile.idleRPM, nextGearRpm);
     } else if(rpm < shiftDown && physics.gear > 1 && physics.speed > 0.5){
       const testRpm = engineRPMForSpeed(physics.speed, physics.gear - 1, ratios);
-      if(testRpm < profile.redline){
+      // même garde-fou, côté rétrogradation : au freinage, shiftDown (frac haute) peut être
+      // franchi alors que le rapport du dessous repasserait aussitôt au-dessus de shiftUp,
+      // ce qui redéclenche la montée l'image suivante — pompage identique à celui déjà réglé
+      // côté montée, mais côté freinage cette fois.
+      if(testRpm < profile.redline && testRpm < shiftUp){
         physics.gear--;
         rpm = Math.max(profile.idleRPM, testRpm);
       }
