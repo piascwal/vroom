@@ -98,12 +98,29 @@
     padding:9px 14px 7px; background:#141720; border-bottom:1px solid #20242a;
   }
   .engine-option{
+    display:flex; align-items:center; gap:8px;
     padding:9px 14px; font-size:14px; font-weight:600; color:var(--text);
     border-bottom:1px solid #20242a; cursor:pointer; letter-spacing:0.2px;
   }
   .engine-option:last-child{ border-bottom:none; }
   .engine-option.selected{ color:var(--amber); background:rgba(255,140,60,0.08); }
   .engine-option:active{ background:rgba(255,140,60,0.14); }
+  .engine-option .name{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* moteurs créés par l'utilisateur : modifier / supprimer directement depuis la liste,
+     là où on les choisit — c'est le seul endroit où on pense à eux */
+  .engine-option .row-act{
+    flex-shrink:0; width:26px; height:26px; border-radius:7px; cursor:pointer;
+    background:#0e1013; border:1px solid #2a2f37; color:var(--muted); font-size:12px; line-height:1;
+  }
+  .engine-option .row-act:active{ color:var(--amber); border-color:var(--amber-dim); }
+  /* action en tête de menu : ouvre l'atelier, donc visuellement à part des choix de la liste —
+     et placée avant la vingtaine de moteurs livrés, qu'il faudrait sinon dérouler pour la voir */
+  .menu-action{
+    display:block; width:100%; padding:11px 14px; cursor:pointer;
+    background:rgba(255,140,60,0.10); border:none; border-bottom:1px solid #2c3038;
+    color:var(--amber); font-size:13px; font-weight:700; letter-spacing:0.3px; text-align:left;
+  }
+  .menu-action:active{ background:rgba(255,140,60,0.2); }
 
   /* --- boutons physiques : lunette métal + capuchon + LED --- */
   .phys-btn{
@@ -215,10 +232,49 @@
   .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
   .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  /* --- atelier son (débug) : curseurs pour composer un moteur, puis export copiable ---
-     hauteur plafonnée + défilement interne : ce panneau ne doit jamais pousser les
-     compteurs (l'élément principal) hors de l'écran ou à une taille nulle */
-  #soundDesignPanel{ max-height:300px; overflow-y:auto; }
+  /* --- atelier moteur : feuille ancrée en bas de l'écran, ouverte par « Nouveau moteur » ---
+     Ce n'est plus un panneau du flux réservé au mode débug : il flotte au-dessus de la page,
+     sans voile opaque derrière lui, pour que les compteurs et la route restent visibles
+     pendant qu'on règle à l'oreille. En-tête et boutons d'action sont fixes, seuls les
+     curseurs défilent. */
+  .sd-sheet{
+    position:fixed; z-index:40; left:0; right:0; bottom:0;
+    display:flex; flex-direction:column;
+    max-height:min(70vh, 700px);
+    background:linear-gradient(180deg, rgba(22,25,30,0.97), rgba(12,14,17,0.98));
+    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border-top:1px solid #2c3038; border-radius:16px 16px 0 0;
+    box-shadow:0 -18px 44px rgba(0,0,0,0.65);
+  }
+  .sd-sheet.hide{ display:none; }
+  .sd-head{
+    display:flex; align-items:center; gap:10px;
+    padding:12px 14px 10px; border-bottom:1px solid #20242a; flex-shrink:0;
+  }
+  .sd-head h3{ flex:1; margin:0; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--amber); }
+  .sd-close{
+    width:30px; height:30px; flex-shrink:0; border-radius:8px; cursor:pointer;
+    background:#14171b; border:1px solid #2a2f37; color:var(--muted); font-size:14px; line-height:1;
+  }
+  .sd-body{ flex:1; min-height:0; overflow-y:auto; padding:12px 14px 4px; }
+  .sd-actions{
+    flex-shrink:0; padding:10px 14px calc(12px + env(safe-area-inset-bottom));
+    border-top:1px solid #20242a; display:flex; flex-direction:column; gap:8px;
+  }
+  .sd-actions .cruise-btn{ margin-top:0; }
+  .sd-save-btn{
+    width:100%; padding:12px; border-radius:9px; border:none; cursor:pointer;
+    background:linear-gradient(180deg, #ff9d5c, #e87a2e); color:#1a0f06;
+    font-size:13px; font-weight:800; letter-spacing:0.5px;
+  }
+  .sd-delete-btn{
+    width:100%; padding:9px; border-radius:9px; cursor:pointer;
+    background:#14171b; border:1px solid #3a2a2a; color:#c96a6a;
+    font-size:12px; font-weight:700; letter-spacing:0.5px;
+  }
+  /* le retour d'action (« Enregistré », « Copié ») doit rester lisible partout — contrairement
+     aux .hint du cockpit, qui disparaissent sur grand écran */
+  .sd-feedback{ font-size:11px; color:var(--muted); line-height:1.5; text-align:center; }
   .sd-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
   .sd-row label{ font-size:11px; color:var(--muted); letter-spacing:0.5px; flex-shrink:0; width:70px; }
   .sd-row select, .sd-row input[type=text]{
@@ -282,9 +338,9 @@
 
   @media (min-width: 700px){
     .wrap{ max-width:2560px; padding-left:0; padding-right:0; }
-    /* en mode débug la page peut défiler : sinon l'atelier son passe sous le bord de l'écran */
+    /* en mode débug la page peut défiler (pédales + hints sous les compteurs) */
     body:not(.debug-on) .wrap{ height:100vh; overflow:hidden; }
-    #debugPanel, #soundDesignPanel{ flex-shrink:0; }
+    #debugPanel{ flex-shrink:0; }
     /* les compteurs sont l'élément principal : le cockpit prend tout l'espace vertical
        restant une fois les autres blocs mesurés, au lieu de deviner leur hauteur totale
        via un calc(100vh - Npx) qui ne correspondait pas à la vraie hauteur d'écran Tesla.
@@ -299,7 +355,7 @@
     /* min-height calé sur la pile de boutons (50 + 76 + 50 + marges) pour qu'elle reste
        entièrement cliquable même quand les panneaux de débug mangent l'écran */
     .cockpit{ flex:1; min-height:210px; gap:8px; padding-bottom:0; }
-    #soundDesignPanel{ max-height:min(300px, 40vh); }
+    .sd-sheet{ left:auto; right:0; width:min(420px, 100vw); border-left:1px solid #2c3038; border-radius:16px 0 0 0; }
     .gauges{ flex:1; min-height:0; gap:24px; }
     canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
@@ -333,6 +389,7 @@
     </button>
     <div class="menu-panel" id="enginePanel" hidden>
       <div class="menu-title">Moteur</div>
+      <button class="menu-action" id="newEngineBtn" type="button">+ Nouveau moteur</button>
       <div id="engineDropdown"></div>
     </div>
   </div>
@@ -370,7 +427,7 @@
       <p><strong>Objet.</strong> Ce simulateur est un prototype de démonstration à but ludique et expérimental. Il ne remplace en aucun cas les instruments de bord d'un véhicule réel et n'a aucune vocation à être utilisé pendant la conduite.</p>
       <p><strong>Utilisation.</strong> L'utilisateur s'engage à n'interagir avec cette application qu'à l'arrêt, et à respecter en toutes circonstances le code de la route. Toute utilisation contraire à ces recommandations relève de la seule responsabilité de l'utilisateur.</p>
       <p><strong>Responsabilité.</strong> L'éditeur ne saurait être tenu responsable d'un usage non conforme à ces recommandations, ni des conséquences directes ou indirectes pouvant en résulter (infraction, accident, dommage matériel ou corporel).</p>
-      <p><strong>Données personnelles (RGPD).</strong> Cette application ne collecte, ne transmet, ni ne stocke aucune donnée personnelle. Elle fonctionne entièrement dans le navigateur, sans compte, sans serveur, sans cookie ni traceur. Aucun traitement de données à caractère personnel n'est effectué.</p>
+      <p><strong>Données personnelles (RGPD).</strong> Cette application ne collecte ni ne transmet aucune donnée personnelle. Elle fonctionne entièrement dans le navigateur, sans compte, sans serveur, sans cookie ni traceur. Seules vos préférences d'affichage et les moteurs que vous créez sont conservés dans le stockage local de votre navigateur, sur votre appareil uniquement, et disparaissent si vous effacez les données du site. Aucun traitement de données à caractère personnel n'est effectué.</p>
       <p><strong>Propriété.</strong> Prototype personnel, à usage non commercial.</p>
     </div>
     <button class="disclaimer-btn" id="closeCgu">Fermer</button>
@@ -430,8 +487,19 @@
     </div>
   </div>
 
-  <div class="panel" id="soundDesignPanel">
-    <h3>Atelier son (débug)</h3>
+  <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API — <a href="#" id="footerCguLink">CGU</a></footer>
+</div>
+
+<!-- Atelier moteur : ouvert par « Nouveau moteur » (menu Moteur), disponible en conduite
+     réelle comme en mode débug. Les réglages agissent en direct sur le moteur joué ;
+     « Enregistrer » range le résultat dans les moteurs de l'utilisateur (localStorage),
+     pour le retrouver d'une session à l'autre. -->
+<div class="sd-sheet hide" id="soundDesignSheet">
+  <div class="sd-head">
+    <h3 id="sdSheetTitle">Nouveau moteur</h3>
+    <button class="sd-close" id="sdCloseBtn" type="button" title="Fermer l'atelier">✕</button>
+  </div>
+  <div class="sd-body" id="soundDesignPanel">
     <div class="sd-row">
       <label for="sdBaseSelect">Partir de</label>
       <select id="sdBaseSelect"></select>
@@ -451,7 +519,7 @@
     <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Rombissement (bancs décalés) <span id="sdRumbleVal"></span></label><input type="range" id="sdRumble" min="0" max="1" step="0.01"></div>
     <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Passage de vitesse (% zone) <span id="sdShiftUpVal"></span></label><input type="range" id="sdShiftUp" min="0.2" max="0.95" step="0.01"></div>
+    <div class="sd-slider"><label>Passage de vitesse (% zone) <span id="sdShiftUpVal"></span></label><input type="range" id="sdShiftUp" min="0.2" max="0.99" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
     <div class="sd-slider"><label>Résonance échappement (Hz) <span id="sdPipeHzVal"></span></label><input type="range" id="sdPipeHz" min="55" max="190" step="1"></div>
@@ -481,14 +549,16 @@
       <div class="sd-harm-row" id="sdHarmonics"></div>
     </div>
 
+  </div>
+  <div class="sd-actions">
+    <button class="sd-save-btn" id="sdSaveBtn" type="button">Enregistrer le moteur</button>
+    <button class="sd-delete-btn" id="sdDeleteBtn" type="button" hidden>Supprimer ce moteur</button>
     <button class="cruise-btn" id="sdExportBtn" type="button">Exporter (copier la config)</button>
-    <textarea id="sdExportOutput" readonly rows="3" placeholder="Le code à me coller apparaîtra ici après export…"></textarea>
-    <div class="hint" id="sdExportHint">
-      Choisis un moteur de départ, ajuste les curseurs en écoutant (démarre le moteur avec le bouton central), puis Exporter copie une ligne prête à coller dans le chat.
+    <textarea id="sdExportOutput" readonly rows="2" placeholder="Le code à me coller apparaîtra ici après export…"></textarea>
+    <div class="sd-feedback" id="sdExportHint">
+      Choisis un moteur de départ, ajuste les curseurs en écoutant (démarre le moteur avec le bouton central), puis Enregistrer l'ajoute à ta liste de moteurs.
     </div>
   </div>
-
-  <footer>PROTOTYPE — SYNTHÈSE AUDIO WEB AUDIO API — <a href="#" id="footerCguLink">CGU</a></footer>
 </div>
 
 <script>
@@ -534,7 +604,7 @@
     lambo:   { name:'Lamborghini Countach', cylinders:12, idleRPM:1000, maxRPM:8000, redline:7800, harmonics:[1,2,3,4,5,6], roughness:0.06, brightness:1.25, crackle:0, turbo:false },
     amg:     { name:'Mercedes-AMG V8', cylinders:8, idleRPM:750, maxRPM:7200, redline:7000, harmonics:[1,2,3,4], roughness:0.25, brightness:0.8, crackle:0.75, turbo:true },
 
-    // slot de travail pour l'atelier son (débug) : ses valeurs sont réécrites en direct par
+    // slot de travail de l'atelier : ses valeurs sont réécrites en direct par
     // les curseurs, ne pas s'y fier comme préréglage fixe
     custom: { name:'Atelier (réglable)', cylinders:6, idleRPM:800, maxRPM:7000, redline:6800, harmonics:[1,2,3], roughness:0.3, brightness:0.9, crackle:0, turbo:false },
   };
@@ -566,16 +636,18 @@
   // profile.gearRatios — le nombre de rapports n'est plus limité à 8, il suit simplement
   // la longueur du tableau (par défaut ou propre au profil)
   const DEFAULT_GEAR_RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05]; // resserrés : les 6 premiers rapports s'enchainent avant 130 km/h, 7e/8e ajoutés au-delà avec le même écart pour repousser le rupteur
-  // Registre « arcade » plutôt que réaliste : en usage réel (GPS), la vitesse ne dépasse
-  // quasiment jamais 90-130 km/h, donc les rapports hauts d'une boîte calée pour tenir la
-  // route jusqu'au rupteur en 8e ne se voient quasiment jamais — toute une accélération en
-  // ville se passait dans un seul rapport, sans le moindre passage de vitesse à entendre. Les
-  // seuils sont maintenant des fractions de la plage ralenti-zone rouge, pas des RPM figés :
-  // on monte bien avant d'approcher le rupteur (comme une vraie boîte automatique, qui ne
-  // tire jamais jusqu'au bout), et on rétrograde sur un simple lever de pied, pas seulement
-  // un freinage franc — de quoi entendre des changements de rapport y compris sur de courtes
-  // relances en ville, pas uniquement sur une pleine accélération jusqu'à l'autoroute.
-  const SHIFT_UP_FRAC_DEFAULT = 0.60;         // passage au rapport supérieur, en % de la plage
+  // Calage d'origine, restauré à la demande : on tire chaque rapport jusqu'aux abords de la
+  // zone rouge avant de monter, et on ne rétrograde que quand le régime est vraiment retombé.
+  // Le registre « arcade » essayé entre-temps (montée à 60 % de la plage, rétrogradation à
+  // 30/45 %) multipliait les passages de vitesse, mais chaque changement se jouait au milieu
+  // du compte-tours, sur un écart de régime trop petit pour s'entendre — d'où des
+  // rétrogradations devenues discrètes. Les seuils restent exprimés en fractions de la plage
+  // ralenti-zone rouge (et non en RPM figés) pour rester réglables à l'atelier, mais leurs
+  // valeurs par défaut reproduisent l'ancien comportement : 0,97 de la plage vaut à peu près
+  // l'ancien « zone rouge moins 150 tr/min », quel que soit le moteur.
+  const SHIFT_UP_FRAC_DEFAULT = 0.97;         // passage au rapport supérieur, en % de la plage
+  const SHIFT_DOWN_COAST_DEFAULT = 0.24;      // rétrogradation pied levé
+  const SHIFT_DOWN_BRAKE_DEFAULT = 0.42;      // rétrogradation au frein (frein moteur plus franc)
   const FINAL_DRIVE = 3.9;
   const WHEEL_FACTOR = 0.1131; // speed(km/h) = wheelRPM * WHEEL_FACTOR
 
@@ -659,11 +731,11 @@
     if(physics.speed < 0.5){ physics.gear = 1; }
 
     // rapports et seuils de passage : propres au profil s'il les définit, sinon valeurs par
-    // défaut — configurables depuis l'atelier son (curseurs "Passage de vitesse")
+    // défaut — configurables depuis l'atelier (curseurs "Passage de vitesse")
     const ratios = profile.gearRatios || DEFAULT_GEAR_RATIOS;
     const shiftUpFrac = profile.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
-    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? 0.30;
-    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? 0.45;
+    const shiftDownCoastFrac = profile.shiftDownCoastFrac ?? SHIFT_DOWN_COAST_DEFAULT;
+    const shiftDownBrakeFrac = profile.shiftDownBrakeFrac ?? SHIFT_DOWN_BRAKE_DEFAULT;
 
     // régime théorique dans le rapport actuel
     let rpm = physics.speed < 0.5
@@ -685,7 +757,7 @@
     // le crépitement audio et l'aiguille erratique que ça donne. On ne monte donc plus
     // seulement si le régime le justifie, mais aussi si le rapport visé ne réclamera pas
     // aussitôt de rétrograder — ce qui protège n'importe quelle combinaison de seuils et de
-    // rapports, y compris ceux réglés à la main dans l'atelier son.
+    // rapports, y compris ceux réglés à la main dans l'atelier.
     const nextGearRpm = physics.gear < ratios.length
       ? engineRPMForSpeed(physics.speed, physics.gear + 1, ratios)
       : Infinity;
@@ -2979,14 +3051,12 @@
   // ---------------------------------------------------------------------
   const debugToggle = document.getElementById('debugToggle');
   const debugPanel = document.getElementById('debugPanel');
-  const soundDesignPanel = document.getElementById('soundDesignPanel');
 
   function applyDebugUI(){
     debugToggle.classList.toggle('on', debugMode);
     // sert au verrouillage du défilement : la page ne défile qu'en mode débug (voir le CSS)
     document.body.classList.toggle('debug-on', debugMode);
     debugPanel.hidden = !debugMode;
-    soundDesignPanel.hidden = !debugMode;
     if(debugMode){
       stopGeoWatch();
       physics.throttle = 0; physics.brake = 0;
@@ -3017,7 +3087,7 @@
   // reste dans une fenêtre de +/- STEADY_BAND_KMH autour d'une vitesse de référence, et assez
   // longtemps, on considère qu'on roule et on efface le moteur. Dès qu'on sort de la fenêtre
   // (ou qu'on accélère/freine franchement), la référence se recale et le son revient.
-  // réglables depuis l'atelier son (débug), d'où des `let` : ce sont les trois valeurs qu'on
+  // réglables depuis l'atelier, d'où des `let` : ce sont les trois valeurs qu'on
   // a envie de tâtonner à l'oreille en roulant
   let STEADY_BAND_KMH = 5;        // +/- 5 km/h autour de la référence = « allure constante »
   let STEADY_HOLD_S = 3;          // temps à tenir dans la fenêtre avant d'atténuer
@@ -3036,6 +3106,17 @@
   let decelRefSpeed = 0;
   const DECEL_FADE_SPAN = 5;      // km/h de perte pour atteindre l'atténuation maximale
   const DECEL_FADE_FLOOR = 0.5;   // niveau minimal, atteint dès 5 km/h de perte
+  // Un changement de rapport est un événement, pas une allure : il doit passer par-dessus les
+  // deux atténuations ci-dessus. C'est précisément ce qui manquait aux rétrogradations, qui
+  // n'arrivent QUE pied levé ou au frein — donc systématiquement au moment où l'atténuation de
+  // décélération avait déjà coupé la moitié du volume. Le son revient à plein pendant la durée
+  // du passage, puis redescend tout seul vers le niveau que dicte la conduite.
+  let prevGearEvent = 1;
+  let shiftPunchTimer = 0;        // s restantes de « plein volume » après un changement de rapport
+  let downshiftBlipTimer = 0;     // s restantes de coup de gaz de rattrapage (rétrogradation)
+  const SHIFT_PUNCH_S = 0.9;
+  const DOWNSHIFT_BLIP_S = 0.4;
+  const DOWNSHIFT_BLIP_FRAC = 0.12; // hauteur du coup de gaz, en % de la plage ralenti-zone rouge
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
@@ -3043,6 +3124,84 @@
   const NITRO_DURATION = 3.5;
   const NITRO_COOLDOWN = 6;
   const DEFAULT_CRACKLE = 0.55; // pétarade appliquée par défaut aux moteurs qui n'en ont pas (v6/v8/v12)
+
+  // --- moteurs créés par l'utilisateur ---------------------------------------------------
+  // L'atelier ne sert à rien si le moteur composé disparaît en fermant la page : les moteurs
+  // enregistrés vivent dans le stockage local du navigateur, jamais ailleurs (rien n'est
+  // envoyé nulle part), et rejoignent la liste des moteurs livrés. Leur clé est préfixée pour
+  // ne jamais écraser un moteur de l'application ni le slot de travail `custom`.
+  let editingEngineKey = null; // moteur enregistré en cours de modification (voir l'atelier)
+  const USER_ENGINE_PREFIX = 'user:';
+  const USER_ENGINE_STORE = 'vroomEngines';
+  const LAST_ENGINE_STORE = 'vroomEngine';
+  let userEngines = {};
+
+  const isUserEngine = key => key.indexOf(USER_ENGINE_PREFIX) === 0;
+  const numOr = (v, def) => { const n = parseFloat(v); return isNaN(n) ? def : n; };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  // Le contenu du stockage local n'est pas digne de confiance (édité à la main, écrit par une
+  // version plus ancienne, tronqué) : chaque champ est relu et borné aux mêmes limites que les
+  // curseurs de l'atelier, pour qu'un profil abîmé ne puisse pas casser la synthèse.
+  function sanitizeEngine(raw){
+    if(!raw || typeof raw !== 'object') return null;
+    const maxRPM = Math.round(clamp(numOr(raw.maxRPM, 7000), 2000, 10000));
+    const p = {
+      name: String(raw.name || 'Mon moteur').slice(0, 40),
+      cylinders: Math.round(clamp(numOr(raw.cylinders, 6), 1, 16)),
+      idleRPM: Math.round(clamp(numOr(raw.idleRPM, 800), 300, 1500)),
+      maxRPM,
+      redline: Math.round(clamp(numOr(raw.redline, maxRPM - 200), 2000, maxRPM)),
+      harmonics: (Array.isArray(raw.harmonics) ? raw.harmonics : []).map(h => numOr(h, 0)).filter(h => h > 0),
+      roughness: clamp(numOr(raw.roughness, 0.3), 0, 1),
+      brightness: clamp(numOr(raw.brightness, 0.9), 0, 2),
+      crackle: clamp(numOr(raw.crackle, 0), 0, 1),
+      turbo: !!raw.turbo,
+      growl: clamp(numOr(raw.growl, 0), 0, 1),
+      mechanical: clamp(numOr(raw.mechanical, 0), 0, 1),
+      funkyWah: !!raw.funkyWah,
+      rumble: clamp(numOr(raw.rumble, 0), 0, 1),
+      pipeHz: clamp(numOr(raw.pipeHz, 100), 55, 190),
+      popLength: clamp(numOr(raw.popLength, 1), 0.3, 2.5),
+      limiterCutMs: clamp(numOr(raw.limiterCutMs, 40), 5, 90),
+      antilagWeight: clamp(numOr(raw.antilagWeight, 1.8), 0.4, 3),
+      gearRatios: (Array.isArray(raw.gearRatios) ? raw.gearRatios : []).map(g => numOr(g, 0)).filter(g => g > 0),
+      shiftUpFrac: clamp(numOr(raw.shiftUpFrac, SHIFT_UP_FRAC_DEFAULT), 0.2, 0.99),
+      shiftDownCoastFrac: clamp(numOr(raw.shiftDownCoastFrac, SHIFT_DOWN_COAST_DEFAULT), 0, 0.9),
+      shiftDownBrakeFrac: clamp(numOr(raw.shiftDownBrakeFrac, SHIFT_DOWN_BRAKE_DEFAULT), 0, 0.9),
+    };
+    if(!p.harmonics.length) p.harmonics = [1, 2, 3];
+    if(!p.gearRatios.length) p.gearRatios = DEFAULT_GEAR_RATIOS.slice();
+    if(Array.isArray(raw.firingPattern) && raw.firingPattern.length){
+      p.firingPattern = raw.firingPattern.map(f => numOr(f, 0));
+    }
+    return p;
+  }
+
+  function loadUserEngines(){
+    let stored = null;
+    try{ stored = JSON.parse(localStorage.getItem(USER_ENGINE_STORE) || 'null'); }catch(e){ stored = null; }
+    if(!stored || typeof stored !== 'object') return;
+    Object.keys(stored).forEach(key => {
+      if(!isUserEngine(key)) return;
+      const p = sanitizeEngine(stored[key]);
+      if(p){ userEngines[key] = p; ENGINES[key] = p; }
+    });
+  }
+
+  function persistUserEngines(){
+    try{ localStorage.setItem(USER_ENGINE_STORE, JSON.stringify(userEngines)); }catch(e){}
+  }
+
+  function userEngineKey(name){
+    const diacritics = new RegExp('[' + String.fromCharCode(0x0300) + '-' + String.fromCharCode(0x036f) + ']', 'g');
+    const slug = name.toLowerCase().normalize('NFD').replace(diacritics, '').replace(/[^a-z0-9]+/g, '').slice(0, 20) || 'moteur';
+    let key = USER_ENGINE_PREFIX + slug, n = 2;
+    while(ENGINES[key]){ key = USER_ENGINE_PREFIX + slug + n; n++; }
+    return key;
+  }
+
+  loadUserEngines();
 
   function selectEngine(key){
     currentEngineKey = key;
@@ -3052,16 +3211,62 @@
     });
     engineBtnLabel.textContent = ENGINES[key].name;
     closeMenus();
+    if(key !== 'custom'){ try{ localStorage.setItem(LAST_ENGINE_STORE, key); }catch(e){} }
   }
 
-  Object.keys(ENGINES).forEach(key => {
-    const row = document.createElement('div');
-    row.className = 'engine-option' + (key === currentEngineKey ? ' selected' : '');
-    row.dataset.key = key;
-    row.textContent = ENGINES[key].name;
-    row.addEventListener('click', () => selectEngine(key));
-    engineDropdown.appendChild(row);
-  });
+  // La liste se reconstruit à chaque création/suppression : les moteurs de l'utilisateur y
+  // portent leurs propres commandes (modifier, supprimer), là où on les choisit.
+  function renderEngineList(){
+    engineDropdown.innerHTML = '';
+    Object.keys(ENGINES).forEach(key => {
+      // `custom` est le brouillon de l'atelier, pas un moteur de la liste : on ne l'affiche
+      // que tant qu'il est effectivement joué, pour pouvoir y revenir
+      if(key === 'custom' && currentEngineKey !== 'custom') return;
+      const row = document.createElement('div');
+      row.className = 'engine-option' + (key === currentEngineKey ? ' selected' : '');
+      row.dataset.key = key;
+      const label = document.createElement('span');
+      label.className = 'name';
+      label.textContent = ENGINES[key].name;
+      row.appendChild(label);
+      row.addEventListener('click', () => selectEngine(key));
+      if(isUserEngine(key)){
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'row-act';
+        edit.textContent = '✎';
+        edit.title = 'Modifier ce moteur';
+        edit.addEventListener('click', e => { e.stopPropagation(); openWorkshop(key, key); });
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'row-act';
+        del.textContent = '✕';
+        del.title = 'Supprimer ce moteur';
+        del.addEventListener('click', e => { e.stopPropagation(); deleteUserEngine(key); });
+        row.appendChild(edit);
+        row.appendChild(del);
+      }
+      engineDropdown.appendChild(row);
+    });
+  }
+
+  function deleteUserEngine(key){
+    if(!userEngines[key]) return;
+    if(!window.confirm('Supprimer « ' + ENGINES[key].name + ' » ?')) return;
+    delete userEngines[key];
+    delete ENGINES[key];
+    persistUserEngines();
+    if(editingEngineKey === key){ editingEngineKey = null; closeWorkshop(); }
+    if(currentEngineKey === key) selectEngine('mecanique');
+    renderEngineList();
+    populateBaseSelect();
+  }
+
+  renderEngineList();
+  try{
+    const lastEngine = localStorage.getItem(LAST_ENGINE_STORE);
+    if(lastEngine && ENGINES[lastEngine] && lastEngine !== 'custom') selectEngine(lastEngine);
+  }catch(e){}
   engineBtnLabel.textContent = ENGINES[currentEngineKey].name;
 
   // --- choix du paysage : bouton et panneau propres, indépendants du moteur ---------------
@@ -3159,13 +3364,21 @@
   const sdExportHint = document.getElementById('sdExportHint');
   const sdExportHintDefault = sdExportHint.textContent;
 
-  Object.keys(ENGINES).forEach(key => {
-    if(key === 'custom') return;
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = ENGINES[key].name;
-    sdBaseSelect.appendChild(opt);
-  });
+  // « Partir de » liste aussi les moteurs déjà enregistrés : on compose souvent une variante
+  // d'un moteur qu'on a soi-même réglé, pas seulement d'un moteur livré.
+  function populateBaseSelect(){
+    const previous = sdBaseSelect.value;
+    sdBaseSelect.innerHTML = '';
+    Object.keys(ENGINES).forEach(key => {
+      if(key === 'custom') return;
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = ENGINES[key].name;
+      sdBaseSelect.appendChild(opt);
+    });
+    if(previous && ENGINES[previous]) sdBaseSelect.value = previous;
+  }
+  populateBaseSelect();
 
   HARMONIC_OPTIONS.forEach(h => {
     const lbl = document.createElement('label');
@@ -3198,8 +3411,8 @@
     sdSteady.level.value = STEADY_LEVEL;
     sdControls.mechanical.value = p.mechanical || 0;
     sdControls.shiftUpFrac.value = p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
-    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? 0.30;
-    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? 0.45;
+    sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? SHIFT_DOWN_COAST_DEFAULT;
+    sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? SHIFT_DOWN_BRAKE_DEFAULT;
     sdGears.value = (p.gearRatios || DEFAULT_GEAR_RATIOS).join(',');
     sdTurbo.checked = !!p.turbo;
     sdFunky.checked = !!p.funkyWah;
@@ -3246,8 +3459,8 @@
       firingPattern: src.firingPattern ? src.firingPattern.slice() : undefined,
       gearRatios: (src.gearRatios || DEFAULT_GEAR_RATIOS).slice(),
       shiftUpFrac: src.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT,
-      shiftDownCoastFrac: src.shiftDownCoastFrac ?? 0.30,
-      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? 0.45,
+      shiftDownCoastFrac: src.shiftDownCoastFrac ?? SHIFT_DOWN_COAST_DEFAULT,
+      shiftDownBrakeFrac: src.shiftDownBrakeFrac ?? SHIFT_DOWN_BRAKE_DEFAULT,
     };
     syncSoundDesignControls();
     selectEngine('custom');
@@ -3328,8 +3541,8 @@
     if(p.mechanical) extras.push(`mechanical:${p.mechanical}`);
     if(p.funkyWah) extras.push('funkyWah:true');
     if((p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT) !== SHIFT_UP_FRAC_DEFAULT) extras.push(`shiftUpFrac:${p.shiftUpFrac}`);
-    if((p.shiftDownCoastFrac ?? 0.30) !== 0.30) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
-    if((p.shiftDownBrakeFrac ?? 0.45) !== 0.45) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
+    if((p.shiftDownCoastFrac ?? SHIFT_DOWN_COAST_DEFAULT) !== SHIFT_DOWN_COAST_DEFAULT) extras.push(`shiftDownCoastFrac:${p.shiftDownCoastFrac}`);
+    if((p.shiftDownBrakeFrac ?? SHIFT_DOWN_BRAKE_DEFAULT) !== SHIFT_DOWN_BRAKE_DEFAULT) extras.push(`shiftDownBrakeFrac:${p.shiftDownBrakeFrac}`);
     const line = `    ${slug}: { name:'${name.replace(/'/g, "\\'")}', cylinders:${p.cylinders}, idleRPM:${p.idleRPM}, maxRPM:${p.maxRPM}, redline:${p.redline}, harmonics:[${p.harmonics.join(',')}], roughness:${p.roughness}, brightness:${p.brightness}, crackle:${p.crackle}, turbo:${p.turbo}, gearRatios:[${gearRatios.join(',')}]${extras.length ? ', ' + extras.join(', ') : ''} },`;
     sdExportOutput.value = line;
     sdExportOutput.select();
@@ -3340,6 +3553,66 @@
     } else {
       sdExportHint.textContent = 'Le texte ci-dessus est sélectionné, copie-le (Ctrl+C) et colle-le moi dans le chat.';
     }
+  });
+
+
+  // --- atelier : ouverture depuis le menu Moteur, et enregistrement ----------------------
+  const soundDesignSheet = document.getElementById('soundDesignSheet');
+  const sdSheetTitle = document.getElementById('sdSheetTitle');
+  const sdCloseBtn = document.getElementById('sdCloseBtn');
+  const sdSaveBtn = document.getElementById('sdSaveBtn');
+  const sdDeleteBtn = document.getElementById('sdDeleteBtn');
+  const newEngineBtn = document.getElementById('newEngineBtn');
+
+  function openWorkshop(sourceKey, editKey){
+    editingEngineKey = editKey || null;
+    // le nom d'abord : applySoundDesignBase le lit pour baptiser le brouillon
+    sdName.value = editingEngineKey ? ENGINES[editingEngineKey].name : '';
+    applySoundDesignBase(sourceKey);
+    sdBaseSelect.value = sourceKey;
+    sdSheetTitle.textContent = editingEngineKey ? 'Modifier le moteur' : 'Nouveau moteur';
+    sdSaveBtn.textContent = editingEngineKey ? 'Enregistrer les modifications' : 'Enregistrer le moteur';
+    sdDeleteBtn.hidden = !editingEngineKey;
+    soundDesignSheet.classList.remove('hide');
+    sdExportOutput.value = '';
+    closeMenus();
+  }
+
+  function closeWorkshop(){
+    soundDesignSheet.classList.add('hide');
+    sdExportHint.textContent = sdExportHintDefault;
+  }
+
+  newEngineBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    openWorkshop(currentEngineKey !== 'custom' ? currentEngineKey : 'v8', null);
+  });
+  sdCloseBtn.addEventListener('click', closeWorkshop);
+  soundDesignSheet.addEventListener('click', e => e.stopPropagation()); // ne referme pas les menus
+
+  sdSaveBtn.addEventListener('click', () => {
+    onSoundDesignChange(false); // dernier état des curseurs, y compris le nom saisi
+    const name = sdName.value.trim() || 'Mon moteur';
+    const key = editingEngineKey || userEngineKey(name);
+    const profile = sanitizeEngine(Object.assign({}, ENGINES.custom, { name }));
+    userEngines[key] = profile;
+    ENGINES[key] = profile;
+    persistUserEngines();
+    editingEngineKey = key;
+    // le brouillon reprend son nom générique : sans ça le moteur apparaîtrait deux fois dans
+    // la liste, une fois enregistré et une fois en brouillon, sous le même nom
+    ENGINES.custom.name = 'Atelier (réglable)';
+    selectEngine(key);
+    renderEngineList();
+    populateBaseSelect();
+    sdSheetTitle.textContent = 'Modifier le moteur';
+    sdSaveBtn.textContent = 'Enregistrer les modifications';
+    sdDeleteBtn.hidden = false;
+    sdExportHint.textContent = '« ' + name + ' » est enregistré : tu le retrouveras dans le menu Moteur, même après avoir fermé la page.';
+  });
+
+  sdDeleteBtn.addEventListener('click', () => {
+    if(editingEngineKey) deleteUserEngine(editingEngineKey);
   });
 
   rupteurBtn.classList.toggle('on', rupteurOn);
@@ -3424,6 +3697,20 @@
 
     const profile = ENGINES[currentEngineKey];
     stepPhysics(dt, profile);
+
+    // changement de rapport : coup de projecteur sonore, et coup de gaz de rattrapage quand on
+    // rétrograde — c'est ce petit décrochage de régime, entendu à plein volume, qui fait qu'une
+    // rétrogradation s'entend comme telle au lieu de passer inaperçue
+    if(physics.running && physics.gear !== prevGearEvent){
+      shiftPunchTimer = SHIFT_PUNCH_S;
+      if(physics.gear < prevGearEvent) downshiftBlipTimer = DOWNSHIFT_BLIP_S;
+    }
+    prevGearEvent = physics.gear;
+    if(!physics.running){ shiftPunchTimer = 0; downshiftBlipTimer = 0; }
+    shiftPunchTimer = Math.max(0, shiftPunchTimer - dt);
+    downshiftBlipTimer = Math.max(0, downshiftBlipTimer - dt);
+    const shiftPunch = shiftPunchTimer / SHIFT_PUNCH_S;
+    const shiftBlip = downshiftBlipTimer / DOWNSHIFT_BLIP_S;
 
     // gestion d'état du nitro : actif -> refroidissement -> prêt
     if(nitroState === 'active'){
@@ -3513,7 +3800,8 @@
     // vrai boost de vitesse, sans influencer les rapports de boîte — retombe tout seul.
     if(nitroKickTimer > 0) nitroKickTimer = Math.max(0, nitroKickTimer - dt);
     const nitroKickIntensity = physics.running ? nitroKickTimer / NITRO_KICK_DURATION : 0;
-    const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800);
+    const blipRpm = shiftBlip * (profile.redline - profile.idleRPM) * DOWNSHIFT_BLIP_FRAC;
+    const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm);
 
     // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
     // et c'est justement cette instabilité qui distingue un rombissement d'un bourdon de
@@ -3564,7 +3852,9 @@
     updateScenery(dt, physics.speed);
     updateTraffic(dt, physics.speed, physics.running);
 
-    updateAudio(audioRpm, physics.throttle, physics.running, profile, cruiseFade * lowSpeedFade);
+    // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
+    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85);
+    updateAudio(audioRpm, audioThrottle, physics.running, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch));
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
