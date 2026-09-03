@@ -26,6 +26,7 @@
      éléments, en !important pour qu'aucune règle de mise en page (display:flex sur un
      panneau, par exemple) ne puisse à nouveau la faire perdre. */
   [hidden]{ display:none !important; }
+  body.sd-open{ overflow:hidden; }
   html,body{
     margin:0; padding:0; height:100%;
     background: radial-gradient(120% 140% at 50% -10%, #1a1e24 0%, var(--bg) 55%);
@@ -245,74 +246,232 @@
   .cruise-btn.on{ color:var(--text); border-color:var(--amber-dim); }
   .cruise-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
-  /* --- atelier moteur : feuille ancrée en bas de l'écran, ouverte par « Nouveau moteur » ---
-     Ce n'est plus un panneau du flux réservé au mode débug : il flotte au-dessus de la page,
-     sans voile opaque derrière lui, pour que les compteurs et la route restent visibles
-     pendant qu'on règle à l'oreille. En-tête et boutons d'action sont fixes, seuls les
-     curseurs défilent. */
-  .sd-sheet{
-    position:fixed; z-index:40; left:0; right:0; bottom:0;
-    display:flex; flex-direction:column;
-    max-height:min(70vh, 700px);
-    background:linear-gradient(180deg, rgba(22,25,30,0.97), rgba(12,14,17,0.98));
-    backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-    border-top:1px solid #2c3038; border-radius:16px 16px 0 0;
-    box-shadow:0 -18px 44px rgba(0,0,0,0.65);
+  /* --- ATELIER MOTEUR : écran plein, façon baie moteur d'un jeu de configuration -----------
+     Ouvert par « Nouveau moteur » (menu Moteur), il prend tout l'écran : on y règle une
+     machine, pas un formulaire. D'où le vocabulaire visuel : panneaux vissés, glissières
+     creusées dans le métal avec un curseur moleté, afficheurs numériques encastrés,
+     interrupteurs à bascule. Tout est en CSS — aucune image, rien à charger. */
+  .sd-screen{
+    position:fixed; inset:0; z-index:60; display:flex; flex-direction:column;
+    background:
+      radial-gradient(120% 90% at 50% -20%, rgba(255,140,60,0.07) 0%, rgba(0,0,0,0) 60%),
+      linear-gradient(180deg, #0f1216 0%, #07090b 100%);
   }
-  .sd-sheet.hide{ display:none; }
-  .sd-head{
-    display:flex; align-items:center; gap:10px;
-    padding:12px 14px 10px; border-bottom:1px solid #20242a; flex-shrink:0;
+  .sd-screen.hide{ display:none; }
+
+  /* barre de commande : identité du moteur à gauche, sortie à droite. Toujours visible, on ne
+     doit jamais avoir à remonter tout l'écran pour enregistrer ou quitter. */
+  .sd-bar{
+    flex-shrink:0; display:flex; align-items:center; gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
+    background:linear-gradient(180deg, #1b1f25, #12151a);
+    border-bottom:1px solid #2c3038; box-shadow:0 6px 20px rgba(0,0,0,0.55);
   }
-  .sd-head h3{ flex:1; margin:0; font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--amber); }
-  .sd-close{
-    width:30px; height:30px; flex-shrink:0; border-radius:8px; cursor:pointer;
-    background:#14171b; border:1px solid #2a2f37; color:var(--muted); font-size:14px; line-height:1;
+  .sd-bar-id{ flex:1; min-width:0; }
+  .sd-bar-kicker{ display:block; font-size:9px; letter-spacing:2.4px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .sd-bar-id input{
+    width:100%; background:#0a0c0f; border:1px solid #23272e; border-radius:8px;
+    color:var(--text); font-size:15px; font-weight:700; letter-spacing:0.3px; padding:7px 10px;
+    box-shadow:inset 0 2px 6px rgba(0,0,0,0.7);
   }
-  .sd-body{ flex:1; min-height:0; overflow-y:auto; padding:12px 14px 4px; }
-  .sd-actions{
-    flex-shrink:0; padding:10px 14px calc(12px + env(safe-area-inset-bottom));
-    border-top:1px solid #20242a; display:flex; flex-direction:column; gap:8px;
+  .sd-bar-id input::placeholder{ color:#4a5057; font-weight:600; }
+  .sd-btn{
+    flex-shrink:0; padding:11px 13px; border-radius:9px; cursor:pointer;
+    font-size:12px; font-weight:800; letter-spacing:0.5px;
+    border:1px solid #2a2f37; border-top-color:#3a4048;
+    background:linear-gradient(180deg, #1e2229, #14171b); color:var(--text);
+    box-shadow:0 2px 0 #0a0c0f, 0 4px 10px rgba(0,0,0,0.5);
   }
-  .sd-actions .cruise-btn{ margin-top:0; }
-  .sd-save-btn{
-    width:100%; padding:12px; border-radius:9px; border:none; cursor:pointer;
-    background:linear-gradient(180deg, #ff9d5c, #e87a2e); color:#1a0f06;
-    font-size:13px; font-weight:800; letter-spacing:0.5px;
+  .sd-btn:active{ transform:translateY(1px); box-shadow:0 1px 0 #0a0c0f; }
+  .sd-btn.primary{
+    background:linear-gradient(180deg, #ffa668, #e87a2e); color:#1a0f06; border-color:#8a4a18;
   }
-  .sd-delete-btn{
-    width:100%; padding:9px; border-radius:9px; cursor:pointer;
-    background:#14171b; border:1px solid #3a2a2a; color:#c96a6a;
-    font-size:12px; font-weight:700; letter-spacing:0.5px;
+  .sd-btn.danger{ color:#c96a6a; border-color:#3a2a2a; }
+
+  .sd-body{ flex:1; min-height:0; overflow-y:auto; padding:12px 12px 18px; -webkit-overflow-scrolling:touch; }
+
+  /* panneau vissé : chaque groupe de réglages est une platine distincte */
+  .sd-card{
+    position:relative; margin-bottom:12px; padding:13px 13px 4px; border-radius:12px;
+    background:linear-gradient(180deg, #1a1e24 0%, #12161a 100%);
+    border:1px solid #2a2f37; border-top-color:#3d434b;
+    box-shadow:0 8px 20px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05);
   }
+  .sd-card h4{
+    margin:0 0 12px; display:flex; align-items:center; gap:8px;
+    font-size:10px; letter-spacing:2.4px; text-transform:uppercase; color:#8a9099;
+  }
+  .sd-card h4::before{ content:''; width:14px; height:2px; border-radius:2px; background:var(--amber); flex-shrink:0; }
+  .sd-tag{
+    margin-left:auto; letter-spacing:1px; font-size:8px; color:var(--muted);
+    background:#0a0c0f; border:1px solid #23272e; border-radius:4px; padding:2px 6px;
+  }
+  /* vis d'angle : le détail qui fait lire la platine comme une pièce, pas comme une carte web */
+  .sd-card::after{
+    content:''; position:absolute; top:9px; right:11px; width:6px; height:6px; border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #7d848c, #23262b);
+    box-shadow:0 1px 0 rgba(255,255,255,0.07);
+  }
+  .sd-note{
+    margin:2px 0 12px; font-size:11px; line-height:1.55; color:var(--muted);
+    border-left:2px solid #2a2f37; padding-left:9px;
+  }
+
+  /* --- glissière : rail creusé, remplissage ambre jusqu'à la valeur, curseur moleté ------- */
+  .sd-slider{ margin-bottom:13px; }
+  .sd-slider label{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-size:11.5px; color:#a9afb7; letter-spacing:0.3px; margin-bottom:6px;
+  }
+  /* afficheur encastré : la valeur se lit comme un cadran, pas comme du texte */
+  .sd-slider label span{
+    flex-shrink:0; min-width:62px; text-align:right; padding:3px 7px; border-radius:5px;
+    background:#08090b; border:1px solid #22262c; color:var(--amber);
+    font-size:11px; font-weight:800; font-variant-numeric:tabular-nums;
+    box-shadow:inset 0 1px 4px rgba(0,0,0,0.9), 0 0 8px rgba(255,140,60,0.10);
+  }
+  /* touch-action:pan-y : un doigt qui glisse verticalement fait défiler l'écran au lieu de
+     déplacer la glissière (horizontale) qu'il a sous lui. */
+  .sd-body input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:24px;
+    background:transparent; touch-action:pan-y; cursor:pointer;
+  }
+  .sd-body input[type=range]::-webkit-slider-runnable-track{
+    height:9px; border-radius:5px; border:1px solid #23272e;
+    background:
+      linear-gradient(90deg, #ff8c3c 0%, #ff8c3c calc(var(--pct,0) * 1%), #0a0c0f calc(var(--pct,0) * 1%), #0a0c0f 100%);
+    box-shadow:inset 0 2px 5px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .sd-body input[type=range]::-moz-range-track{
+    height:9px; border-radius:5px; border:1px solid #23272e; background:#0a0c0f;
+    box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);
+  }
+  .sd-body input[type=range]::-moz-range-progress{ height:9px; border-radius:5px; background:#ff8c3c; }
+  /* le curseur : bloc métal moleté, comme la molette d'un banc de réglage */
+  .sd-body input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:20px; height:24px; margin-top:-8px; border-radius:5px;
+    border:1px solid #16181c;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.55) 0 1px, rgba(0,0,0,0.25) 1px 3px),
+      linear-gradient(180deg, #d7dde3 0%, #9aa1a9 45%, #6b7178 55%, #aeb5bc 100%);
+    box-shadow:0 2px 5px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.7);
+  }
+  .sd-body input[type=range]::-moz-range-thumb{
+    width:18px; height:22px; border-radius:5px; border:1px solid #16181c;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.55) 0 1px, rgba(0,0,0,0.25) 1px 3px),
+      linear-gradient(180deg, #d7dde3 0%, #9aa1a9 45%, #6b7178 55%, #aeb5bc 100%);
+    box-shadow:0 2px 5px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.7);
+  }
+
+  /* --- champs texte / listes déroulantes -------------------------------------------------- */
+  .sd-field{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .sd-field label{ flex-shrink:0; width:78px; font-size:11px; color:var(--muted); letter-spacing:0.5px; }
+  .sd-field select, .sd-field input[type=text]{
+    flex:1; min-width:0; background:#0a0c0f; border:1px solid #23272e; border-radius:8px;
+    color:var(--text); padding:9px 10px; font-size:13px; box-shadow:inset 0 2px 5px rgba(0,0,0,0.7);
+  }
+
+  /* --- interrupteurs à bascule ------------------------------------------------------------ */
+  .sd-switches{ display:flex; flex-wrap:wrap; gap:9px; margin-bottom:12px; }
+  .sd-switch{
+    flex:1; min-width:135px; display:flex; align-items:center; gap:10px; cursor:pointer;
+    padding:9px 11px; border-radius:10px;
+    background:linear-gradient(180deg, #14181d, #0d1013); border:1px solid #23272e;
+  }
+  .sd-switch input{ display:none; }
+  .sd-switch .txt{ flex:1; font-size:12px; font-weight:700; color:#a9afb7; letter-spacing:0.3px; }
+  .sd-switch .rock{
+    position:relative; flex-shrink:0; width:42px; height:23px; border-radius:6px;
+    background:#08090b; border:1px solid #22262c; box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);
+  }
+  .sd-switch .rock::after{
+    content:''; position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:4px;
+    background:linear-gradient(180deg, #d7dde3, #7c838b);
+    box-shadow:0 1px 3px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.6);
+    transition:left 0.13s ease;
+  }
+  .sd-switch input:checked ~ .rock{ background:rgba(255,140,60,0.22); border-color:var(--amber-dim); }
+  .sd-switch input:checked ~ .rock::after{ left:21px; }
+  .sd-switch input:checked ~ .txt{ color:var(--amber); }
+
+  /* --- pastilles harmoniques : petites touches qui s'allument ----------------------------- */
+  .sd-harm-row{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:12px; }
+  .sd-chip{ cursor:pointer; }
+  .sd-chip input{ display:none; }
+  .sd-chip .cap{
+    display:block; min-width:36px; text-align:center; padding:7px 8px; border-radius:7px;
+    background:linear-gradient(180deg, #14181d, #0d1013); border:1px solid #23272e;
+    color:#7c838b; font-size:11.5px; font-weight:800; font-variant-numeric:tabular-nums;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .sd-chip input:checked + .cap{
+    background:linear-gradient(180deg, rgba(255,140,60,0.30), rgba(255,140,60,0.14));
+    border-color:var(--amber-dim); color:var(--amber); box-shadow:0 0 10px rgba(255,140,60,0.25);
+  }
+
+  /* --- boîte de vitesses : une glissière compacte par rapport ----------------------------- */
+  .sd-gear{ display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+  .sd-gear .g{
+    flex-shrink:0; width:34px; text-align:center; padding:4px 0; border-radius:5px;
+    background:#0a0c0f; border:1px solid #23272e; color:#a9afb7;
+    font-size:11px; font-weight:800; letter-spacing:0.3px;
+  }
+  .sd-gear input[type=range]{ flex:1; min-width:0; }
+  .sd-gear .v{
+    flex-shrink:0; width:48px; text-align:right; color:var(--amber);
+    font-size:11px; font-weight:800; font-variant-numeric:tabular-nums;
+  }
+
+  /* --- barre d'essai : l'écran est plein, les pédales du cockpit sont hors de portée ------- */
+  .sd-test{
+    flex-shrink:0; display:flex; align-items:center; gap:9px;
+    padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+    background:linear-gradient(180deg, #16191e, #0c0e11); border-top:1px solid #2c3038;
+    box-shadow:0 -8px 22px rgba(0,0,0,0.6);
+  }
+  .sd-test-btn{
+    padding:12px 13px; border-radius:9px; cursor:pointer; flex-shrink:0;
+    display:flex; align-items:center; gap:7px;
+    font-size:11.5px; font-weight:800; letter-spacing:0.5px; color:#a9afb7;
+    background:linear-gradient(180deg, #1e2229, #14171b);
+    border:1px solid #2a2f37; border-top-color:#3a4048;
+    box-shadow:0 2px 0 #08090b, 0 4px 10px rgba(0,0,0,0.5);
+  }
+  .sd-test-btn:active{ transform:translateY(1px); box-shadow:0 1px 0 #08090b; }
+  .sd-test-btn .led{
+    width:8px; height:8px; border-radius:50%; flex-shrink:0;
+    background:#3a2013; box-shadow:inset 0 1px 1px rgba(0,0,0,0.6);
+  }
+  .sd-test-btn.on{ color:var(--amber); border-color:var(--amber-dim); }
+  .sd-test-btn.on .led{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
+  .sd-test-btn.rev{ flex:1; justify-content:center; }
+  .sd-test-btn.rev.held{
+    color:var(--amber); border-color:var(--amber-dim);
+    background:linear-gradient(180deg, rgba(255,140,60,0.28), rgba(255,140,60,0.12));
+  }
+  .sd-test-readout{
+    flex-shrink:0; min-width:96px; text-align:right; padding:9px 10px; border-radius:8px;
+    background:#08090b; border:1px solid #22262c; color:var(--cyan);
+    font-size:11px; font-weight:800; font-variant-numeric:tabular-nums;
+    box-shadow:inset 0 1px 4px rgba(0,0,0,0.9);
+  }
+  .sd-test-readout b{ font-size:15px; color:var(--amber); }
+
   /* le retour d'action (« Enregistré », « Copié ») doit rester lisible partout — contrairement
      aux .hint du cockpit, qui disparaissent sur grand écran */
-  .sd-feedback{ font-size:11px; color:var(--muted); line-height:1.5; text-align:center; }
-  .sd-row{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-  .sd-row label{ font-size:11px; color:var(--muted); letter-spacing:0.5px; flex-shrink:0; width:70px; }
-  .sd-row select, .sd-row input[type=text]{
-    flex:1; background:#0e1013; border:1px solid #2a2f37; border-radius:8px; color:var(--text);
-    padding:8px 10px; font-size:13px;
-  }
-  .sd-slider{ margin-bottom:10px; }
-  .sd-slider label{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); letter-spacing:0.5px; margin-bottom:4px; }
-  .sd-slider label span{ color:var(--amber); font-variant-numeric:tabular-nums; font-weight:700; }
-  /* touch-action:pan-y : un doigt qui glisse verticalement pour faire défiler le panneau
-     n'est pas capturé par le curseur (horizontal) en dessous — seul un geste horizontal
-     déplace le curseur. Sans ça, le défilement tactile déplaçait le curseur du bout du doigt. */
-  .sd-slider input[type=range]{ width:100%; accent-color:var(--amber); touch-action:pan-y; }
-  .sd-toggles{ display:flex; gap:16px; margin-bottom:10px; }
-  .sd-toggles label{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text); cursor:pointer; }
-  .sd-toggles input{ accent-color:var(--amber); }
-  .sd-harm-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
-  .sd-harm-row label{
-    display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text);
-    background:#0e1013; border:1px solid #2a2f37; border-radius:6px; padding:4px 8px; cursor:pointer;
-  }
-  .sd-harm-row input{ accent-color:var(--amber); }
+  .sd-feedback{ font-size:11px; color:var(--muted); line-height:1.5; margin-bottom:10px; }
+  .sd-stack{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
   #sdExportOutput{
-    width:100%; margin-top:10px; background:#0e1013; border:1px solid #2a2f37; border-radius:8px;
+    width:100%; background:#08090b; border:1px solid #22262c; border-radius:8px;
     color:var(--cyan); font-size:11px; font-family:monospace; padding:8px; resize:vertical;
+  }
+
+  /* au-delà du téléphone, l'atelier se lit en deux colonnes : on voit la moitié des platines
+     d'un coup au lieu de dérouler un long ruban */
+  @media (min-width: 760px){
+    .sd-body{ column-count:2; column-gap:12px; padding:14px 16px 20px; max-width:1120px; margin:0 auto; }
+    .sd-card{ break-inside:avoid; }
   }
 
   footer{ text-align:center; font-size:10px; color:#3d424a; letter-spacing:1px; padding-top:6px;}
@@ -370,7 +529,6 @@
     /* min-height calé sur la pile de boutons (50 + 76 + 50 + marges) pour qu'elle reste
        entièrement cliquable même quand les panneaux de débug mangent l'écran */
     .cockpit{ flex:1; min-height:210px; gap:8px; padding-bottom:0; }
-    .sd-sheet{ left:auto; right:0; width:min(420px, 100vw); border-left:1px solid #2c3038; border-radius:16px 0 0 0; }
     .gauges{ flex:1; min-height:0; gap:24px; }
     canvas.gauge{ width:auto; height:auto; max-width:min(640px, 40vw); max-height:100%; }
     footer{ display:none; }
@@ -509,70 +667,96 @@
      réelle comme en mode débug. Les réglages agissent en direct sur le moteur joué ;
      « Enregistrer » range le résultat dans les moteurs de l'utilisateur (localStorage),
      pour le retrouver d'une session à l'autre. -->
-<div class="sd-sheet hide" id="soundDesignSheet">
-  <div class="sd-head">
-    <h3 id="sdSheetTitle">Nouveau moteur</h3>
-    <button class="sd-close" id="sdCloseBtn" type="button" title="Fermer l'atelier">✕</button>
+<div class="sd-screen hide" id="soundDesignSheet">
+  <div class="sd-bar">
+    <div class="sd-bar-id">
+      <span class="sd-bar-kicker" id="sdSheetTitle">Nouveau moteur</span>
+      <input type="text" id="sdName" placeholder="Nom du moteur" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="sd-btn" id="sdCloseBtn" type="button">Quitter</button>
+    <button class="sd-btn primary" id="sdSaveBtn" type="button">Enregistrer</button>
   </div>
+
   <div class="sd-body" id="soundDesignPanel">
-    <div class="sd-row">
-      <label for="sdBaseSelect">Partir de</label>
-      <select id="sdBaseSelect"></select>
-    </div>
-    <div class="sd-row">
-      <label for="sdName">Nom</label>
-      <input type="text" id="sdName" placeholder="Mon moteur">
-    </div>
 
-    <div class="sd-slider"><label>Cylindres <span id="sdCylindersVal"></span></label><input type="range" id="sdCylinders" min="1" max="16" step="1"></div>
-    <div class="sd-slider"><label>Ralenti (tr/min) <span id="sdIdleVal"></span></label><input type="range" id="sdIdle" min="300" max="1500" step="10"></div>
-    <div class="sd-slider"><label>Régime max <span id="sdMaxRpmVal"></span></label><input type="range" id="sdMaxRpm" min="2000" max="10000" step="50"></div>
-    <div class="sd-slider"><label>Zone rouge <span id="sdRedlineVal"></span></label><input type="range" id="sdRedline" min="2000" max="10000" step="50"></div>
-    <div class="sd-slider"><label>Rugosité <span id="sdRoughnessVal"></span></label><input type="range" id="sdRoughness" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Brillance <span id="sdBrightnessVal"></span></label><input type="range" id="sdBrightness" min="0" max="2" step="0.01"></div>
-    <div class="sd-slider"><label>Pétarade <span id="sdCrackleVal"></span></label><input type="range" id="sdCrackle" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Rombissement (bancs décalés) <span id="sdRumbleVal"></span></label><input type="range" id="sdRumble" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
-    <div class="sd-slider"><label>Passage de vitesse (% zone) <span id="sdShiftUpVal"></span></label><input type="range" id="sdShiftUp" min="0.2" max="0.99" step="0.01"></div>
-    <div class="sd-slider"><label>Rétrogradation roulant (% zone) <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
-    <div class="sd-slider"><label>Rétrogradation freinage (% zone) <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
-    <div class="sd-slider"><label>Résonance échappement (Hz) <span id="sdPipeHzVal"></span></label><input type="range" id="sdPipeHz" min="55" max="190" step="1"></div>
-    <div class="sd-slider"><label>Longueur du pop <span id="sdPopLengthVal"></span></label><input type="range" id="sdPopLength" min="0.3" max="2.5" step="0.05"></div>
-    <div class="sd-slider"><label>Coupure rupteur (ms) <span id="sdLimiterCutVal"></span></label><input type="range" id="sdLimiterCut" min="5" max="90" step="1"></div>
-    <div class="sd-slider"><label>Densité anti-lag <span id="sdAntilagVal"></span></label><input type="range" id="sdAntilag" min="0.4" max="3" step="0.05"></div>
-
-    <div class="sd-row" style="display:block;">
-      <label>Allure constante (réglages globaux)</label>
-    </div>
-    <div class="sd-slider"><label>Fenêtre de stabilité (± km/h) <span id="sdSteadyBandVal"></span></label><input type="range" id="sdSteadyBand" min="1" max="15" step="0.5"></div>
-    <div class="sd-slider"><label>Délai avant atténuation (s) <span id="sdSteadyHoldVal"></span></label><input type="range" id="sdSteadyHold" min="0.5" max="10" step="0.1"></div>
-    <div class="sd-slider"><label>Niveau une fois stabilisé <span id="sdSteadyLevelVal"></span></label><input type="range" id="sdSteadyLevel" min="0" max="1" step="0.01"></div>
-
-    <div class="sd-row">
-      <label for="sdGears">Rapports</label>
-      <input type="text" id="sdGears" placeholder="6.5,4.1,2.75,2.05,1.72,1.46,1.24,1.05">
+    <div class="sd-card">
+      <h4>Point de départ</h4>
+      <div class="sd-field">
+        <label for="sdBaseSelect">Copier</label>
+        <select id="sdBaseSelect"></select>
+      </div>
+      <div class="sd-note">Repart d'un moteur existant et remet tous les réglages ci-dessous à ceux de ce moteur.</div>
     </div>
 
-    <div class="sd-toggles">
-      <label><input type="checkbox" id="sdTurbo"> Turbo</label>
-      <label><input type="checkbox" id="sdFunky"> Wah funky</label>
+    <div class="sd-card">
+      <h4>Bloc moteur</h4>
+      <div class="sd-slider"><label>Cylindres <span id="sdCylindersVal"></span></label><input type="range" id="sdCylinders" min="1" max="16" step="1"></div>
+      <div class="sd-slider"><label>Ralenti (tr/min) <span id="sdIdleVal"></span></label><input type="range" id="sdIdle" min="300" max="1500" step="10"></div>
+      <div class="sd-slider"><label>Régime max <span id="sdMaxRpmVal"></span></label><input type="range" id="sdMaxRpm" min="2000" max="10000" step="50"></div>
+      <div class="sd-slider"><label>Zone rouge <span id="sdRedlineVal"></span></label><input type="range" id="sdRedline" min="2000" max="10000" step="50"></div>
+      <div class="sd-switches">
+        <label class="sd-switch"><input type="checkbox" id="sdTurbo"><span class="txt">Turbo</span><span class="rock"></span></label>
+        <label class="sd-switch"><input type="checkbox" id="sdFunky"><span class="txt">Wah funky</span><span class="rock"></span></label>
+      </div>
     </div>
 
-    <div class="sd-row" style="display:block;">
-      <label>Harmoniques</label>
+    <div class="sd-card">
+      <h4>Timbre</h4>
+      <div class="sd-slider"><label>Rugosité <span id="sdRoughnessVal"></span></label><input type="range" id="sdRoughness" min="0" max="1" step="0.01"></div>
+      <div class="sd-slider"><label>Brillance <span id="sdBrightnessVal"></span></label><input type="range" id="sdBrightness" min="0" max="2" step="0.01"></div>
+      <div class="sd-slider"><label>Grondement <span id="sdGrowlVal"></span></label><input type="range" id="sdGrowl" min="0" max="1" step="0.01"></div>
+      <div class="sd-slider"><label>Rombissement (bancs décalés) <span id="sdRumbleVal"></span></label><input type="range" id="sdRumble" min="0" max="1" step="0.01"></div>
+      <div class="sd-slider"><label>Mécanique <span id="sdMechanicalVal"></span></label><input type="range" id="sdMechanical" min="0" max="1" step="0.01"></div>
+      <div class="sd-note">Harmoniques : les rangs allumés sont les composantes que l'échappement laisse ressortir. Les rangs bas donnent du corps, les rangs hauts du mordant.</div>
       <div class="sd-harm-row" id="sdHarmonics"></div>
     </div>
 
-  </div>
-  <div class="sd-actions">
-    <button class="sd-save-btn" id="sdSaveBtn" type="button">Enregistrer le moteur</button>
-    <button class="sd-delete-btn" id="sdDeleteBtn" type="button" hidden>Supprimer ce moteur</button>
-    <button class="cruise-btn" id="sdExportBtn" type="button">Exporter (copier la config)</button>
-    <textarea id="sdExportOutput" readonly rows="2" placeholder="Le code à me coller apparaîtra ici après export…"></textarea>
-    <div class="sd-feedback" id="sdExportHint">
-      Choisis un moteur de départ, ajuste les curseurs en écoutant (démarre le moteur avec le bouton central), puis Enregistrer l'ajoute à ta liste de moteurs.
+    <div class="sd-card">
+      <h4>Échappement</h4>
+      <div class="sd-slider"><label>Pétarade <span id="sdCrackleVal"></span></label><input type="range" id="sdCrackle" min="0" max="1" step="0.01"></div>
+      <div class="sd-slider"><label>Résonance de la ligne (Hz) <span id="sdPipeHzVal"></span></label><input type="range" id="sdPipeHz" min="55" max="190" step="1"></div>
+      <div class="sd-slider"><label>Longueur des détonations <span id="sdPopLengthVal"></span></label><input type="range" id="sdPopLength" min="0.3" max="2.5" step="0.05"></div>
+      <div class="sd-slider"><label>Coupure rupteur (ms) <span id="sdLimiterCutVal"></span></label><input type="range" id="sdLimiterCut" min="5" max="90" step="1"></div>
+      <div class="sd-slider"><label>Densité anti-lag <span id="sdAntilagVal"></span></label><input type="range" id="sdAntilag" min="0.4" max="3" step="0.05"></div>
     </div>
+
+    <div class="sd-card">
+      <h4>Boîte de vitesses</h4>
+      <div class="sd-note">À quel moment la boîte change de rapport, en % de la plage entre le ralenti et la zone rouge. 100 % = juste avant la zone rouge.</div>
+      <div class="sd-slider"><label>Monte un rapport à <span id="sdShiftUpVal"></span></label><input type="range" id="sdShiftUp" min="0.2" max="0.99" step="0.01"></div>
+      <div class="sd-slider"><label>Rétrograde pied levé à <span id="sdShiftDownCoastVal"></span></label><input type="range" id="sdShiftDownCoast" min="0" max="0.9" step="0.01"></div>
+      <div class="sd-slider"><label>Rétrograde au frein à <span id="sdShiftDownBrakeVal"></span></label><input type="range" id="sdShiftDownBrake" min="0" max="0.9" step="0.01"></div>
+      <div class="sd-slider"><label>Nombre de rapports <span id="sdGearCountVal"></span></label><input type="range" id="sdGearCount" min="1" max="10" step="1"></div>
+      <div class="sd-note">Démultiplication de chaque rapport : plus le nombre est grand, plus le rapport est court — il tire fort mais s'épuise vite. Les valeurs restent décroissantes de la 1re à la dernière, comme sur une vraie boîte.</div>
+      <div id="sdGearList"></div>
+    </div>
+
+    <div class="sd-card">
+      <h4>Allure constante <span class="sd-tag">tous moteurs</span></h4>
+      <div class="sd-note">Quand la vitesse ne bouge plus, le moteur s'efface pour ne pas devenir lassant. Ces trois réglages valent pour l'application entière, pas pour ce seul moteur, et ne sont pas enregistrés avec lui.</div>
+      <div class="sd-slider"><label>Fenêtre de stabilité <span id="sdSteadyBandVal"></span></label><input type="range" id="sdSteadyBand" min="1" max="15" step="0.5"></div>
+      <div class="sd-slider"><label>Délai avant atténuation <span id="sdSteadyHoldVal"></span></label><input type="range" id="sdSteadyHold" min="0.5" max="10" step="0.1"></div>
+      <div class="sd-slider"><label>Niveau une fois stabilisé <span id="sdSteadyLevelVal"></span></label><input type="range" id="sdSteadyLevel" min="0" max="1" step="0.01"></div>
+    </div>
+
+    <div class="sd-card">
+      <h4>Atelier</h4>
+      <div class="sd-feedback" id="sdExportHint">
+        Ajuste les réglages en écoutant (bouton Démarrer en bas), puis Enregistrer range le moteur dans ta liste.
+      </div>
+      <div class="sd-stack">
+        <button class="sd-btn" id="sdExportBtn" type="button">Exporter (copier la config)</button>
+        <textarea id="sdExportOutput" readonly rows="2" placeholder="Le code à me coller apparaîtra ici après export…"></textarea>
+        <button class="sd-btn danger" id="sdDeleteBtn" type="button" hidden>Supprimer ce moteur</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="sd-test">
+    <button class="sd-test-btn" id="sdPowerBtn" type="button"><span class="led"></span><span id="sdPowerLbl">Démarrer</span></button>
+    <button class="sd-test-btn rev" id="sdRevBtn" type="button">Accélérer (maintenir)</button>
+    <div class="sd-test-readout"><b id="sdRevRpm">0</b> tr/min</div>
   </div>
 </div>
 
@@ -3130,6 +3314,11 @@
   let shiftPunchTimer = 0;        // s restantes de « plein volume » après un changement de rapport
   let downshiftBlipTimer = 0;     // s restantes de coup de gaz de rattrapage (rétrogradation)
   const SHIFT_PUNCH_S = 0.9;
+  // coup de gaz du banc d'essai de l'atelier : purement sonore et visuel (aiguille), il ne
+  // touche ni à la vitesse ni aux rapports, pour qu'écouter un moteur en réglage ne fausse
+  // jamais ce que raconte la conduite réelle
+  let workshopRevHeld = false;
+  let workshopRev = 0;
   const DOWNSHIFT_BLIP_S = 0.4;
   const DOWNSHIFT_BLIP_FRAC = 0.12; // hauteur du coup de gaz, en % de la plage ralenti-zone rouge
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
@@ -3271,7 +3460,7 @@
     delete userEngines[key];
     delete ENGINES[key];
     persistUserEngines();
-    if(editingEngineKey === key){ editingEngineKey = null; closeWorkshop(); }
+    if(editingEngineKey === key){ editingEngineKey = null; hideWorkshop(); }
     if(currentEngineKey === key) selectEngine('mecanique');
     renderEngineList();
     populateBaseSelect();
@@ -3366,10 +3555,12 @@
     hold: document.getElementById('sdSteadyHold'),
     level: document.getElementById('sdSteadyLevel'),
   };
-  const sdGears = document.getElementById('sdGears');
+  const sdGearCount = document.getElementById('sdGearCount');
+  const sdGearList = document.getElementById('sdGearList');
   const sdTurbo = document.getElementById('sdTurbo');
   const sdFunky = document.getElementById('sdFunky');
   const sdHarmonicsContainer = document.getElementById('sdHarmonics');
+  const soundDesignPanel = document.getElementById('soundDesignPanel');
   const sdExportBtn = document.getElementById('sdExportBtn');
   const sdExportOutput = document.getElementById('sdExportOutput');
   const sdExportHint = document.getElementById('sdExportHint');
@@ -3393,14 +3584,72 @@
 
   HARMONIC_OPTIONS.forEach(h => {
     const lbl = document.createElement('label');
+    lbl.className = 'sd-chip';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.dataset.h = h;
     cb.addEventListener('change', () => onSoundDesignChange(true));
-    lbl.appendChild(cb);
-    lbl.appendChild(document.createTextNode(h));
+    const cap = document.createElement('span');
+    cap.className = 'cap';
+    cap.textContent = h;
+    lbl.appendChild(cb);   // la pastille s'allume via `input:checked + .cap` : l'ordre compte
+    lbl.appendChild(cap);
     sdHarmonicsContainer.appendChild(lbl);
   });
+
+  // --- boîte de vitesses : une glissière par rapport, plutôt qu'une liste de nombres séparés
+  // par des virgules. Personne ne devine ce qu'un champ « Rapports » attend, alors qu'une
+  // rangée de rapports numérotés se lit comme le tableau de démultiplications d'une fiche
+  // technique. Les valeurs sont tenues décroissantes : une boîte dont le 3e rapport serait
+  // plus court que le 2e n'a pas de sens et rendrait la boîte automatique erratique.
+  function renderGearList(){
+    const ratios = ENGINES.custom.gearRatios || DEFAULT_GEAR_RATIOS;
+    sdGearList.innerHTML = '';
+    ratios.forEach((ratio, i) => {
+      const row = document.createElement('div');
+      row.className = 'sd-gear';
+      const tag = document.createElement('span');
+      tag.className = 'g';
+      tag.textContent = i === 0 ? '1re' : (i + 1) + 'e';
+      const range = document.createElement('input');
+      range.type = 'range';
+      range.min = 0.5; range.max = 8; range.step = 0.05;
+      range.value = ratio;
+      range.style.setProperty('--pct', ((ratio - 0.5) / 7.5) * 100);
+      const val = document.createElement('span');
+      val.className = 'v';
+      val.textContent = ratio.toFixed(2);
+      range.addEventListener('input', () => {
+        const list = ENGINES.custom.gearRatios;
+        // bornes : jamais plus court que le rapport précédent, jamais plus long que le suivant
+        const upper = i > 0 ? list[i - 1] : 8;
+        const lower = i < list.length - 1 ? list[i + 1] : 0.5;
+        const v = Math.max(lower, Math.min(upper, parseFloat(range.value)));
+        range.value = v;
+        range.style.setProperty('--pct', ((v - 0.5) / 7.5) * 100);
+        val.textContent = v.toFixed(2);
+        list[i] = v;
+        onSoundDesignChange(false);
+      });
+      row.appendChild(tag); row.appendChild(range); row.appendChild(val);
+      sdGearList.appendChild(row);
+    });
+  }
+
+  // ajouter/retirer des rapports : on prolonge l'étagement existant au lieu d'inventer une
+  // valeur arbitraire, pour que la boîte reste cohérente quel que soit le nombre de rapports
+  function setGearCount(n){
+    const list = (ENGINES.custom.gearRatios || DEFAULT_GEAR_RATIOS).slice();
+    while(list.length > n) list.pop();
+    while(list.length < n){
+      const last = list[list.length - 1];
+      const step = list.length >= 2 ? last / list[list.length - 2] : 0.85;
+      list.push(Math.max(0.5, +(last * Math.min(0.97, step)).toFixed(2)));
+    }
+    ENGINES.custom.gearRatios = list;
+    renderGearList();
+    onSoundDesignChange(false);
+  }
 
   function syncSoundDesignControls(){
     const p = ENGINES.custom;
@@ -3424,7 +3673,9 @@
     sdControls.shiftUpFrac.value = p.shiftUpFrac ?? SHIFT_UP_FRAC_DEFAULT;
     sdControls.shiftDownCoastFrac.value = p.shiftDownCoastFrac ?? SHIFT_DOWN_COAST_DEFAULT;
     sdControls.shiftDownBrakeFrac.value = p.shiftDownBrakeFrac ?? SHIFT_DOWN_BRAKE_DEFAULT;
-    sdGears.value = (p.gearRatios || DEFAULT_GEAR_RATIOS).join(',');
+    if(!p.gearRatios) p.gearRatios = DEFAULT_GEAR_RATIOS.slice();
+    sdGearCount.value = p.gearRatios.length;
+    renderGearList();
     sdTurbo.checked = !!p.turbo;
     sdFunky.checked = !!p.funkyWah;
     Array.from(sdHarmonicsContainer.querySelectorAll('input')).forEach(cb => {
@@ -3451,9 +3702,22 @@
     document.getElementById('sdSteadyHoldVal').textContent = parseFloat(sdSteady.hold.value).toFixed(1) + ' s';
     document.getElementById('sdSteadyLevelVal').textContent = Math.round(parseFloat(sdSteady.level.value) * 100) + ' %';
     document.getElementById('sdMechanicalVal').textContent = parseFloat(sdControls.mechanical.value).toFixed(2);
-    document.getElementById('sdShiftUpVal').textContent = parseFloat(sdControls.shiftUpFrac.value).toFixed(2);
-    document.getElementById('sdShiftDownCoastVal').textContent = parseFloat(sdControls.shiftDownCoastFrac.value).toFixed(2);
-    document.getElementById('sdShiftDownBrakeVal').textContent = parseFloat(sdControls.shiftDownBrakeFrac.value).toFixed(2);
+    document.getElementById('sdShiftUpVal').textContent = Math.round(parseFloat(sdControls.shiftUpFrac.value) * 100) + ' %';
+    document.getElementById('sdShiftDownCoastVal').textContent = Math.round(parseFloat(sdControls.shiftDownCoastFrac.value) * 100) + ' %';
+    document.getElementById('sdShiftDownBrakeVal').textContent = Math.round(parseFloat(sdControls.shiftDownBrakeFrac.value) * 100) + ' %';
+    const gearN = ENGINES.custom.gearRatios ? ENGINES.custom.gearRatios.length : DEFAULT_GEAR_RATIOS.length;
+    document.getElementById('sdGearCountVal').textContent = gearN + (gearN > 1 ? ' rapports' : ' rapport');
+    updateSliderFill();
+  }
+
+  // Le remplissage ambre de chaque glissière n'existe pas nativement : le rail est peint par
+  // un dégradé qui s'arrête à --pct, qu'on recalcule ici pour toutes les glissières d'un coup.
+  function updateSliderFill(){
+    soundDesignPanel.querySelectorAll('input[type=range]').forEach(el => {
+      const min = parseFloat(el.min), max = parseFloat(el.max);
+      const pct = max > min ? ((parseFloat(el.value) - min) / (max - min)) * 100 : 0;
+      el.style.setProperty('--pct', pct);
+    });
   }
 
   function applySoundDesignBase(key){
@@ -3479,6 +3743,7 @@
   }
 
   function onSoundDesignChange(needsRebuild){
+    if(workshopOpen) workshopDirty = true; // conditionne la confirmation à la sortie
     if(currentEngineKey !== 'custom') selectEngine('custom');
     const p = ENGINES.custom;
     p.name = sdName.value.trim() || 'Atelier (réglable)';
@@ -3507,9 +3772,6 @@
     p.shiftUpFrac = parseFloat(sdControls.shiftUpFrac.value);
     p.shiftDownCoastFrac = parseFloat(sdControls.shiftDownCoastFrac.value);
     p.shiftDownBrakeFrac = parseFloat(sdControls.shiftDownBrakeFrac.value);
-    // rapports séparés par des virgules, aucune limite de nombre — les entrées invalides sont ignorées
-    const parsedGears = sdGears.value.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n > 0);
-    if(parsedGears.length > 0) p.gearRatios = parsedGears;
     engineBtnLabel.textContent = p.name;
     updateSoundDesignLabels();
     // rugosité (détune des oscillateurs) et harmoniques (nombre d'oscillateurs) sont fixées à
@@ -3532,7 +3794,7 @@
   });
   sdTurbo.addEventListener('change', () => onSoundDesignChange(false));
   sdFunky.addEventListener('change', () => onSoundDesignChange(false));
-  sdGears.addEventListener('input', () => onSoundDesignChange(false));
+  sdGearCount.addEventListener('input', () => setGearCount(parseInt(sdGearCount.value, 10)));
 
   syncSoundDesignControls();
 
@@ -3575,32 +3837,68 @@
   const sdDeleteBtn = document.getElementById('sdDeleteBtn');
   const newEngineBtn = document.getElementById('newEngineBtn');
 
+  const sdPowerBtn = document.getElementById('sdPowerBtn');
+  const sdPowerLbl = document.getElementById('sdPowerLbl');
+  const sdRevBtn = document.getElementById('sdRevBtn');
+  const sdRevRpm = document.getElementById('sdRevRpm');
+
+  // On peut quitter l'atelier sans enregistrer : il faut donc pouvoir tout remettre comme
+  // avant. `workshopSnapshot` garde le brouillon tel qu'il était à l'ouverture et
+  // `workshopReturnKey` le moteur qu'on écoutait, puisque régler l'atelier bascule l'écoute
+  // sur le brouillon en direct.
+  let workshopOpen = false;
+  let workshopDirty = false;
+  let workshopSnapshot = null;
+  let workshopReturnKey = 'mecanique';
+
   function openWorkshop(sourceKey, editKey){
+    workshopSnapshot = JSON.parse(JSON.stringify(ENGINES.custom));
+    workshopReturnKey = currentEngineKey;
     editingEngineKey = editKey || null;
     // le nom d'abord : applySoundDesignBase le lit pour baptiser le brouillon
     sdName.value = editingEngineKey ? ENGINES[editingEngineKey].name : '';
     applySoundDesignBase(sourceKey);
     sdBaseSelect.value = sourceKey;
     sdSheetTitle.textContent = editingEngineKey ? 'Modifier le moteur' : 'Nouveau moteur';
-    sdSaveBtn.textContent = editingEngineKey ? 'Enregistrer les modifications' : 'Enregistrer le moteur';
     sdDeleteBtn.hidden = !editingEngineKey;
-    soundDesignSheet.classList.remove('hide');
     sdExportOutput.value = '';
+    sdExportHint.textContent = sdExportHintDefault;
+    workshopDirty = false;
+    workshopOpen = true;
+    soundDesignSheet.classList.remove('hide');
+    document.body.classList.add('sd-open');
     closeMenus();
   }
 
-  function closeWorkshop(){
+  function hideWorkshop(){
+    workshopOpen = false;
+    workshopDirty = false;
+    workshopRevHeld = false;
+    sdRevBtn.classList.remove('held');
     soundDesignSheet.classList.add('hide');
-    sdExportHint.textContent = sdExportHintDefault;
+    document.body.classList.remove('sd-open');
+  }
+
+  // sortie sans enregistrer : le brouillon et le moteur écouté reviennent à ce qu'ils étaient
+  function quitWorkshop(){
+    if(workshopDirty && !window.confirm('Quitter sans enregistrer ? Les réglages de ce moteur seront perdus.')) return;
+    if(workshopSnapshot) ENGINES.custom = workshopSnapshot;
+    workshopSnapshot = null;
+    selectEngine(ENGINES[workshopReturnKey] ? workshopReturnKey : 'mecanique');
+    renderEngineList();
+    syncSoundDesignControls();
+    hideWorkshop();
   }
 
   newEngineBtn.addEventListener('click', e => {
     e.stopPropagation();
     openWorkshop(currentEngineKey !== 'custom' ? currentEngineKey : 'v8', null);
   });
-  sdCloseBtn.addEventListener('click', closeWorkshop);
+  sdCloseBtn.addEventListener('click', quitWorkshop);
   soundDesignSheet.addEventListener('click', e => e.stopPropagation()); // ne referme pas les menus
+  window.addEventListener('keydown', e => { if(e.key === 'Escape' && workshopOpen) quitWorkshop(); });
 
+  // enregistrer, puis sortir : c'est la fin normale d'une séance d'atelier
   sdSaveBtn.addEventListener('click', () => {
     onSoundDesignChange(false); // dernier état des curseurs, y compris le nom saisi
     const name = sdName.value.trim() || 'Mon moteur';
@@ -3613,18 +3911,27 @@
     // le brouillon reprend son nom générique : sans ça le moteur apparaîtrait deux fois dans
     // la liste, une fois enregistré et une fois en brouillon, sous le même nom
     ENGINES.custom.name = 'Atelier (réglable)';
+    workshopSnapshot = null;
     selectEngine(key);
     renderEngineList();
     populateBaseSelect();
-    sdSheetTitle.textContent = 'Modifier le moteur';
-    sdSaveBtn.textContent = 'Enregistrer les modifications';
-    sdDeleteBtn.hidden = false;
-    sdExportHint.textContent = '« ' + name + ' » est enregistré : tu le retrouveras dans le menu Moteur, même après avoir fermé la page.';
+    hideWorkshop();
   });
 
   sdDeleteBtn.addEventListener('click', () => {
     if(editingEngineKey) deleteUserEngine(editingEngineKey);
   });
+
+  // --- banc d'essai : l'écran est plein, les commandes du cockpit sont hors de portée ------
+  // Le bouton de démarrage réutilise celui du cockpit (mêmes autorisations audio, même
+  // gestion du GPS) ; le coup de gaz, lui, ne touche pas à la physique — il ne fait monter
+  // que le régime entendu et affiché, pour ne pas fausser la vitesse réelle ni les rapports.
+  sdPowerBtn.addEventListener('click', () => powerBtn.click());
+  const holdRev = on => { workshopRevHeld = on; sdRevBtn.classList.toggle('held', on); };
+  sdRevBtn.addEventListener('mousedown', e => { e.preventDefault(); holdRev(true); });
+  sdRevBtn.addEventListener('touchstart', e => { e.preventDefault(); holdRev(true); }, {passive:false});
+  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev =>
+    sdRevBtn.addEventListener(ev, e => { e.preventDefault(); holdRev(false); }));
 
   rupteurBtn.classList.toggle('on', rupteurOn);
   rupteurBtn.addEventListener('click', () => {
@@ -3812,7 +4119,12 @@
     if(nitroKickTimer > 0) nitroKickTimer = Math.max(0, nitroKickTimer - dt);
     const nitroKickIntensity = physics.running ? nitroKickTimer / NITRO_KICK_DURATION : 0;
     const blipRpm = shiftBlip * (profile.redline - profile.idleRPM) * DOWNSHIFT_BLIP_FRAC;
-    const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm);
+    // montée et retombée progressives : un coup de gaz instantané sonnerait comme un saut de
+    // fréquence, pas comme un moteur qui prend ses tours
+    const revTarget = workshopRevHeld && physics.running ? 1 : 0;
+    workshopRev += (revTarget - workshopRev) * Math.min(1, dt * (revTarget > workshopRev ? 2.6 : 2.0));
+    const revRpm = workshopRev * (profile.redline - profile.idleRPM) * 0.85;
+    const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm + revRpm);
 
     // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
     // et c'est justement cette instabilité qui distingue un rombissement d'un bourdon de
@@ -3864,7 +4176,7 @@
     updateTraffic(dt, physics.speed, physics.running);
 
     // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
-    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85);
+    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85, workshopRev);
     updateAudio(audioRpm, audioThrottle, physics.running, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch));
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
@@ -3903,6 +4215,13 @@
       capVal.textContent = lastHeadingDeg == null
         ? 'aucun'
         : Math.round(lastHeadingDeg) + '° ' + (headingSource === 'gps' ? 'GPS' : headingSource === 'trajet' ? 'trajet' : 'boussole');
+    }
+
+    // banc d'essai de l'atelier : état du démarreur et régime, tant que l'écran est ouvert
+    if(workshopOpen){
+      sdPowerBtn.classList.toggle('on', physics.running);
+      sdPowerLbl.textContent = physics.running ? 'Couper' : 'Démarrer';
+      sdRevRpm.textContent = Math.round(displayRpm);
     }
 
     gearVal.textContent = physics.speed < 0.5 && !physics.running ? '-' : (physics.speed < 0.5 ? 'N' : physics.gear);
