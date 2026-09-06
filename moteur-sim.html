@@ -73,6 +73,48 @@
   }
   #debugToggle.on .dot{ background:var(--amber); box-shadow:0 0 6px 1px rgba(255,140,60,0.8); }
 
+  /* --- pédale d'accélérateur du cockpit : un coup de gaz au point mort ---------------------
+     Vraie pédale suspendue plutôt qu'un bouton : plaque striée montée sur une charnière haute,
+     qui s'enfonce et s'éclaire à l'appui. Elle flotte en bas à droite, en miroir des menus en
+     bas à gauche, pour rester atteignable au pouce sans recouvrir les cadrans. */
+  .rev-pedal{
+    position:fixed; z-index:30; right:8px; bottom:8px;
+    width:50px; height:72px; padding:0; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:0;
+    border-radius:8px 8px 12px 12px;
+    border:1px solid #2a2f37; border-top-color:#454b54;
+    background:linear-gradient(180deg, #262b32 0%, #191d22 55%, #101317 100%);
+    box-shadow:0 6px 0 #0a0c0f, 0 10px 22px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.10);
+    transform-origin:50% 0%;
+    transition:transform 0.08s ease, box-shadow 0.08s ease, border-color 0.12s ease;
+  }
+  /* la partie striée : c'est elle qui dit « pédale » et pas « bouton » */
+  .rev-pedal .tread{
+    flex:1; align-self:stretch; margin:7px 7px 5px; border-radius:5px;
+    background:
+      repeating-linear-gradient(180deg, rgba(255,255,255,0.10) 0 2px, rgba(0,0,0,0.55) 2px 6px),
+      linear-gradient(180deg, #3a4048, #202429);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -2px 5px rgba(0,0,0,0.7);
+  }
+  .rev-pedal .lbl{
+    padding-bottom:7px; font-size:9px; font-weight:800; letter-spacing:2px;
+    text-transform:uppercase; color:var(--muted);
+  }
+  .rev-pedal.held{
+    border-color:var(--amber-dim);
+    transform:perspective(220px) rotateX(9deg) translateY(2px);
+    box-shadow:0 2px 0 #0a0c0f, 0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .rev-pedal.held .tread{
+    background:
+      repeating-linear-gradient(180deg, rgba(255,190,140,0.16) 0 2px, rgba(0,0,0,0.5) 2px 6px),
+      linear-gradient(180deg, #6d4526, #2a1c12);
+    box-shadow:inset 0 0 12px rgba(255,140,60,0.45), inset 0 -2px 5px rgba(0,0,0,0.7);
+  }
+  .rev-pedal.held .lbl{ color:var(--amber); }
+  /* moteur coupé : la pédale ne peut rien faire, elle le montre au lieu de rester inerte */
+  .rev-pedal.idle-off{ opacity:0.4; }
+
   #gaugeToggle{ top:10px; left:10px; opacity:0.55; padding:8px; }
   #gaugeToggle.off{ opacity:1; border-color:var(--amber-dim); color:var(--amber); background:rgba(255,140,60,0.16); }
   /* Oeil barré ou non : l'icône suit la classe .off du bouton. Ni l'attribut `hidden` ni la
@@ -552,6 +594,11 @@
 <button class="float-btn" id="gaugeToggle" type="button" title="Afficher / masquer les compteurs">
   <svg class="menu-icon eye-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
   <svg class="menu-icon eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a13.16 13.16 0 0 1-1.67 2.68"></path><path d="M6.61 6.61A13.526 13.526 0 0 0 1 11s4 7 11 7a9.26 9.26 0 0 0 5.39-1.61"></path><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+</button>
+
+<button class="rev-pedal" id="revPedalBtn" type="button" title="Coup de gaz : fait monter le moteur dans les tours, sans faire avancer la voiture">
+  <span class="tread"></span>
+  <span class="lbl">Gaz</span>
 </button>
 
 <div class="picker-bar">
@@ -3314,11 +3361,12 @@
   let shiftPunchTimer = 0;        // s restantes de « plein volume » après un changement de rapport
   let downshiftBlipTimer = 0;     // s restantes de coup de gaz de rattrapage (rétrogradation)
   const SHIFT_PUNCH_S = 0.9;
-  // coup de gaz du banc d'essai de l'atelier : purement sonore et visuel (aiguille), il ne
-  // touche ni à la vitesse ni aux rapports, pour qu'écouter un moteur en réglage ne fausse
-  // jamais ce que raconte la conduite réelle
-  let workshopRevHeld = false;
-  let workshopRev = 0;
+  // Coup de gaz : le point mort du cockpit. Purement sonore et visuel (aiguille), il ne touche
+  // ni à la vitesse ni aux rapports — on fait monter le moteur dans les tours à l'arrêt sans
+  // que la voiture avance ni que la conduite réelle en cours soit faussée. La pédale du
+  // cockpit et le bouton du banc d'essai de l'atelier pilotent le même état.
+  let revPedalHeld = false;
+  let revPedal = 0;
   const DOWNSHIFT_BLIP_S = 0.4;
   const DOWNSHIFT_BLIP_FRAC = 0.12; // hauteur du coup de gaz, en % de la plage ralenti-zone rouge
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
@@ -3873,8 +3921,7 @@
   function hideWorkshop(){
     workshopOpen = false;
     workshopDirty = false;
-    workshopRevHeld = false;
-    sdRevBtn.classList.remove('held');
+    holdRev(false);
     soundDesignSheet.classList.add('hide');
     document.body.classList.remove('sd-open');
   }
@@ -3927,11 +3974,23 @@
   // gestion du GPS) ; le coup de gaz, lui, ne touche pas à la physique — il ne fait monter
   // que le régime entendu et affiché, pour ne pas fausser la vitesse réelle ni les rapports.
   sdPowerBtn.addEventListener('click', () => powerBtn.click());
-  const holdRev = on => { workshopRevHeld = on; sdRevBtn.classList.toggle('held', on); };
-  sdRevBtn.addEventListener('mousedown', e => { e.preventDefault(); holdRev(true); });
-  sdRevBtn.addEventListener('touchstart', e => { e.preventDefault(); holdRev(true); }, {passive:false});
-  ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev =>
-    sdRevBtn.addEventListener(ev, e => { e.preventDefault(); holdRev(false); }));
+  // Deux commandes pour un même coup de gaz : la pédale du cockpit et le bouton du banc
+  // d'essai, jamais visibles en même temps. Les deux se relâchent aussi quand le doigt ou la
+  // souris quitte la commande, sinon un glissement laisserait le moteur bloqué en montée.
+  const revPedalBtn = document.getElementById('revPedalBtn');
+  function holdRev(on){
+    revPedalHeld = on;
+    sdRevBtn.classList.toggle('held', on);
+    revPedalBtn.classList.toggle('held', on);
+  }
+  function bindRevControl(el){
+    el.addEventListener('mousedown', e => { e.preventDefault(); holdRev(true); });
+    el.addEventListener('touchstart', e => { e.preventDefault(); holdRev(true); }, {passive:false});
+    ['mouseup','mouseleave','touchend','touchcancel'].forEach(ev =>
+      el.addEventListener(ev, e => { e.preventDefault(); holdRev(false); }));
+  }
+  bindRevControl(sdRevBtn);
+  bindRevControl(revPedalBtn);
 
   rupteurBtn.classList.toggle('on', rupteurOn);
   rupteurBtn.addEventListener('click', () => {
@@ -4120,10 +4179,12 @@
     const nitroKickIntensity = physics.running ? nitroKickTimer / NITRO_KICK_DURATION : 0;
     const blipRpm = shiftBlip * (profile.redline - profile.idleRPM) * DOWNSHIFT_BLIP_FRAC;
     // montée et retombée progressives : un coup de gaz instantané sonnerait comme un saut de
-    // fréquence, pas comme un moteur qui prend ses tours
-    const revTarget = workshopRevHeld && physics.running ? 1 : 0;
-    workshopRev += (revTarget - workshopRev) * Math.min(1, dt * (revTarget > workshopRev ? 2.6 : 2.0));
-    const revRpm = workshopRev * (profile.redline - profile.idleRPM) * 0.85;
+    // fréquence, pas comme un moteur qui prend ses tours. La montée est plus vive que la
+    // retombée (un moteur libre prend ses tours plus vite qu'il ne les redescend), mais reste
+    // assez rapide pour que le son réponde au doigt et pas une seconde plus tard.
+    const revTarget = revPedalHeld && physics.running ? 1 : 0;
+    revPedal += (revTarget - revPedal) * Math.min(1, dt * (revTarget > revPedal ? 5.5 : 3.5));
+    const revRpm = revPedal * (profile.redline - profile.idleRPM) * 0.85;
     const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm + revRpm);
 
     // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
@@ -4176,8 +4237,11 @@
     updateTraffic(dt, physics.speed, physics.running);
 
     // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
-    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85, workshopRev);
-    updateAudio(audioRpm, audioThrottle, physics.running, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch));
+    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85, revPedal);
+    // le coup de gaz est une demande explicite de l'utilisateur : il passe devant l'atténuation
+    // d'allure constante comme devant celle de décélération, sinon donner un coup de gaz à
+    // l'arrêt (le cas même où ces deux atténuations sont au plus bas) ne s'entendrait presque pas
+    updateAudio(audioRpm, audioThrottle, physics.running, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal));
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
@@ -4216,6 +4280,9 @@
         ? 'aucun'
         : Math.round(lastHeadingDeg) + '° ' + (headingSource === 'gps' ? 'GPS' : headingSource === 'trajet' ? 'trajet' : 'boussole');
     }
+
+    // moteur coupé : la pédale ne peut rien faire, elle s'efface pour le dire
+    revPedalBtn.classList.toggle('idle-off', !physics.running);
 
     // banc d'essai de l'atelier : état du démarreur et régime, tant que l'écran est ouvert
     if(workshopOpen){
