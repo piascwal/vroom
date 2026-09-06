@@ -2755,14 +2755,13 @@
     return `rgb(${f(16)},${f(8)},${f(0)})`;
   }
   // Rampe adoucie. Une rampe linéaire qui s'arrête net laisse une arête bien visible : l'œil
-  // ne lit pas la valeur mais la cassure de pente (bandes de Mach). On échelonne donc
-  // l'opacité sur une courbe qui s'aplatit longtemps avant de toucher zéro, ce qui supprime
-  // la cassure — c'est ce qui faisait couper la brume d'horizon d'un trait net.
-  // Dégradés verticaux mis en cache. Remplir plusieurs centaines de milliers de pixels avec
-  // un dégradé à chaque image coûte cher — surtout depuis que la brume descend jusqu'en bas
-  // de l'écran. Un dégradé vertical n'ayant aucune variation horizontale, on le rend une fois
-  // dans une bande d'un pixel de large qu'on étire ensuite : un redimensionnement d'image est
-  // presque gratuit, et le résultat est identique au pixel près.
+  // ne lit pas la valeur mais la cassure de pente (bandes de Mach). On échelonne donc le
+  // mélange sur une courbe qui s'aplatit longtemps avant de toucher zéro, ce qui supprime la
+  // cassure — le fondu du sol court ainsi jusqu'au bas de l'écran sans limite visible.
+  // Dégradés verticaux mis en cache. Remplir toute la hauteur du sol avec un dégradé à chaque
+  // image coûte cher. Un dégradé vertical n'ayant aucune variation horizontale, on le rend une
+  // fois dans une bande d'un pixel de large qu'on étire ensuite : un redimensionnement d'image
+  // est presque gratuit, et le résultat est identique au pixel près.
   const stripCache = new Map();
   function verticalStrip(key, h, paint){
     const px = Math.max(1, Math.round(h));
@@ -3336,25 +3335,12 @@
       visctx.fill();
     }
 
-    // --- brume d'horizon : les lointains se fondent dans le ciel de la scène --------------
-    // Toutes les scènes en ont désormais une, y compris celles qui n'en déclaraient pas : sans
-    // elle, chaussée, sol et ciel se rejoignaient sur une arête franche que rien n'adoucissait.
-    // Faute de teinte propre, on reprend le bas du ciel de la scène.
-    if(!sc.space){
-      // La bande descend maintenant jusqu'au bas de l'écran, mais avec une décroissance si
-      // rapide qu'elle ne se voit plus passé le premier quart : c'est la seule façon de ne
-      // laisser aucune limite basse. Auparavant elle s'arrêtait à 26 % de la hauteur, et sur
-      // un écran haut (téléphone à la verticale) cette coupure traversait tout le paysage.
-      const top = vpY - H * 0.05;
-      const hStrip = verticalStrip('brume|' + currentSceneKey, H - top, (g, h) => {
-        const [hr, hg, hb, ha] = (sc.haze || rgba(sc.sky[1], 0.55)).match(/[\d.]+/g).map(Number);
-        const grad = g.createLinearGradient(0, 0, 0, h);
-        easedStops(grad, k => `rgba(${hr},${hg},${hb},${(ha * k).toFixed(4)})`, 10, 4.2);
-        g.fillStyle = grad;
-        g.fillRect(0, 0, 1, h);
-      });
-      visctx.drawImage(hStrip, 0, top, W, H - top);
-    }
+    // --- brume d'horizon : retirée ---------------------------------------------------------
+    // Ni la bande d'origine (arrêtée à 26 % de la hauteur, coupée d'un trait net sur un écran
+    // haut) ni la version étendue à tout l'écran n'ont convaincu à l'usage : le voile posé sur
+    // le paysage se voyait plus qu'il ne servait. Plus rien n'est dessiné ici pour l'instant.
+    // Les teintes `haze` des scènes sont laissées dans la table : elles ne coûtent rien et
+    // seront le point de départ si on reprend le sujet.
 
     // --- décor de bord de route ------------------------------------------------------------
     // dessiné juste après la chaussée : les véhicules et les particules passeront devant
