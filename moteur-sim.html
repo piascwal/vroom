@@ -2754,6 +2754,33 @@
     const f = sh => Math.round((((pa >> sh) & 255) * (1 - t)) + (((pb >> sh) & 255) * t));
     return `rgb(${f(16)},${f(8)},${f(0)})`;
   }
+  // Rampe adoucie. Une rampe linéaire qui s'arrête net laisse une arête bien visible : l'œil
+  // ne lit pas la valeur mais la cassure de pente (bandes de Mach). On échelonne donc
+  // l'opacité sur une courbe qui s'aplatit longtemps avant de toucher zéro, ce qui supprime
+  // la cassure — c'est ce qui faisait couper la brume d'horizon d'un trait net.
+  // Dégradés verticaux mis en cache. Remplir plusieurs centaines de milliers de pixels avec
+  // un dégradé à chaque image coûte cher — surtout depuis que la brume descend jusqu'en bas
+  // de l'écran. Un dégradé vertical n'ayant aucune variation horizontale, on le rend une fois
+  // dans une bande d'un pixel de large qu'on étire ensuite : un redimensionnement d'image est
+  // presque gratuit, et le résultat est identique au pixel près.
+  const stripCache = new Map();
+  function verticalStrip(key, h, paint){
+    const px = Math.max(1, Math.round(h));
+    const hit = stripCache.get(key);
+    if(hit && hit.h === px) return hit.cv;
+    const cv = document.createElement('canvas');
+    cv.width = 1; cv.height = px;
+    paint(cv.getContext('2d'), px);
+    stripCache.set(key, { h: px, cv });
+    return cv;
+  }
+
+  function easedStops(grad, colorAt, steps, power){
+    for(let i = 0; i <= steps; i++){
+      const t = i / steps;
+      grad.addColorStop(t, colorAt(Math.pow(1 - t, power)));
+    }
+  }
   function rgba(hex, a){
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -3074,12 +3101,15 @@
     // perspective aérienne. Un aplat uniforme jusqu'à l'horizon donnait un trait horizontal
     // net d'un bord à l'autre de l'écran, la marque la plus visible d'une image plate.
     if(sc.ground){
-      const gGrad = visctx.createLinearGradient(0, vpY, 0, H);
-      gGrad.addColorStop(0, mix(sc.ground, sc.sky[1], 0.42));
-      gGrad.addColorStop(0.14, mix(sc.ground, sc.sky[1], 0.14));
-      gGrad.addColorStop(1, sc.ground);
-      visctx.fillStyle = gGrad;
-      visctx.fillRect(0, vpY, W, H - vpY);
+      // le fondu court sur toute la hauteur du sol, avec une décroissance rapide : très marqué
+      // au ras de l'horizon, imperceptible mais jamais interrompu plus bas
+      const gStrip = verticalStrip('sol|' + currentSceneKey, H - vpY, (g, h) => {
+        const grad = g.createLinearGradient(0, 0, 0, h);
+        easedStops(grad, k => mix(sc.ground, sc.sky[1], 0.42 * k), 8, 3.4);
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 1, h);
+      });
+      visctx.drawImage(gStrip, 0, vpY, W, H - vpY);
     }
 
     // --- décor lointain --------------------------------------------------------------------
@@ -3311,12 +3341,19 @@
     // elle, chaussée, sol et ciel se rejoignaient sur une arête franche que rien n'adoucissait.
     // Faute de teinte propre, on reprend le bas du ciel de la scène.
     if(!sc.space){
-      const hazeTop = sc.haze || rgba(sc.sky[1], 0.55);
-      const hz = visctx.createLinearGradient(0, vpY - H * 0.04, 0, vpY + H * 0.22);
-      hz.addColorStop(0, hazeTop);
-      hz.addColorStop(1, hazeTop.replace(/[\d.]+\)$/, '0)'));
-      visctx.fillStyle = hz;
-      visctx.fillRect(0, vpY - H * 0.04, W, H * 0.26);
+      // La bande descend maintenant jusqu'au bas de l'écran, mais avec une décroissance si
+      // rapide qu'elle ne se voit plus passé le premier quart : c'est la seule façon de ne
+      // laisser aucune limite basse. Auparavant elle s'arrêtait à 26 % de la hauteur, et sur
+      // un écran haut (téléphone à la verticale) cette coupure traversait tout le paysage.
+      const top = vpY - H * 0.05;
+      const hStrip = verticalStrip('brume|' + currentSceneKey, H - top, (g, h) => {
+        const [hr, hg, hb, ha] = (sc.haze || rgba(sc.sky[1], 0.55)).match(/[\d.]+/g).map(Number);
+        const grad = g.createLinearGradient(0, 0, 0, h);
+        easedStops(grad, k => `rgba(${hr},${hg},${hb},${(ha * k).toFixed(4)})`, 10, 4.2);
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 1, h);
+      });
+      visctx.drawImage(hStrip, 0, top, W, H - top);
     }
 
     // --- décor de bord de route ------------------------------------------------------------
