@@ -1162,30 +1162,6 @@
     src.start(now); src.stop(now + dur + 0.02);
   }
 
-  // souffle d'un véhicule qu'on double : bruit large qui enfle puis retombe, avec la bande
-  // passante qui descend au moment du croisement — un Doppler simplifié, mais suffisant pour
-  // que le dépassement s'entende autant qu'il se voit
-  function spawnPassBy(intensity){
-    if(!actx || !noiseNode) return;
-    const now = actx.currentTime;
-    const dur = 0.55 + intensity * 0.35;
-    const src = actx.createBufferSource();
-    src.buffer = noiseNode.buffer;
-    src.loop = true;
-    const bp = actx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.Q.value = 0.8;
-    bp.frequency.setValueAtTime(850 + intensity * 450, now);
-    bp.frequency.exponentialRampToValueAtTime(240, now + dur);
-    const g = actx.createGain();
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.linearRampToValueAtTime(0.14 + intensity * 0.20, now + dur * 0.45);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    src.connect(bp); bp.connect(g); g.connect(fxGain);
-    src.start(now);
-    src.stop(now + dur + 0.05);
-  }
-
   function spawnNitro(duration){
     if(!actx || !noiseNode) return;
     const now = actx.currentTime;
@@ -1923,26 +1899,55 @@
   // Halos pré-calculés une fois dans une toile hors écran. Créer un dégradé radial par lampe
   // et par image est de loin le poste le plus coûteux d'un canvas — un redimensionnement
   // d'image, lui, est presque gratuit.
-  function makeGlowSprite(rgb){
-    const size = 64;
+  function makeRadialSprite(rgb, stops, size){
+    const px = size || 64;
     const cv = document.createElement('canvas');
-    cv.width = cv.height = size;
+    cv.width = cv.height = px;
     const g = cv.getContext('2d');
-    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    grad.addColorStop(0, `rgba(${rgb},0.9)`);
-    grad.addColorStop(0.3, `rgba(${rgb},0.34)`);
-    grad.addColorStop(1, `rgba(${rgb},0)`);
+    const grad = g.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+    stops.forEach(([pos, a]) => grad.addColorStop(pos, `rgba(${rgb},${a})`));
     g.fillStyle = grad;
-    g.fillRect(0, 0, size, size);
+    g.fillRect(0, 0, px, px);
     return cv;
   }
+  // halo de lampe : un cœur vif qui s'éteint vite
+  const makeGlowSprite = rgb => makeRadialSprite(rgb, [[0, 0.9], [0.3, 0.34], [1, 0]]);
+  // Nappe des phares : même principe que les halos ci-dessus. Un dégradé radial recréé à
+  // chaque image sur toute la largeur de l'écran coûtait à lui seul plusieurs images par
+  // seconde ; le sprite, lui, se redimensionne pour presque rien.
+  // La nappe des phares veut une décroissance bien plus douce qu'un halo de lampe : avec le
+  // profil d'un halo, elle se lit comme une flaque lumineuse posée sur la route au lieu d'un
+  // éclairement diffus.
+  const BEAM_SPRITE = makeRadialSprite('255,236,205', [[0, 0.42], [0.25, 0.30], [0.5, 0.176], [0.78, 0.05], [1, 0]], 128);
+  // Vignettage : dépend uniquement des dimensions du canevas, donc rendu une fois puis
+  // conservé jusqu'au prochain redimensionnement.
+  let vignetteSprite = null, vignetteKey = '';
+  function getVignette(w, h, vpY){
+    const key = w + 'x' + h;
+    if(vignetteKey === key && vignetteSprite) return vignetteSprite;
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const g = cv.getContext('2d');
+    const cy = vpY + (h - vpY) * 0.45;
+    const grad = g.createRadialGradient(w / 2, cy, Math.min(w, h) * 0.28, w / 2, cy, Math.max(w, h) * 0.78);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.42)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+    vignetteSprite = cv; vignetteKey = key;
+    return cv;
+  }
+
   const GLOW_WARM = makeGlowSprite('255,205,130');
   const GLOW_CYAN = makeGlowSprite('90,220,255');
   const GLOW_RED = makeGlowSprite('255,60,40');
   function drawGlow(sprite, x, y, r, alpha){
-    visctx.globalAlpha = alpha;
+    // l'opacité en cours est conservée : le décor lointain est dessiné en fondu, et un halo
+    // rendu à pleine opacité au milieu ferait ressortir la lampe devant son propre poteau
+    const prev = visctx.globalAlpha;
+    visctx.globalAlpha = prev * alpha;
     visctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
-    visctx.globalAlpha = 1;
+    visctx.globalAlpha = prev;
   }
 
   // Silhouettes d'horizon : calculées une seule fois par scène et par largeur d'écran, puis
@@ -2638,7 +2643,6 @@
         speed: Math.max(8, Math.min(ourKmh - 15, ourKmh - (18 + Math.random() * 45))),
         width: 2.0, height: 1.0, truck: false, racing: true,
         color: RACE_COLORS[Math.floor(Math.random() * RACE_COLORS.length)],
-        passed: false,
       });
       return;
     }
@@ -2651,7 +2655,6 @@
       height: truck ? 3.1 : 1.42,
       truck,
       color: truck ? '#4a5058' : TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)],
-      passed: false,
     });
   }
 
@@ -2670,13 +2673,195 @@
     for(let i = traffic.length - 1; i >= 0; i--){
       const v = traffic[i];
       v.dist -= (ourMps - visualMps(v.speed)) * dt;
-      if(!v.passed && v.dist < 4){
-        v.passed = true;
-        spawnPassBy(v.truck ? 1 : 0.55);
-      }
       // sorti par le bas (doublé) ou repris de la distance jusqu'à disparaître
       if(v.dist < -12 || v.dist > 430) traffic.splice(i, 1);
     }
+  }
+
+  // --- véhicules vus de l'arrière ---------------------------------------------------------
+  // Une caisse rectangulaire ne ressemble à rien : ce qui fait lire « voiture » de dos, c'est
+  // la superposition de trois volumes de largeurs différentes (roues, caisse, habitacle), le
+  // creux sombre sous le pare-chocs, et deux feux à hauteur d'épaule. Tout est proportionnel à
+  // la largeur projetée, donc juste à toutes les distances.
+  // mélange de deux couleurs hex : sert à faire fondre le sol et le décor dans le ciel de la
+  // scène, ce qui est toute la différence entre un aplat et une perspective aérienne
+  function mix(a, b, t){
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const f = sh => Math.round((((pa >> sh) & 255) * (1 - t)) + (((pb >> sh) & 255) * t));
+    return `rgb(${f(16)},${f(8)},${f(0)})`;
+  }
+  function rgba(hex, a){
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+
+  function shade(hex, amt){
+    const n = parseInt(hex.slice(1), 16);
+    const f = c => Math.max(0, Math.min(255, Math.round(amt >= 0 ? c + (255 - c) * amt : c * (1 + amt))));
+    return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  }
+  // coins arrondis : une caisse à angles vifs trahit le rectangle dont elle est faite
+  function boxPath(ctx, x, y, w, h, r){
+    const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y); ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+    ctx.lineTo(x + w, y + h - rr); ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+    ctx.lineTo(x + rr, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+    ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y);
+    ctx.closePath();
+  }
+
+  function drawVehicle(ctx, v, cx, groundY, w, h, fade, lamp){
+    const half = w / 2;
+    const detail = w > 14;          // en dessous, les petits détails ne font que du bruit
+    // de nuit la carrosserie n'est plus qu'une silhouette : seuls les feux restent vifs
+    const dark = -0.10 - lamp * 0.42;
+    const body = shade(v.color, dark);
+    const bodyTop = shade(v.color, dark + 0.20);
+    const bodyLow = shade(v.color, dark - 0.28);
+    const glass = `rgba(12,16,22,${0.72 + lamp * 0.20})`;
+    const rubber = '#0a0b0d';
+
+    ctx.save();
+    ctx.globalAlpha = fade;
+
+    // ombre : serrée sous la caisse, pas un disque flottant
+    ctx.fillStyle = `rgba(0,0,0,${0.34 + lamp * 0.18})`;
+    ctx.beginPath();
+    ctx.ellipse(cx, groundY, half * 1.05, Math.max(0.6, h * 0.07), 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if(v.racing){
+      // monoplace : deux gommes énormes, un pod étroit au milieu, un aileron en hauteur
+      const tyreW = w * 0.27, tyreH = h * 0.62;
+      ctx.fillStyle = rubber;
+      boxPath(ctx, cx - half, groundY - tyreH, tyreW, tyreH, tyreW * 0.28); ctx.fill();
+      boxPath(ctx, cx + half - tyreW, groundY - tyreH, tyreW, tyreH, tyreW * 0.28); ctx.fill();
+      const podW = w * 0.36;
+      const podGrad = ctx.createLinearGradient(0, groundY - h * 0.8, 0, groundY);
+      podGrad.addColorStop(0, bodyTop); podGrad.addColorStop(1, bodyLow);
+      ctx.fillStyle = podGrad;
+      boxPath(ctx, cx - podW / 2, groundY - h * 0.78, podW, h * 0.72, podW * 0.22); ctx.fill();
+      // diffuseur : le creux sombre sous la voiture, ce qui la plaque au sol
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(cx - podW * 0.62, groundY - h * 0.16, podW * 1.24, h * 0.16);
+      // aileron arrière sur deux dérives
+      const wingW = w * 0.84, wingY = groundY - h * 1.02;
+      ctx.fillStyle = shade(v.color, dark - 0.45);
+      ctx.fillRect(cx - podW * 0.40, wingY, Math.max(1, w * 0.045), h * 0.30);
+      ctx.fillRect(cx + podW * 0.40 - Math.max(1, w * 0.045), wingY, Math.max(1, w * 0.045), h * 0.30);
+      ctx.fillStyle = body;
+      boxPath(ctx, cx - wingW / 2, wingY, wingW, Math.max(1.2, h * 0.13), h * 0.05); ctx.fill();
+      if(detail){
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.fillRect(cx - wingW / 2, wingY, wingW, Math.max(0.8, h * 0.03));
+      }
+      // feu de pluie central
+      const lw = Math.max(1, w * 0.09);
+      ctx.fillStyle = `rgba(255,45,35,${0.55 + 0.45 * lamp})`;
+      ctx.fillRect(cx - lw / 2, groundY - h * 0.34, lw, Math.max(1, h * 0.12));
+      ctx.restore();
+      return;
+    }
+
+    if(v.truck){
+      // semi-remorque : une caisse haute posée sur des roues, portes à deux battants
+      const wheelH = h * 0.14, wheelW = w * 0.22;
+      ctx.fillStyle = rubber;
+      ctx.fillRect(cx - half + w * 0.05, groundY - wheelH, wheelW, wheelH);
+      ctx.fillRect(cx + half - w * 0.05 - wheelW, groundY - wheelH, wheelW, wheelH);
+      const boxTop = groundY - h, boxH = h * 0.88;
+      const bg = ctx.createLinearGradient(0, boxTop, 0, boxTop + boxH);
+      bg.addColorStop(0, bodyTop); bg.addColorStop(0.55, body); bg.addColorStop(1, bodyLow);
+      ctx.fillStyle = bg;
+      boxPath(ctx, cx - half, boxTop, w, boxH, w * 0.03); ctx.fill();
+      if(detail){
+        // battants : la fente centrale et les nervures, c'est tout ce qu'on voit d'un fourgon
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = Math.max(1, w * 0.015);
+        ctx.beginPath(); ctx.moveTo(cx, boxTop + boxH * 0.05); ctx.lineTo(cx, boxTop + boxH * 0.95); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.lineWidth = Math.max(0.8, w * 0.008);
+        [0.28, 0.52, 0.76].forEach(f => {
+          ctx.beginPath();
+          ctx.moveTo(cx - half + w * 0.06, boxTop + boxH * f);
+          ctx.lineTo(cx + half - w * 0.06, boxTop + boxH * f);
+          ctx.stroke();
+        });
+        // feux de gabarit sur le toit : la signature d'un poids lourd de nuit
+        ctx.fillStyle = `rgba(255,190,90,${0.35 + 0.55 * lamp})`;
+        [-0.3, 0, 0.3].forEach(f => ctx.fillRect(cx + f * w - w * 0.02, boxTop - Math.max(1, h * 0.018), w * 0.04, Math.max(1, h * 0.018)));
+      }
+      // bandeau réfléchissant et feux bas
+      ctx.fillStyle = `rgba(240,225,120,${0.30 + 0.40 * lamp})`;
+      ctx.fillRect(cx - half + w * 0.04, groundY - h * 0.20, w * 0.92, Math.max(0.8, h * 0.02));
+      const lw = Math.max(1, w * 0.14), lh = Math.max(1, h * 0.07);
+      ctx.fillStyle = `rgba(255,50,38,${0.55 + 0.45 * lamp})`;
+      ctx.fillRect(cx - half + w * 0.06, groundY - h * 0.17, lw, lh);
+      ctx.fillRect(cx + half - w * 0.06 - lw, groundY - h * 0.17, lw, lh);
+      if(w > 8 && lamp > 0.35) drawGlow(GLOW_RED, cx, groundY - h * 0.14, w * 1.1, 0.28 * lamp);
+      ctx.restore();
+      return;
+    }
+
+    // --- berline : roues, caisse, habitacle, trois largeurs qui s'emboîtent ---------------
+    const wheelH = h * 0.24, wheelW = w * 0.17;
+    ctx.fillStyle = rubber;
+    ctx.fillRect(cx - half + w * 0.02, groundY - wheelH, wheelW, wheelH);
+    ctx.fillRect(cx + half - w * 0.02 - wheelW, groundY - wheelH, wheelW, wheelH);
+
+    const bodyTopY = groundY - h * 0.60, bodyH = h * 0.52;
+    const cabW = w * 0.76, cabTopY = groundY - h, cabH = h * 0.42;
+    // habitacle : légèrement pincé vers le toit, comme une lunette arrière inclinée
+    ctx.fillStyle = shade(v.color, dark - 0.06);
+    ctx.beginPath();
+    ctx.moveTo(cx - cabW * 0.44, cabTopY);
+    ctx.lineTo(cx + cabW * 0.44, cabTopY);
+    ctx.lineTo(cx + cabW / 2, cabTopY + cabH);
+    ctx.lineTo(cx - cabW / 2, cabTopY + cabH);
+    ctx.closePath(); ctx.fill();
+    // lunette arrière
+    ctx.fillStyle = glass;
+    ctx.beginPath();
+    ctx.moveTo(cx - cabW * 0.36, cabTopY + cabH * 0.16);
+    ctx.lineTo(cx + cabW * 0.36, cabTopY + cabH * 0.16);
+    ctx.lineTo(cx + cabW * 0.42, cabTopY + cabH * 0.80);
+    ctx.lineTo(cx - cabW * 0.42, cabTopY + cabH * 0.80);
+    ctx.closePath(); ctx.fill();
+    if(detail){
+      ctx.fillStyle = 'rgba(255,255,255,0.13)'; // arête de toit
+      ctx.fillRect(cx - cabW * 0.44, cabTopY, cabW * 0.88, Math.max(0.8, h * 0.022));
+    }
+
+    // caisse
+    const bg = ctx.createLinearGradient(0, bodyTopY, 0, bodyTopY + bodyH);
+    bg.addColorStop(0, bodyTop); bg.addColorStop(0.45, body); bg.addColorStop(1, bodyLow);
+    ctx.fillStyle = bg;
+    boxPath(ctx, cx - half, bodyTopY, w, bodyH, w * 0.07); ctx.fill();
+
+    // feux : deux blocs à hauteur d'épaule, largement débordants, c'est eux qu'on lit de loin
+    const lw = Math.max(1, w * 0.22), lh = Math.max(1, h * 0.11);
+    const lampY = bodyTopY + bodyH * 0.16;
+    ctx.fillStyle = `rgba(255,48,36,${0.5 + 0.5 * lamp})`;
+    boxPath(ctx, cx - half + w * 0.04, lampY, lw, lh, lh * 0.35); ctx.fill();
+    boxPath(ctx, cx + half - w * 0.04 - lw, lampY, lw, lh, lh * 0.35); ctx.fill();
+
+    // pare-chocs et creux d'ombre sous la caisse
+    ctx.fillStyle = shade(v.color, dark - 0.42);
+    ctx.fillRect(cx - half + w * 0.01, bodyTopY + bodyH * 0.72, w * 0.98, bodyH * 0.28);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(cx - half + w * 0.06, groundY - h * 0.10, w * 0.88, h * 0.10);
+    if(detail){
+      // plaque : la petite tache claire au centre du pare-chocs
+      ctx.fillStyle = 'rgba(226,226,220,0.75)';
+      ctx.fillRect(cx - w * 0.11, bodyTopY + bodyH * 0.76, w * 0.22, Math.max(1, bodyH * 0.17));
+      // reflet horizontal sur le flanc : sans lui la caisse reste un aplat
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(cx - half + w * 0.03, bodyTopY + bodyH * 0.30, w * 0.94, Math.max(0.8, bodyH * 0.07));
+    }
+    if(w > 8 && lamp > 0.35) drawGlow(GLOW_RED, cx, lampY + lh / 2, w * 1.25, 0.30 * lamp);
+    ctx.restore();
   }
 
   function drawVision(speedKmh, throttle, running, dt, kick, curve){
@@ -2766,8 +2951,14 @@
         halo.addColorStop(1, 'rgba(255,180,90,0)');
         visctx.fillStyle = halo;
         visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
-        visctx.fillStyle = sc.sun.color;
-        visctx.beginPath(); visctx.arc(sx, sy, sr, 0, Math.PI * 2); visctx.fill();
+        // bord adouci sur les derniers pour cent : un disque à arête nette se lit comme une
+        // gommette collée sur le ciel, pas comme une source lumineuse
+        const disc = visctx.createRadialGradient(sx, sy, sr * 0.72, sx, sy, sr * 1.06);
+        disc.addColorStop(0, sc.sun.color);
+        disc.addColorStop(0.78, sc.sun.color);
+        disc.addColorStop(1, rgba(sc.sun.color, 0));
+        visctx.fillStyle = disc;
+        visctx.beginPath(); visctx.arc(sx, sy, sr * 1.06, 0, Math.PI * 2); visctx.fill();
       }
     }
 
@@ -2815,8 +3006,15 @@
     }
 
     // --- sol ------------------------------------------------------------------------------
+    // Le sol s'éclaircit vers l'horizon en tirant sur la couleur du ciel : c'est la
+    // perspective aérienne. Un aplat uniforme jusqu'à l'horizon donnait un trait horizontal
+    // net d'un bord à l'autre de l'écran, la marque la plus visible d'une image plate.
     if(sc.ground){
-      visctx.fillStyle = sc.ground;
+      const gGrad = visctx.createLinearGradient(0, vpY, 0, H);
+      gGrad.addColorStop(0, mix(sc.ground, sc.sky[1], 0.42));
+      gGrad.addColorStop(0.14, mix(sc.ground, sc.sky[1], 0.14));
+      gGrad.addColorStop(1, sc.ground);
+      visctx.fillStyle = gGrad;
       visctx.fillRect(0, vpY, W, H - vpY);
     }
 
@@ -2838,12 +3036,17 @@
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
       if(x < -W * 0.4 || x > W * 1.4) return;
       const lift = propLift(pr.kind) * pr.lift * ppm;
+      // fondu atmosphérique : au loin, un arbre n'a pas la même couleur que devant le capot,
+      // il tire vers le ciel. Sans ça, la ligne d'arbres de l'horizon reste aussi contrastée
+      // que celle qui longe le capot, et toute la profondeur s'écrase.
+      visctx.globalAlpha = Math.min(1, 0.22 + tt * 6);
       const fm = sc.solid && meshFor(pr.kind, pr.seed);
       if(fm && ppm * pr.scale > 0.55){
         drawMesh(fm, project3d, pr.side * pr.offset, pr.dist, pr.scale, pr.yaw);
-        return;
+      } else {
+        drawProp(pr.kind, x, rowY(tt) - lift, ppm * pr.scale, sc, pr.seed);
       }
-      drawProp(pr.kind, x, rowY(tt) - lift, ppm * pr.scale, sc, pr.seed);
+      visctx.globalAlpha = 1;
     });
 
     // Bord de chaussée irrégulier : la largeur varie de quelques centimètres, indexée sur la
@@ -2902,22 +3105,39 @@
       });
     }
 
+    // Nappe de nos propres phares : de nuit, ce que le conducteur voit du bitume, c'est
+    // d'abord ce que ses feux éclairent. Sans elle, tout le premier plan des scènes sombres
+    // restait un aplat noir — c'est là que le vide se voyait le plus.
+    if(sc.carLight > 0.45){
+      const beamY = vpY + (H - vpY) * 0.66;
+      const bi = sc.carLight * (running ? 1 : 0.55);
+      const br = W * 0.62;
+      visctx.save();
+      visctx.globalAlpha = 0.30 * bi;
+      visctx.translate(farX, beamY);
+      visctx.scale(1, 0.40);
+      visctx.drawImage(BEAM_SPRITE, -br, -br, br * 2, br * 2);
+      visctx.restore();
+    }
+
     // rustines et reprises d'enrobé, ancrées au sol : elles défilent donc à la vraie vitesse
     roadPatches.forEach(pt => {
       const tt = camNear / pt.dist;
       if(tt < 0.03 || tt > 1.5) return;
       const ppm = roadHalfAt(tt) / 4;
-      visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.11)' : 'rgba(255,255,255,0.035)';
+      // Discrètes et allongées dans le sens de la marche : à 0,11 d'opacité sur une ellipse
+      // presque ronde, elles se lisaient comme des cratères au milieu de la chaussée.
+      visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.018)';
       visctx.beginPath();
       visctx.ellipse(roadCenterAt(tt) + pt.lat * ppm, rowY(tt),
-        Math.max(0.6, pt.wid * ppm), Math.max(0.5, pt.len * ppm * 0.22), 0, 0, Math.PI * 2);
+        Math.max(0.6, pt.wid * ppm * 0.42), Math.max(0.5, pt.len * ppm * 0.07), 0, 0, Math.PI * 2);
       visctx.fill();
     });
 
     // traces de roues : deux bandes lustrées le long des passages, ce qui use le plus
     // visiblement une chaussée. Elles suivent la courbure comme le reste du ruban.
     if(!sc.space){
-      visctx.fillStyle = 'rgba(0,0,0,0.10)';
+      visctx.fillStyle = 'rgba(0,0,0,0.045)';
       [-1.55, 1.55].forEach(lat => {
         visctx.beginPath();
         for(let i = 0; i <= SLICES; i++){
@@ -3023,12 +3243,16 @@
     }
 
     // --- brume d'horizon : les lointains se fondent dans le ciel de la scène --------------
-    if(sc.haze){
-      const hz = visctx.createLinearGradient(0, vpY - H * 0.02, 0, vpY + H * 0.22);
-      hz.addColorStop(0, sc.haze);
-      hz.addColorStop(1, sc.haze.replace(/[\d.]+\)$/, '0)'));
+    // Toutes les scènes en ont désormais une, y compris celles qui n'en déclaraient pas : sans
+    // elle, chaussée, sol et ciel se rejoignaient sur une arête franche que rien n'adoucissait.
+    // Faute de teinte propre, on reprend le bas du ciel de la scène.
+    if(!sc.space){
+      const hazeTop = sc.haze || rgba(sc.sky[1], 0.55);
+      const hz = visctx.createLinearGradient(0, vpY - H * 0.04, 0, vpY + H * 0.22);
+      hz.addColorStop(0, hazeTop);
+      hz.addColorStop(1, hazeTop.replace(/[\d.]+\)$/, '0)'));
       visctx.fillStyle = hz;
-      visctx.fillRect(0, vpY - H * 0.02, W, H * 0.24);
+      visctx.fillRect(0, vpY - H * 0.04, W, H * 0.26);
     }
 
     // --- décor de bord de route ------------------------------------------------------------
@@ -3053,20 +3277,21 @@
       const s3 = ppm * pr.scale;
       // sous une certaine taille un volume ne montre plus qu'un aplat : la silhouette plate
       // fait aussi bien pour bien moins cher, et sert donc de niveau de détail lointain
+      // même fondu atmosphérique que le décor lointain, sur la portion la plus éloignée
+      visctx.globalAlpha = Math.min(1, 0.30 + tt * 7);
       const mesh = sc.solid && s3 > 1.1 && meshFor(pr.kind, pr.seed);
       if(mesh){
-        {
-          if(s3 > 1.6){
-            visctx.fillStyle = 'rgba(0,0,0,0.17)';
-            visctx.beginPath();
-            visctx.ellipse(x, rowY(tt), s3 * 0.95, s3 * 0.24, 0, 0, Math.PI * 2);
-            visctx.fill();
-          }
-          drawMesh(mesh, project3d, pr.side * pr.offset, pr.dist, pr.scale, pr.yaw);
+        if(s3 > 1.6){
+          visctx.fillStyle = 'rgba(0,0,0,0.17)';
+          visctx.beginPath();
+          visctx.ellipse(x, rowY(tt), s3 * 0.95, s3 * 0.24, 0, 0, Math.PI * 2);
+          visctx.fill();
         }
-        return;
+        drawMesh(mesh, project3d, pr.side * pr.offset, pr.dist, pr.scale, pr.yaw);
+      } else {
+        drawProp(pr.kind, x, rowY(tt), ppm * pr.scale, sc, pr.seed);
       }
-      drawProp(pr.kind, x, rowY(tt), ppm * pr.scale, sc, pr.seed);
+      visctx.globalAlpha = 1;
     });
 
     const accelBoost = running ? Math.max(0, throttle) : 0;
@@ -3098,23 +3323,34 @@
         return;
       }
       if(sc.particle === 'rain'){
-        // la pluie tombe presque à la verticale, à peine inclinée par la vitesse
-        const len = 10 + zz * 55;
-        visctx.strokeStyle = `rgba(${pr},${pg},${pb},${Math.min(0.75, 0.12 + zz * 0.5)})`;
-        visctx.lineWidth = 0.8 + zz * 1.2;
+        // La pluie tombe presque à la verticale. L'inclinaison était calculée sur l'écart au
+        // point de fuite : au bord du cadre elle atteignait 40°, et les gouttes se lisaient
+        // comme des rayures en travers de la chaussée plutôt que comme de la pluie.
+        const len = 8 + zz * 34;
+        visctx.strokeStyle = `rgba(${pr},${pg},${pb},${Math.min(0.45, 0.08 + zz * 0.3)})`;
+        visctx.lineWidth = 0.7 + zz * 0.8;
         visctx.beginPath();
         visctx.moveTo(x, y);
-        visctx.lineTo(x - (x - originX) * 0.12, y - len);
+        visctx.lineTo(x - (x - originX) * 0.04, y - len);
         visctx.stroke();
         return;
       }
-      // traînées radiales (nuit, coucher de soleil) et poussière rasante (désert)
+      // Traînées de vitesse : elles n'appartiennent qu'à la vision périphérique. Tracées sur
+      // toute la largeur, elles se posaient en travers de la chaussée et se lisaient comme des
+      // rayures sur le bitume — le défaut le plus voyant de la scène. On les efface donc
+      // là où elles couvriraient la route, et on les garde fines et discrètes : c'est le bord
+      // du champ qui file quand on va vite, pas le sol devant soi.
+      const roadHalfHere = roadHalfAt(Math.min(1.6, zz));
+      const overRoad = Math.abs(x - roadCenterAt(zz)) < roadHalfHere * 1.04;
+      if(overRoad && sc.particle !== 'dust') return;
       const lenScale = sc.particle === 'dust' ? 0.55 : 1;
-      const len = (4 + zz * 26 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5 + kickBoost * 0.9)) * lenScale;
+      const len = (4 + zz * 22 * (0.5 + speedFactor * 0.8 + accelBoost * 0.5 + kickBoost * 0.9)) * lenScale;
       const mag = Math.hypot(x - farX, y - vpY) || 1;
-      const alpha = Math.min(0.9, (0.15 + zz * 0.6 + accelBoost * 0.3 + kickBoost * 0.4) * (sc.particle === 'dust' ? 0.6 : 1));
+      const onRoadFade = overRoad ? 0.28 : 1;   // la poussière rase encore le bitume, en très discret
+      const alpha = Math.min(0.55, (0.06 + zz * 0.34 + accelBoost * 0.16 + kickBoost * 0.24)
+        * (sc.particle === 'dust' ? 0.5 : 1) * onRoadFade);
       visctx.strokeStyle = `rgba(${pr},${pg - Math.round(zz * 25)},${pb - Math.round(zz * 40)},${alpha})`;
-      visctx.lineWidth = 1 + zz * 1.5;
+      visctx.lineWidth = 0.8 + zz * 1.1;
       visctx.beginPath();
       visctx.moveTo(x, y);
       visctx.lineTo(x - (x - farX) / mag * len, y - (y - vpY) / mag * len);
@@ -3138,40 +3374,8 @@
         const carH = v.height * pxPerMetre;
         const cx = roadCenterAt(tt) + v.lane * half;
         const groundY = rowY(tt);
-        const topY = groundY - carH;
         const fade = Math.min(1, 0.25 + tt * 3);
-
-        // ombre au sol
-        visctx.fillStyle = `rgba(0,0,0,${0.45 * fade})`;
-        visctx.beginPath();
-        visctx.ellipse(cx, groundY, carW * 0.62, Math.max(1, carH * 0.10), 0, 0, Math.PI * 2);
-        visctx.fill();
-
-        // caisse vue de l'arrière
-        visctx.globalAlpha = fade;
-        visctx.fillStyle = v.color;
-        visctx.fillRect(cx - carW / 2, topY, carW, carH);
-        // lunette / bâche plus sombre sur la partie haute
-        visctx.fillStyle = 'rgba(0,0,0,0.45)';
-        visctx.fillRect(cx - carW * 0.42, topY + carH * 0.08, carW * 0.84, carH * (v.truck ? 0.55 : 0.38));
-        if(carW > 6){
-          visctx.strokeStyle = 'rgba(0,0,0,0.55)';
-          visctx.lineWidth = Math.max(1, carW * 0.02);
-          visctx.strokeRect(cx - carW / 2, topY, carW, carH);
-          visctx.fillStyle = 'rgba(255,255,255,0.07)'; // arête de toit, pour le relief
-          visctx.fillRect(cx - carW / 2, topY, carW, Math.max(1, carH * 0.05));
-        }
-        visctx.globalAlpha = 1;
-
-        // feux arrière : très présents de nuit, discrets en plein jour
-        const lamp = sc.carLight;
-        const lampW = Math.max(1, carW * (v.truck ? 0.13 : 0.17));
-        const lampH = Math.max(1, carH * 0.16);
-        const lampY = topY + carH * (v.truck ? 0.74 : 0.60);
-        visctx.fillStyle = `rgba(255,60,40,${0.45 + 0.5 * lamp})`;
-        visctx.fillRect(cx - carW * 0.44, lampY, lampW, lampH);
-        visctx.fillRect(cx + carW * 0.44 - lampW, lampY, lampW, lampH);
-        if(carW > 8 && lamp > 0.4) drawGlow(GLOW_RED, cx, lampY + lampH / 2, carW * 0.8, 0.3 * lamp);
+        drawVehicle(visctx, v, cx, groundY, carW, carH, fade, sc.carLight);
       });
     }
 
@@ -3184,6 +3388,10 @@
       visctx.fillStyle = glow;
       visctx.fillRect(farX - W * 0.06, vpY - W * 0.06, W * 0.12, W * 0.12);
     }
+
+    // --- vignettage : les bords s'assombrissent, comme sur toute image réelle. C'est ce qui
+    // referme le cadre et empêche la chaussée de partir en aplat jusqu'aux quatre coins.
+    visctx.drawImage(getVignette(W, H, vpY), 0, 0);
 
     // --- éclairs (orage) : un flash bref sur toute la scène --------------------------------
     if(sc.lightning){
