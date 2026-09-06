@@ -4184,7 +4184,11 @@
     // assez rapide pour que le son réponde au doigt et pas une seconde plus tard.
     const revTarget = revPedalHeld && physics.running ? 1 : 0;
     revPedal += (revTarget - revPedal) * Math.min(1, dt * (revTarget > revPedal ? 5.5 : 3.5));
-    const revRpm = revPedal * (profile.redline - profile.idleRPM) * 0.85;
+    // Pédale au plancher = aiguille à l'entrée de la zone rouge, exactement. On vise l'écart
+    // qui reste jusqu'à la zone rouge plutôt qu'une fraction fixe de la plage : le compte est
+    // juste à l'arrêt comme en roulant, quel que soit le régime déjà atteint, alors qu'une
+    // fraction fixe s'arrêtait avant la zone rouge (4600 sur 5300 avec le moteur par défaut).
+    const revRpm = revPedal * Math.max(0, profile.redline - physics.rpm);
     const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm + revRpm);
 
     // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
