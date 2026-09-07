@@ -1,9 +1,9 @@
 # Vroom — gamification de conduite, sur téléphone et écran Tesla
 
-> Document de cadrage, révision 4. Une application web 3D réaliste dont le monde est piloté
-> par la conduite réelle. **Cible n°1 : un passager sur son téléphone.** Cible n°2 : l'écran
-> central d'une Tesla Model Y 2026, pendant la conduite. Aucun serveur, aucune dépendance à
-> l'API Tesla.
+> Document de cadrage, révision 5. Une application web 3D réaliste dont le monde est piloté
+> par la conduite réelle, sur **deux écrans traités à égalité** : le téléphone d'un passager
+> et l'écran central d'une Tesla Model Y 2026, pendant la conduite. Aucun serveur, aucune
+> dépendance à l'API Tesla.
 >
 > Ce n'est pas un jeu vidéo : personne ne pilote. Le conducteur conduit sa vraie voiture ;
 > l'application observe, représente et récompense.
@@ -15,43 +15,54 @@
 
 ## 0. Le cadre
 
-Le passager sur son téléphone est l'usage principal, et il ne pose aucune question
-particulière — c'est un passager qui regarde son écran.
+**Les deux écrans sont des cibles de premier rang.** Aucun n'est un portage de l'autre, aucun
+n'attend que l'autre soit fini. Chaque phase se termine en état de marche sur les deux, et
+l'intégration continue vérifie les deux. C'est une contrainte de méthode autant que
+d'architecture, et elle irrigue tout ce document.
 
 L'affichage sur l'écran central pendant la conduite reste au programme, comme décidé. Le
 point réglementaire (article R412-6-2 : appareil en fonctionnement dans le champ de vision du
 conducteur) a été signalé une fois et ne sera pas rediscuté ici.
 
-Une seule conséquence de conception en est tirée, et elle ne coûte rien puisqu'elle ne
-s'applique qu'à la cible n°2 : **sur l'écran de la voiture, la scène est ambiante, pas
-informative.** Belle en périphérie du regard, rien à décoder. Sur téléphone, où le passager
-regarde vraiment, cette retenue tombe et l'interface peut être plus riche.
+Une seule distinction subsiste entre les deux, et ce n'est pas une hiérarchie — ce sont deux
+contextes de lecture différents, chacun conçu pour ce qu'il est :
+
+- **Dans la voiture**, la scène est ambiante. Belle en périphérie du regard, rien à décoder,
+  une seule information lisible.
+- **Sur téléphone**, le passager regarde vraiment. L'interface peut être dense, explorable,
+  détaillée.
+
+Deux interfaces conçues séparément, sur un même moteur. Pas une interface et sa version
+réduite.
 
 ---
 
 ## 1. Les deux cibles
 
-|  | **Téléphone** — cible n°1 | **Écran Tesla** — cible n°2 |
+|  | **Téléphone** | **Écran Tesla** |
 |---|---|---|
-| **Usage** | passager, regard soutenu | ambiant, coup d'œil |
+| **Contexte de lecture** | passager, regard soutenu | ambiant, coup d'œil |
 | **Orientation** | portrait d'abord, paysage géré | paysage, 15,4" ou 16" |
 | **Résolution** | ~390×844 pixels CSS, densité 3 | ~2,5K selon finition, densité variable |
 | **GPU** | mobile, bride thermiquement vite | AMD RDNA 2, confortable |
 | **Navigateur** | Safari / Chrome récents | **Chromium 109** |
 | **Capteurs** | **GPS + accéléromètre + gyroscope** | GPS seul |
 | **Réseau** | forfait du téléphone | Premium Connectivity |
-| **Test** | immédiat, à chaque enregistrement | nécessite d'aller dans la voiture |
+| **Boucle de test** | immédiate, à chaque enregistrement | il faut aller dans la voiture |
 
 Trois conséquences, toutes structurantes :
 
 1. **WebGL2 est le dénominateur commun**, et pour deux raisons désormais : Chromium 109 n'a
    pas WebGPU (arrivé en Chrome 113), et le parc mobile n'est pas homogène. Décision confirmée,
-   `WebGLRenderer` classique.
-2. **Le téléphone a des capteurs que la voiture n'a pas.** C'est ce qui résout le problème
-   central du §2 — et ça rend la cible n°1 techniquement *meilleure* que la n°2, pas dégradée.
-3. **On construit pour le téléphone d'abord.** Boucle de test en secondes au lieu d'un trajet
-   en voiture, meilleurs capteurs, pas de Premium Connectivity. L'écran Tesla est un portage,
-   fait ensuite — pas l'inverse.
+   `WebGLRenderer` classique — un seul chemin de rendu pour les deux écrans.
+2. **Les deux écrans n'ont pas les mêmes capteurs.** Le téléphone a une centrale inertielle,
+   la voiture non. C'est la seule asymétrie irréductible du projet, et elle est absorbée par
+   une abstraction (§2.2) plutôt que par un chemin dégradé — le reste de l'application ignore
+   sur quel écran elle tourne.
+3. **La boucle de test est asymétrique, pas le produit.** Développer se fait au téléphone et
+   sur traces rejouables parce que c'est cent fois plus rapide ; mais **chaque phase se
+   valide dans la voiture avant d'être déclarée finie**, et l'intégration continue mesure les
+   deux profils. Sans cette discipline, l'écran Tesla dériverait en silence.
 
 > Les caractéristiques de la colonne Tesla sont à revérifier dans la voiture. Elles varient
 > par finition et par firmware, et aucune source publique ne remplace un test réel.
@@ -61,13 +72,14 @@ Trois conséquences, toutes structurantes :
 ## 2. Les données : les capteurs du navigateur, et rien d'autre
 
 Sans serveur, Fleet Telemetry est hors de portée — elle exige un endpoint HTTPS public avec
-une configuration TLS imposée. Il reste ce que le navigateur expose lui-même. Sur téléphone,
-c'est largement suffisant ; sur l'écran Tesla, c'est plus maigre, et c'est le seul endroit où
-la cible n°2 est en retrait.
+une configuration TLS imposée. Il reste ce que le navigateur expose lui-même. Sur téléphone
+c'est confortable ; sur l'écran Tesla c'est plus maigre. **C'est la seule asymétrie
+irréductible entre les deux écrans**, et tout le §2.2 consiste à faire en sorte qu'elle ne se
+voie pas.
 
 ### 2.1 Ce qu'on lit
 
-**GPS — les deux cibles.** `navigator.geolocation.watchPosition()`, environ 1 Hz :
+**GPS — les deux écrans.** `navigator.geolocation.watchPosition()`, environ 1 Hz :
 
 | Champ | Usage |
 |---|---|
@@ -92,8 +104,15 @@ roulage plutôt que de supposer que l'axe Y du téléphone pointe vers l'avant.
 Une position par seconde, une scène à 30 images par seconde. Sans traitement, le monde avance
 par à-coups une fois par seconde — c'est le défaut le plus visible qu'on puisse livrer.
 
-**Sur téléphone : fusion de capteurs.** Le GPS donne une vérité absolue mais lente et
-bruitée ; l'accéléromètre donne du relatif, rapide et précis, mais qui dérive. On les
+**L'abstraction d'abord.** Une seule interface, `MotionSource`, qui expose à chaque image un
+état continu — vitesse, cap, accélérations, taux de rotation, plus un indicateur de confiance.
+Deux implémentations derrière, et **rien d'autre dans l'application ne sait laquelle tourne** :
+ni le corridor, ni la caméra, ni le score, ni le son. C'est ce qui permet de tenir les deux
+écrans à égalité sans dupliquer une ligne de logique, et de tester les deux chemins sur les
+mêmes traces enregistrées.
+
+**Implémentation A — fusion de capteurs (téléphone).** Le GPS donne une vérité absolue mais
+lente et bruitée ; l'accéléromètre donne du relatif, rapide et précis, mais qui dérive. On les
 complète l'un par l'autre — filtre complémentaire ou petit Kalman :
 
 - entre deux relevés GPS, l'inertie fait avancer le monde à 60 Hz ;
@@ -101,9 +120,16 @@ complète l'un par l'autre — filtre complémentaire ou petit Kalman :
 - résultat : un mouvement continu **et** juste, y compris dans un tunnel où le GPS disparaît
   mais où l'inertie continue de mesurer.
 
-**Sur l'écran Tesla : prédiction seule.** Pas de centrale inertielle, donc on avance sur la
-dernière vitesse et la dernière accélération connues, avec le même recalage progressif. C'est
-moins bon, et il faut l'accepter : le téléphone aura le meilleur ressenti.
+**Implémentation B — prédiction seule (écran Tesla).** Pas de centrale inertielle : on avance
+sur la dernière vitesse et la dernière accélération connues, avec le même recalage progressif
+et le même contrat de sortie. C'est intrinsèquement moins fin — l'indicateur de confiance le
+dit — mais ce n'est pas un chemin de repli négligé : il a ses propres tests, ses propres
+traces, et il doit produire un mouvement aussi *fluide*, à défaut d'être aussi *juste*.
+
+Le raffinement qui compte ici : en l'absence d'inertie, on exploite davantage le **modèle** —
+une voiture ne change pas de vitesse arbitrairement entre deux relevés. Borner l'accélération
+plausible et lisser sur la dynamique attendue d'un véhicule récupère une bonne part de l'écart
+avec le téléphone.
 
 **Dans les deux cas, une dégradation propre.** Tunnel, parking souterrain, perte de signal,
 permission refusée : le monde continue sur son erre et ralentit doucement. Il ne se fige pas,
@@ -156,25 +182,30 @@ coupure au milieu d'un trajet ne doit rien casser. Donc :
 
 - **Service worker** qui met en cache toute l'application au premier chargement — code,
   textures, sons. Ensuite, plus une seule requête de tout le trajet. Sur téléphone, ça rend
-  aussi l'application installable sur l'écran d'accueil, ce qui est le bon geste pour la
-  cible n°1.
+  aussi l'application installable sur l'écran d'accueil ; dans la voiture, ça la rend
+  indépendante de Premium Connectivity une fois le premier chargement fait.
 - **Aucune tuile de carte, aucune API météo, aucune police distante.** Tout est embarqué ou
   calculé.
 - **Persistance en IndexedDB** : historique, score, moteurs débloqués. Rien ne sort de l'appareil.
 - Budget de premier chargement : **sous 15 Mo**, une fois pour toutes.
 
-### 3.5 Une mise en page, deux formats
+### 3.5 Deux mises en page, pas une mise à l'échelle
 
-Portrait de téléphone et paysage 16" n'ont ni le même ratio, ni la même densité, ni la même
-distance de lecture. Ce n'est pas une adaptation cosmétique :
+Portrait de téléphone tenu à 40 cm et paysage 16" vu à 80 cm n'ont ni le même ratio, ni la
+même densité, ni la même distance de lecture, ni le même temps de regard disponible. Étirer
+l'un pour obtenir l'autre donne deux interfaces médiocres.
 
-- **Le canvas 3D remplit toujours l'écran** ; seul le champ de vision s'ajuste au ratio, pour
-  qu'on voie la même chose de la route dans les deux formats.
-- **Le HUD est repositionné, pas redimensionné.** En portrait il vit en bas, sous le pouce ;
-  en paysage il se range dans un coin. Deux dispositions, pas une mise à l'échelle.
+- **Le canvas 3D remplit toujours l'écran**, et c'est la seule chose vraiment commune. Le
+  champ de vision s'ajuste au ratio pour qu'on voie la même portion de route dans les deux
+  formats — sinon le paysage paraît écrasé sur l'un des deux.
+- **Deux HUD distincts, écrits séparément.** En portrait : dense, sous le pouce, explorable au
+  doigt. En paysage voiture : un chiffre, une couleur, dans un coin, taille de texte calculée
+  pour la distance de lecture. Ce ne sont pas deux dispositions du même composant.
 - **Rien en dur** : ni résolution, ni ratio, ni densité de pixels. La mise à jour Tesla
   2026.26 a déjà changé la densité et cassé des applications web.
-- **Zones sûres** respectées (encoche, barre d'accueil) via `env(safe-area-inset-*)`.
+- **Zones sûres** respectées (encoche, barre d'accueil) via `env(safe-area-inset-*)`, et
+  cibles tactiles dimensionnées pour un doigt en mouvement dans une voiture — nettement plus
+  larges que sur un bureau, sur les deux écrans.
 
 ---
 
@@ -311,7 +342,7 @@ pour trois raisons qui vont toutes dans le même sens.
 Le budget ne change pas d'une cible à l'autre. **Ce qui change, c'est ce qu'on fait tenir dans
 les 20 ms de GPU** — c'est tout l'objet des deux profils ci-dessous.
 
-### 6.2 Deux profils, détectés au lancement
+### 6.2 Deux profils, tenus tous les deux
 
 | | **Téléphone** | **Écran Tesla** |
 |---|---|---|
@@ -325,6 +356,11 @@ les 20 ms de GPU** — c'est tout l'objet des deux profils ci-dessous.
 
 Détection au premier lancement : on mesure le temps d'image trois secondes sur une scène
 étalon et on choisit. Réglable à la main ensuite.
+
+Les deux profils sont des cibles de livraison, pas un profil et sa version dégradée : chacun
+a son jeu de réglages accordé pour être **beau à son échelle**, et les deux passent les mêmes
+tests de performance en intégration continue. Un profil qui casse bloque la livraison, quel
+qu'il soit.
 
 ### 6.3 Les techniques
 
@@ -342,10 +378,14 @@ Détection au premier lancement : on mesure le temps d'image trois secondes sur 
 
 ### 6.4 Vérification
 
-Un test Playwright qui rejoue trois traces enregistrées (ville, autoroute, montagne), mesure
-le p95 du temps d'image et **échoue au-delà de 33,3 ms**. Utile en garde-fou — mais il ne
-remplace rien : **les seuls chiffres qui comptent sont mesurés sur un vrai téléphone et dans
-la vraie voiture.**
+Un test Playwright rejoue trois traces enregistrées (ville, autoroute, montagne) **dans les
+deux formats d'écran et sur les deux profils**, avec les deux implémentations de
+`MotionSource`. Il mesure le p95 du temps d'image et **échoue au-delà de 33,3 ms** — sur
+l'une ou l'autre des configurations, indifféremment. Six combinaisons, une seule barre.
+
+C'est le garde-fou qui empêche l'écran Tesla de dériver pendant qu'on travaille au téléphone.
+Mais il ne remplace rien : **les seuls chiffres qui comptent sont mesurés sur un vrai
+téléphone et dans la vraie voiture**, et chaque phase se termine par ces deux mesures.
 
 ---
 
@@ -375,54 +415,63 @@ monde et un meilleur son.
 
 ## 8. Phases
 
-Tout se construit sur téléphone. L'écran Tesla est un portage, fait une fois que le produit
-tient debout.
+**Une règle traverse tout le découpage : une phase n'est finie que quand elle tourne sur les
+deux écrans.** Pas « ça marche au téléphone, on verra la voiture plus tard » — c'est
+exactement ainsi qu'un des deux finit par accumuler six semaines de dette invisible.
+
+Le développement quotidien se fait au téléphone et sur traces rejouables, parce que la boucle
+y est cent fois plus rapide. Mais chaque fin de phase passe par la voiture, et l'intégration
+continue mesure les deux profils à chaque commit.
 
 ### Phase 0 — Fondations *(~1 semaine)*
 - Vite + TypeScript ; `legacy/moteur-sim.html` déplacé et toujours servi ; `index.html`
   devient le hub.
 - **Extraction de la synthèse moteur** et de la transmission dans `src/`, avec tests de
   non-régression.
+- Squelette de déploiement HTTPS — nécessaire dès la phase suivante pour ouvrir la page dans
+  la voiture.
 - ✅ *Le hub, et le jeu actuel intact derrière.*
 
-### Phase 1 — Vérité terrain *(~2–3 jours)* — **avant tout le reste**
-- Une page de mesure, en HTTPS, ouverte **sur ton téléphone, en voiture** : cadence réelle du
-  GPS, `coords.speed` renseigné ou non, cadence de `DeviceMotion`, le geste de permission iOS,
-  et combien de triangles un WebGL2 nu tient à 30 FPS.
+### Phase 1 — Vérité terrain, sur les deux écrans *(~1 semaine)* — **avant tout le reste**
+- Une page de mesure, ouverte **sur le téléphone** puis **dans la voiture**, qui répond aux
+  mêmes questions des deux côtés : cadence réelle du GPS, `coords.speed` renseigné ou non,
+  cadence de `DeviceMotion` là où elle existe, comportement des permissions, densité de pixels
+  réelle, et combien de triangles un WebGL2 nu tient à 30 FPS.
 - **Enregistrement de traces** GPS + inertie sur trois trajets types. Elles deviennent le jeu
-  de test de tout le reste du projet — on développe ensuite au bureau, sans reprendre la voiture.
-- ✅ *Cinq réponses mesurées et trois traces rejouables.*
-- 🚦 **Aucune ligne de moteur 3D avant ces chiffres.** Deux jours ici évitent deux mois
-  d'architecture posée sur des suppositions.
+  de test de tout le projet, pour les deux implémentations de `MotionSource`.
+- ✅ *Deux jeux de mesures, un par écran, et trois traces rejouables.*
+- 🚦 **Aucune ligne de moteur 3D avant ces chiffres.** Et surtout : les chiffres de la voiture
+  sont pris maintenant, pas dans deux mois. C'est le seul moyen de ne pas concevoir une
+  architecture que l'écran Tesla ne pourra pas tenir.
 
-### Phase 2 — Le mouvement juste *(~2 semaines)*
-- Fusion GPS + inertie du §2.2, testée sur les traces enregistrées. La partie la plus délicate
-  du projet, et la première à faire.
-- Estimation du repère du véhicule, dégradation propre en tunnel.
+### Phase 2 — Le mouvement juste *(~2–3 semaines)*
+- `MotionSource` et **ses deux implémentations**, développées ensemble et testées sur les
+  mêmes traces : fusion GPS + inertie d'un côté, prédiction contrainte par le modèle véhicule
+  de l'autre.
+- Estimation du repère du véhicule (téléphone), dégradation propre en tunnel (les deux).
 - Corridor procédural, semis par graine de position, recyclage des tuiles.
-- ✅ *Le monde avance à la vraie vitesse, sans un à-coup.*
+- ✅ *Le monde avance à la vraie vitesse, sans un à-coup, sur les deux écrans.*
 
-### Phase 3 — La lumière *(~2 semaines)*
+### Phase 3 — La lumière et les deux formats *(~2–3 semaines)*
 - Ciel physique, soleil réel, ACES, ombres en cascade.
-- Verrouillage 30 FPS, échelle de rendu adaptative, les deux profils.
-- Mise en page portrait et paysage.
-- ✅ *C'est beau, c'est stable, ça tourne sur ton téléphone.*
+- Verrouillage 30 FPS, échelle de rendu adaptative, **les deux profils accordés séparément**.
+- **Les deux mises en page**, écrites séparément : portrait dense, paysage voiture épuré.
+- ✅ *C'est beau et stable des deux côtés — et c'est ici qu'on le vérifie, pas plus tard.*
 
 ### Phase 4 — Le son et le score *(~2 semaines)*
 - Synthèse moteur branchée sur la télémétrie réelle ; vent, roulement, réverbération.
-- Écran d'accueil unique : audio + capteurs en un geste.
-- Métriques, score, réaction du monde du §7, HUD des deux cibles.
-- ✅ *La conduite s'entend et se voit.*
+- Écran d'accueil unique : audio + capteurs en un geste (téléphone), audio seul (voiture).
+- Métriques, score, réaction du monde du §7, **et les deux HUD** — l'explorable et l'ambiant.
+- ✅ *La conduite s'entend et se voit, dans les deux contextes de lecture.*
 
-### Phase 5 — Le portage Tesla *(~1 semaine)*
-- Chemin sans centrale inertielle, mise en page paysage 2,5K, profil Tesla.
-- Service worker et fonctionnement hors Premium Connectivity.
-- ✅ *Ça tourne sur l'écran de la voiture.*
-
-### Phase 6 — Matières et profondeur *(~2 semaines)*
-- Asphalte, végétation, flou cinétique, brouillard atmosphérique, biomes, cycle jour/nuit.
+### Phase 5 — Matières et profondeur *(~2 semaines)*
+- Asphalte à rugosité variable, végétation, flou cinétique, brouillard atmosphérique.
+- Biomes par latitude et altitude, cycle jour/nuit complet, éclairage nocturne.
 - Bilan de trajet, historique, atelier moteur porté, déblocages.
 - ✅ *La boucle est fermée.*
+
+### Phase 6 — Finition *(continu)*
+- Météo réglable, pluie et route mouillée, davantage de biomes et de moteurs.
 
 ---
 
@@ -430,29 +479,36 @@ tient debout.
 
 | Risque | Gravité | Réponse |
 |---|---|---|
-| **Les capteurs ne donnent pas ce qu'on croit** — cadence GPS, `speed` nul, permission refusée, `DeviceMotion` bridé | Élevée | Tout l'objet de la phase 1. Deux jours, avant tout engagement d'architecture. |
-| **Le monde avance par à-coups** | Élevée | La fusion est la phase 2, avant le rendu, testée sur traces rejouables. C'est le défaut le plus visible possible. |
+| **L'écran Tesla dérive pendant qu'on développe au téléphone** | Élevée | Le risque propre au double écran. Réponse : mesures dans la voiture dès la phase 1, validation des deux écrans à chaque fin de phase, et les six combinaisons testées en intégration continue. C'est une discipline, elle ne s'improvise pas en fin de projet. |
+| **Les capteurs ne donnent pas ce qu'on croit** — cadence GPS, `speed` nul, permission refusée, `DeviceMotion` bridé | Élevée | Tout l'objet de la phase 1, sur les deux écrans. Une semaine, avant tout engagement d'architecture. |
+| **Le monde avance par à-coups** | Élevée | `MotionSource` et ses deux implémentations sont la phase 2, avant le rendu, testées sur traces rejouables. C'est le défaut le plus visible possible. |
+| **L'écran Tesla ne peut pas tenir ce que le téléphone tient** (ou l'inverse) | Moyenne | L'abstraction `MotionSource` et les deux profils isolent les différences. Si un écart de qualité s'avère irréductible, il se constate en phase 1 — quand il est encore temps de revoir la cible visuelle des deux. |
 | **Nausée du passager** | Moyenne | Caméra absolument stable, aucune secousse ajoutée, champ de vision contenu. À tester tôt sur de vrais passagers, pas au bureau. |
-| **Batterie et chauffe du téléphone** | Moyenne | 30 FPS verrouillés, échelle de rendu basse, veille dès l'arrêt. Mesurer la consommation réelle sur un trajet d'une heure en phase 3. |
+| **Batterie et chauffe du téléphone** | Moyenne | 30 FPS verrouillés, échelle de rendu basse, veille dès l'arrêt. Mesurer sur un trajet d'une heure en phase 3. |
 | **Le procédural ne « ressemble » pas assez à la vraie route** | Moyenne | Assumé au §4. Si la reconnaissance littérale devient un besoin, rouvrir la question du réseau — et donc du sans-serveur. |
-| **Le navigateur Tesla est plus limité que ne le disent les sources** | Moyenne | Le portage est isolé en phase 5 : si la voiture déçoit, le produit téléphone tient debout tout seul. |
+| **Le firmware Tesla casse l'appli** (2026.26 a déjà changé la densité de pixels) | Faible | Rien en dur : ni résolution, ni ratio, ni densité. Retester dans la voiture à chaque mise à jour majeure. |
 | **Régression de la synthèse audio à l'extraction** | Faible | Tests de non-régression ; le legacy reste jouable côte à côte pour comparer à l'oreille. |
 
 ---
 
 ## 10. Ce que je ferais en premier
 
-1. **La phase 1, cette semaine.** Une page de mesure sur ton téléphone, un trajet, trois
-   traces enregistrées. Cinq chiffres.
+1. **La phase 1, cette semaine, sur les deux écrans.** Une page de mesure, un trajet avec le
+   téléphone, un trajet avec la page ouverte dans la voiture. Deux jeux de chiffres, trois
+   traces enregistrées.
 2. **Extraire la synthèse moteur** en parallèle — travail sûr, indépendant du reste, et c'est
    la pièce irremplaçable du projet.
-3. **Puis la fusion de capteurs**, avec ses tests sur les traces, avant la moindre ligne de rendu.
+3. **Puis `MotionSource` et ses deux implémentations**, avec leurs tests sur les traces, avant
+   la moindre ligne de rendu.
 4. **Ensuite seulement**, le corridor et la lumière.
 
-Le plan tient en ~10 semaines. Il est nettement moins risqué que les révisions précédentes :
-aucune physique, aucun serveur, aucune modération, une boucle de test qui tient dans une poche.
-La seule vraie inconnue est le comportement des capteurs en voiture — et elle se lève en deux
-jours.
+Le plan tient en ~11 semaines : aucune physique, aucun serveur, aucune modération. Tenir deux
+écrans à égalité coûte environ une semaine de plus qu'en tenir un — l'abstraction de mouvement,
+la seconde mise en page et la double validation — et c'est un prix modeste comparé à un portage
+découvert trop tard.
+
+La seule vraie inconnue reste le comportement des capteurs en voiture, et elle se lève en une
+semaine.
 
 ---
 
