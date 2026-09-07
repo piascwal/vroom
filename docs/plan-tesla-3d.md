@@ -1,64 +1,172 @@
-# Vroom — le cockpit en 3D réaliste
+# Vroom — refaire l'interface, en qualité jeu vidéo
 
-> Document de cadrage, révision 6. Prendre le cockpit qui existe déjà dans
-> `moteur-sim.html` et le rendre nettement plus réaliste, en 3D, sur **deux écrans traités à
-> égalité** : le téléphone d'un passager et l'écran central d'une Tesla Model Y 2026, pendant
-> la conduite. La route et le moteur suivent la conduite réelle. Aucun serveur.
+> Document de cadrage, révision 7. Reprendre `moteur-sim.html` et en refaire **l'interface et
+> le rendu de la route** à un niveau de finition professionnel, sur deux écrans traités à
+> égalité : le téléphone et l'écran central d'une Tesla Model Y 2026.
 >
-> **Un seul objectif : le réalisme.** Pas de score, pas de progression, pas de récompense,
-> pas de contenu créé par les joueurs. Ces pistes ont été explorées dans les révisions
-> précédentes et sont abandonnées — elles restent dans l'historique git (`eff3905`,
-> `5cefd1d`, `9eb75fc`).
+> **« Réalisme » veut dire ici : la qualité visuelle.** Les cadrans et l'interface d'un côté,
+> la route, ses côtés et l'arrière-plan de l'autre — les deux au même niveau d'exigence. Pas de
+> simulation, pas de physique, et **aucun calcul d'ambiance depuis l'heure réelle** : la lumière
+> de chaque scène reste un réglage artistique. La demande d'origine était « quelque chose d'un
+> peu plus jeu vidéo professionnel » — c'est exactement ça.
+>
+> Les révisions précédentes (plateforme UGC, jeu de course, gamification, réalisme graphique)
+> sont abandonnées et restent dans l'historique git.
 
 ---
 
-## 0. Le cadre
+## 1. Ce qui existe déjà — y compris ce que je croyais à construire
 
-**Les deux écrans sont des cibles de premier rang.** Aucun n'est un portage de l'autre, aucun
-n'attend que l'autre soit fini. Chaque phase se termine en état de marche sur les deux, et
-l'intégration continue vérifie les deux.
+En relisant le code, une bonne partie de ce que les révisions précédentes plaçaient en
+« phases fondatrices » est **déjà écrite et fonctionne**.
 
-L'affichage sur l'écran central pendant la conduite est décidé. Le point réglementaire
-(article R412-6-2) a été signalé une fois et ne sera pas rediscuté ici.
-
-Une seule distinction subsiste, et ce n'est pas une hiérarchie — ce sont deux distances de
-lecture. Dans la voiture, l'écran est à 80 cm et se regarde de biais ; sur téléphone, à 40 cm
-et de face. Ça change le champ de vision, la taille du texte et la densité de l'habillage, pas
-la nature de ce qui est montré.
-
----
-
-## 1. Ce qu'on a, et ce qu'on améliore
-
-`moteur-sim.html` est un mono-fichier de ~4 900 lignes, sans aucune dépendance. Il fait déjà
-tout ce qu'il faut — il le fait juste dans les limites d'un rasteriseur logiciel sur canvas 2D.
-
-| Brique existante | État | Ce qu'on en fait |
+| Déjà fait | Où | Ce que j'avais planifié à tort |
 |---|---|---|
-| **Synthèse moteur** (Web Audio) | excellente | On l'extrait telle quelle. On l'alimente avec la vitesse réelle au lieu d'une pédale à l'écran, et on lui ajoute ce qui manque autour du moteur (§6.2). |
-| **Atelier moteur** | 18 préréglages, ~20 réglages, banc d'essai | On le garde tel quel et on le porte. C'est là qu'on choisit le moteur qu'on va entendre en roulant. |
-| **Transmission** | rapports, seuils de passage | On la porte. C'est elle qui transforme la vitesse réelle en régime. |
-| **Compteurs du cockpit** | aiguilles, chiffres | Ils deviennent réels : ils affichent ta vitesse et ton régime, pas ceux d'une simulation. |
-| **Route et décor** | tranches horizontales, faces peintes, pas d'éclairage | **C'est le seul morceau remplacé.** Route 3D, matières PBR, ciel physique, ombres. |
+| **Vitesse GPS réelle** | `watchPosition`, `gpsSpeedKmh`, `smoothedGpsSpeed` | « brancher la vraie voiture » — c'est fait, `debugMode` faux |
+| **Cap et courbure de route** | `applyHeadingSample`, trois sources : GPS, trajet, boussole | idem |
+| **Rythme irrégulier de `watchPosition`** | cap suivi **par image** à vitesse plafonnée | toute l'abstraction `MotionSource` et sa « fusion de capteurs » |
+| **Repli quand le GPS ne donne pas de cap** | relèvement entre deux points, seuil de 4 m | « dégradation propre » |
+| **Accélération dérivée** | `prevSpeedForAccel` | idem |
+| **Mode pédales** | `debugMode`, avec régulateur et nitro | — |
+| **Coup de gaz à l'arrêt** | pédale d'accélérateur du cockpit | j'avais proposé de la supprimer — elle a sa raison d'être |
 
-Le plafond actuel, en trois points :
+Le commentaire ligne 2017 documente même l'approche qui échouait (asservir la courbure au
+delta entre deux relevés) et pourquoi le suivi par image la remplace. **Il n'y a rien à
+refaire là-dedans.**
 
-- **Le remplissage de pixels est le mur.** Le profil cité dans le code dit que le JS ne pèse
-  que 7 % du temps ; tout le reste, c'est le CPU qui peint des triangles. Aucune optimisation
-  JS ne débloquera ça, seul le GPU le peut.
-- **Pas d'éclairage, pas de matières.** Les couleurs sont figées par face. Pas d'ombres, pas
-  de reflets, pas de normal maps : le réalisme demandé est hors d'atteinte par construction.
-- **La route est un ruban sur des rails.** Une pile de tranches horizontales, une caméra qui
-  ne peut pas en sortir. Pas de dénivelé réel, pas de courbure vraie.
-
-Le commentaire ligne 2248 explique pourquoi il n'y a pas de WebGL : *« une dépendance WebGL
-coûterait l'autonomie du fichier et supposerait un GPU dont on ne sait rien sur l'écran de la
-voiture »*. On sait désormais de quel GPU il s'agit (§2), et l'autonomie du fichier est
-remplacée par une application entièrement hors ligne (§4.4).
+Ce qui reste vrai de l'audit : la synthèse moteur, l'atelier, la transmission et les compteurs
+sont bons. **Le seul morceau qui plafonne est le rendu**, et l'interface mérite un cran de
+finition supplémentaire.
 
 ---
 
-## 2. Les deux écrans
+## 2. Ce qu'il reste vraiment à faire
+
+Trois chantiers, et rien d'autre.
+
+1. **Les cadrans et l'interface, refaits en qualité jeu vidéo** (§3).
+2. **La scène en WebGL** — route, côtés, arrière-plan — au même niveau d'exigence (§4).
+3. **Les deux écrans tenus proprement** — portrait téléphone et paysage Tesla (§5).
+
+Les deux premiers sont le projet, à parts égales. C'est l'ensemble qui doit avoir l'air d'un
+jeu fini : un beau cadran sur une route pauvre ne suffit pas, l'inverse non plus.
+
+Ce qui est explicitement hors périmètre : physique de véhicule, serveur, score, contenu créé
+par les joueurs, habitacle modélisé, météo, et **toute ambiance calculée depuis l'heure ou la
+position réelles** — l'éclairage appartient à la scène, pas à l'horloge.
+
+---
+
+## 3. Le réalisme des cadrans et de l'interface
+
+Premier des deux fronts. Voici ce que « professionnel » veut dire, concrètement.
+
+### 3.1 Les matières
+
+Aujourd'hui les compteurs sont dessinés avec des dégradés. Un instrument crédible a de la
+matière :
+
+- **Lunettes en métal usiné** avec réflexion anisotrope — la lumière file le long du tournage,
+  elle ne fait pas un dégradé uniforme.
+- **Verre** avec un reflet propre, une légère parallaxe entre le verre et le cadran, et un
+  assombrissement sur les bords.
+- **Cadran texturé** — grain fin, pas un aplat.
+- **Profondeur réelle** : le cadran est en creux sous la lunette, les boutons ont une
+  épaisseur, et **la lumière vient d'une direction unique et constante** sur tout l'écran.
+  C'est la règle qui fait le plus pour la cohérence, et celle qu'on enfreint le plus souvent.
+
+### 3.2 Les aiguilles et le mouvement
+
+- **Ombre portée de l'aiguille sur le cadran**, décalée selon la même source de lumière.
+- **Inertie** : l'aiguille ne suit pas la valeur, elle la rattrape, avec un léger dépassement
+  et un rebond en butée.
+- **Aucune transition linéaire.** Chaque animation a une courbe choisie. C'est ce qui sépare
+  une interface web d'une interface de jeu.
+- Tout à **60 images par seconde** — l'interface n'est pas soumise au budget de la 3D (§6.2).
+
+### 3.3 La typographie
+
+- Une vraie fonte d'instrumentation, pas la police système. Chiffres **tabulaires** partout où
+  une valeur change, sinon les chiffres dansent.
+- **Graduations dessinées**, pas approximées : longueurs majeures et mineures distinctes,
+  numérotation alignée sur l'arc, épaisseurs cohérentes.
+- Une échelle typographique tenue, et des tailles calculées pour la distance de lecture de
+  chaque écran (§5).
+
+### 3.4 Les états
+
+Chaque état est **dessiné**, pas obtenu en changeant une couleur :
+
+- allumage — les aiguilles balayent leur course, comme un vrai tableau de bord ;
+- veille, marche, zone rouge, alerte ;
+- pression d'un bouton, maintien, désactivé ;
+- perte du signal GPS — un état visuel propre, pas un chiffre qui se fige.
+
+### 3.5 Un seul système
+
+Mêmes rayons, mêmes ombres, même source de lumière, même palette, mêmes durées d'animation —
+du cockpit à l'atelier en passant par les menus. L'atelier moteur en particulier doit devenir
+un vrai **banc de réglage** : c'est l'écran le plus dense du produit et celui où la finition
+se voit le plus.
+
+La palette actuelle (ambre, cyan, métal, fond presque noir) est bonne et se garde. Ce n'est
+pas une refonte de direction artistique, c'est un cran de finition.
+
+---
+
+## 4. Le réalisme de la scène
+
+Second front, à parts égales avec le premier. Le rasteriseur logiciel sur canvas 2D est le
+plafond — le profil cité dans le code dit que le JS ne pèse que 7 % du temps, tout le reste
+est du remplissage de pixels au CPU. WebGL débloque l'éclairage, les ombres, la profondeur et
+la densité.
+
+Trois plans, chacun avec son travail propre.
+
+### 4.1 La route
+
+C'est ce qu'on regarde 90 % du temps, donc c'est là qu'il faut mettre le plus de soin.
+
+- **Revêtement** avec normal map et **rugosité variable** : les traces de passage sont plus
+  lisses que le reste. C'est ce qui distingue une route d'un ruban gris.
+- **Marquages au sol correctement filtrés** — mipmaps et filtrage anisotrope. Sans ça, les
+  bandes scintillent à distance : c'est le défaut le plus visible d'une route en 3D, et le
+  plus facile à éviter si on y pense dès le début.
+- **La route a des bords** : bas-côté, bordures, glissières, joints de chaussée, raccords
+  d'enrobé. C'est le détail qui donne l'épaisseur.
+- **Variantes par scène** : enrobé neuf, béton, piste de terre, route mouillée avec ses
+  reflets étirés.
+
+### 4.2 Les côtés
+
+Végétation, mobilier urbain, bâti, rochers — selon la scène. **Instanciés**, avec LOD et
+fondu, en densité suffisante pour que ça défile vraiment : c'est la densité qui donne la
+sensation de vitesse, plus que la vitesse elle-même.
+
+### 4.3 L'arrière-plan
+
+Horizon en plusieurs couches, perspective atmosphérique — plus c'est loin, plus ça se fond
+dans le ciel. C'est ce qui crée la profondeur, et c'est peu coûteux.
+
+### 4.4 L'éclairage
+
+Une directionnelle avec ombres en cascade, plus un éclairage d'ambiance dérivé du ciel de la
+scène.
+
+**La direction du soleil est un réglage de scène, choisi artistiquement — jamais calculé
+depuis l'heure ni la position.** Les huit `SCENES` actuelles ont déjà de bons réglages
+d'ambiance (couleurs de ciel, brume, teintes de décor) : elles servent de base, et gagnent un
+angle de lumière et une intensité.
+
+### 4.5 Le nez du véhicule
+
+Au lieu d'un habitacle complet, un élément d'avant-plan par scène : le nez d'une F1 sur le
+circuit, un capot ailleurs. C'est la vue d'un jeu de course en caméra avant, ça donne une
+identité immédiate à chaque scène, et ça coûte quelques centaines de triangles fixes.
+
+---
+
+## 5. Les deux écrans
 
 |  | **Téléphone** | **Écran Tesla** |
 |---|---|---|
@@ -66,322 +174,115 @@ remplacée par une application entièrement hors ligne (§4.4).
 | **Orientation** | portrait d'abord, paysage géré | paysage, 15,4" ou 16" |
 | **Résolution** | ~390×844 pixels CSS, densité 3 | ~2,5K selon finition, densité variable |
 | **GPU** | mobile, bride thermiquement vite | AMD RDNA 2, confortable |
-| **Navigateur** | Safari / Chrome récents | **Chromium 109** |
-| **Capteurs** | **GPS + accéléromètre + gyroscope** | GPS seul |
-| **Réseau** | forfait du téléphone | Premium Connectivity |
-| **Boucle de test** | immédiate | il faut aller dans la voiture |
+| **Navigateur** | Safari / Chrome récents | **Chromium 109 — WebGL2, pas WebGPU** |
 
-Trois conséquences :
+**Deux mises en page écrites séparément**, pas une mise à l'échelle. Un cadran lisible à 40 cm
+sur un écran de téléphone et le même cadran lisible à 80 cm de biais n'ont ni la même taille
+relative, ni la même épaisseur de trait, ni la même densité d'information.
 
-1. **WebGL2 est le dénominateur commun.** Chromium 109 n'a pas WebGPU (arrivé en Chrome 113),
-   et le parc mobile n'est pas homogène. Un seul chemin de rendu pour les deux écrans.
-2. **Les deux écrans n'ont pas les mêmes capteurs.** Seule asymétrie irréductible du projet,
-   absorbée par une abstraction (§3.2) plutôt que par un chemin dégradé.
-3. **La boucle de test est asymétrique, pas le produit.** On développe au téléphone et sur
-   traces rejouables parce que c'est cent fois plus rapide, mais **chaque phase se valide dans
-   la voiture avant d'être déclarée finie**.
+Rien en dur : ni résolution, ni ratio, ni densité de pixels — la mise à jour Tesla 2026.26 a
+déjà changé la densité et cassé des applications web.
 
-> Les caractéristiques de la colonne Tesla sont à revérifier dans la voiture. Elles varient
-> par finition et par firmware, et aucune source publique ne remplace un test réel.
+**Une phase n'est finie que quand elle tourne sur les deux écrans.** On développe au téléphone
+parce que la boucle est plus rapide, mais chaque fin de phase passe par la voiture.
 
 ---
 
-## 3. Ce qui pilote la simulation
+## 6. La stack
 
-Aujourd'hui, la vitesse vient d'une pédale dessinée à l'écran. Demain elle vient de la voiture.
-C'est le seul changement de fond dans la logique existante — et c'est un gain de réalisme, pas
-une fonctionnalité en plus : le régime qu'on entend est celui qui correspond à la vitesse à
-laquelle on roule vraiment.
+### 6.1 Ce qui change, ce qui ne change pas
 
-### 3.1 Ce qu'on lit
+- **three.js sur WebGL2** pour la route et le décor. `WebGLRenderer` classique : Chromium 109
+  n'a pas WebGPU, inutile d'embarquer ce chemin.
+- **TypeScript + Vite**, découpage du mono-fichier en modules. Vitest sur la transmission et
+  la synthèse.
+- **Aucune physique, aucun serveur, aucun framework d'interface.** Le code GPS existant est
+  porté tel quel.
+- Service worker pour que tout fonctionne hors ligne après le premier chargement — ça préserve
+  l'autonomie du mono-fichier, autrement.
 
-Sans serveur, on s'en tient à ce que le navigateur expose.
+### 6.2 L'interface n'est pas dans la scène 3D
 
-**GPS — les deux écrans.** `watchPosition()`, environ 1 Hz : `coords.speed` (l'entrée
-principale), `coords.heading` (la courbure de la route), `latitude`/`longitude` (position du
-soleil, graine du monde), `altitude` (peu fiable), `timestamp`.
+Décision importante : **les compteurs restent en canvas 2D et en DOM par-dessus le canvas
+WebGL**, comme aujourd'hui.
 
-**Centrale inertielle — téléphone seulement.** `DeviceMotionEvent` à 60 Hz : accélération sur
-trois axes et vitesses de rotation. Soixante fois la cadence du GPS.
-
-*Deux pièges* : iOS exige `DeviceMotionEvent.requestPermission()` déclenché par un geste
-utilisateur — même contrainte que l'`AudioContext`, donc **un seul écran d'accueil qui demande
-les deux d'un coup**. Et le téléphone a une orientation quelconque dans la main : il faut
-estimer le repère du véhicule sur les premières secondes de roulage.
-
-*Ce qu'on ne peut pas savoir* : pas d'accès au CAN, pas de niveau de batterie, pas de
-régénération, pas de position de pédale. Le GPS et la centrale inertielle sont la totalité de
-l'entrée.
-
-### 3.2 `MotionSource` — passer de 1 Hz à 30 images par seconde
-
-Une position par seconde, une scène à 30 images par seconde. Sans traitement, le monde avance
-par à-coups une fois par seconde. C'est le défaut le plus visible qu'on puisse livrer, et
-c'est aussi celui qui ruine le plus sûrement le réalisme.
-
-**L'abstraction d'abord.** Une seule interface qui expose à chaque image un état continu —
-vitesse, cap, accélérations, taux de rotation, plus un indicateur de confiance. Deux
-implémentations derrière, et **rien d'autre dans l'application ne sait laquelle tourne** : ni
-la route, ni la caméra, ni les compteurs, ni le son.
-
-**Implémentation A — fusion de capteurs (téléphone).** Le GPS donne une vérité absolue mais
-lente et bruitée ; l'accéléromètre donne du relatif, rapide, qui dérive. On les complète l'un
-par l'autre — filtre complémentaire ou petit Kalman. Entre deux relevés GPS, l'inertie fait
-avancer le monde à 60 Hz ; à chaque relevé, la dérive accumulée se corrige sur ~300 ms, jamais
-d'un saut. Ça continue de fonctionner en tunnel.
-
-**Implémentation B — prédiction seule (écran Tesla).** Pas de centrale inertielle : on avance
-sur la dernière vitesse et la dernière accélération connues, avec le même contrat de sortie.
-Intrinsèquement moins fin, mais ce n'est pas un chemin négligé — il a ses propres tests et ses
-propres traces. En l'absence d'inertie on exploite davantage le **modèle** : une voiture ne
-change pas de vitesse arbitrairement entre deux relevés, donc borner l'accélération plausible
-récupère une bonne part de l'écart.
-
-**Dans les deux cas, une dégradation propre.** Tunnel, parking, perte de signal, permission
-refusée : le monde continue sur son erre et ralentit doucement. Il ne se fige pas, il ne plante
-pas. Un bug connu du navigateur Tesla remonte parfois un refus de permission de façon
-inattendue — ce chemin se teste, il ne se suppose pas.
-
-### 3.3 Et la transmission existante prend le relais
-
-Vitesse réelle → rapports de boîte → régime → synthèse moteur. C'est exactement la chaîne
-déjà écrite dans `moteur-sim.html`, avec une seule entrée changée. Les seuils de passage, les
-rétrogradations, la coupure au rupteur : tout fonctionne tel quel.
+- Le texte reste net à n'importe quelle densité de pixels — un cadran rendu en 3D est
+  systématiquement plus flou.
+- L'interface tourne à 60 images par seconde même si la scène est à 30.
+- Elle ne consomme pas le budget GPU de la route.
+- Et c'est bien plus rapide à itérer, ce qui compte quand c'est le cœur du projet.
 
 ---
 
-## 4. La stack
+## 7. La fluidité
 
-### 4.1 Rendu — three.js sur WebGL2
+**Scène 3D à 30 images par seconde, verrouillées. Interface à 60.** Les deux sont découplées.
 
-`WebGLRenderer` classique, pas `three/webgpu` : la cible n'a pas WebGPU, embarquer ce chemin
-alourdirait le bundle pour rien. Les quelques shaders nécessaires s'écrivent en GLSL.
+Trois raisons de plafonner la scène : sur téléphone, une application 3D qui tourne tout un
+trajet vide la batterie ; dans la voiture, l'APU sous charge coûte ~22 km d'autonomie ; et un
+téléphone qui chauffe se bride tout seul, or une chute de 60 à 35 se voit bien plus qu'un 30
+stable. La régularité est perçue comme de la fluidité, le nombre brut non.
 
-### 4.2 Physique — aucune
+Budget de la scène, à 33,3 ms : ~4 ms de logique et de soumission JS, ~26 ms de GPU, le reste
+en marge. L'interface a son propre budget de 16,7 ms, dont elle n'utilisera qu'une fraction.
 
-Personne ne pilote : la caméra avance à la vitesse réelle et tourne selon le cap réel. Il n'y
-a rien à simuler. **Pas de Rapier, pas de WASM, pas de pas de temps fixe.** Le seul filtre est
-celui du §3.2.
-
-### 4.3 Langage et outillage
-
-TypeScript + Vite. Vitest pour le filtre de fusion, la transmission, le calcul solaire et la
-génération procédurale — du code pur, testable sans GPU et **rejouable sur les traces
-enregistrées**. Aucun framework d'interface : le cockpit est du DOM nu, comme aujourd'hui.
-
-### 4.4 Pas de serveur
-
-Service worker qui met toute l'application en cache au premier chargement — ensuite, plus une
-seule requête de tout le trajet. Aucune tuile de carte, aucune API météo, aucune police
-distante. Réglages et moteurs créés en `localStorage`/IndexedDB, comme aujourd'hui. Sur
-téléphone, l'application s'installe sur l'écran d'accueil ; dans la voiture, elle devient
-indépendante de Premium Connectivity. **L'autonomie du mono-fichier est préservée, autrement.**
-
-### 4.5 Deux mises en page, pas une mise à l'échelle
-
-Le canvas 3D remplit toujours l'écran, et le champ de vision s'ajuste au ratio pour qu'on voie
-la même portion de route des deux côtés. Le cockpit, lui, est **écrit deux fois** : dense et
-au pouce en portrait, plus épuré et dimensionné pour 80 cm en paysage voiture. Rien en dur —
-ni résolution, ni ratio, ni densité : la mise à jour Tesla 2026.26 a déjà changé la densité et
-cassé des applications web.
-
----
-
-## 5. Le monde
-
-Sans serveur, reproduire la géographie réelle supposerait des tuiles vectorielles distantes —
-dépendance réseau, clé d'API, coût par requête. On génère à la place, et c'est plus robuste :
-
-**Un corridor routier procédural dont la forme suit la conduite réelle.** La route se construit
-devant soi en reprenant la courbure mesurée : quand la voiture tourne à droite, la route tourne
-à droite. Décor, relief et végétation sont semés depuis une graine dérivée de la position, donc
-**le même endroit produit toujours le même paysage** — le trajet domicile-travail est
-reconnaissable sans qu'on ait jamais chargé une carte. Le biome suit la latitude et l'altitude.
-
-Ça marche en tunnel, sans réseau, sans coût. **Ce n'est pas la vraie route** : c'en est une qui
-a sa forme, sa lumière et son rythme. Si la reconnaissance géographique littérale devenait un
-besoin, il faudrait rouvrir la question du réseau.
-
-C'est aussi un net gain sur l'existant : les huit `SCENES` actuelles sont de belles ambiances
-figées ; là, le paysage est cohérent avec l'endroit où l'on se trouve.
-
----
-
-## 6. Le réalisme
-
-Le seul axe du projet. Voici où le mettre, dans l'ordre de rendement.
-
-### 6.1 L'image
-
-1. **Ciel procédural physique** (Hosek-Wilkie ou Preetham) calculé dans un shader : aucun HDRI
-   à télécharger, juste à toute heure. **Éclairage d'environnement dérivé de ce ciel**,
-   régénéré seulement quand le soleil a bougé sensiblement.
-2. **Tone mapping ACES**, exposition adaptée à l'heure. C'est ce qui sépare « scène 3D » de
-   « photo », et c'est le plus gros écart avec le rendu actuel.
-3. **Une seule directionnelle** avec ombres en cascade — deux cascades dans la voiture, une
-   sur téléphone.
-4. **Matières PBR.** Asphalte avec normal map et **rugosité variable** — les traces de passage
-   sont plus lisses que le reste. C'est ce qui distingue une route d'un ruban gris.
-5. **Post-traitement** : SMAA, bloom discret, flou cinétique par vecteurs de vitesse,
-   vignettage — déjà présent dans le fichier actuel, l'auteur avait raison.
-
-**Le détail qui porte tout** : azimut et élévation du soleil se calculent depuis latitude,
-longitude et heure UTC. Quarante lignes d'astronomie, aucun réseau. En roulant plein ouest un
-soir de novembre, on a le soleil couchant dans le pare-brise **et** dans la scène, au même
-endroit, à la même hauteur. Pour quelqu'un qui alterne entre la vitre et l'écran, c'est ce qui
-fait basculer la perception de « décor » à « fenêtre ».
-
-Pas de météo : le ciel varie avec l'heure, un point c'est tout.
-
-### 6.2 Le son
-
-La synthèse existante est déjà le point fort du projet. Ce qui lui manque, c'est tout ce qui
-n'est pas le moteur :
-
-- **Roulement** : bruit filtré dont le timbre dépend du revêtement et le volume de la vitesse.
-- **Vent** : bruit rose filtré, ouvert avec la vitesse.
-- **Sifflement de transmission** indexé sur le régime de sortie de boîte.
-- **Réverbération contextuelle** : un `ConvolverNode` dont la réponse change en tunnel, en
-  forêt, en espace ouvert. Spectaculaire pour un coût dérisoire.
-
-Et surtout, le régime est désormais **juste** : il correspond à la vitesse à laquelle on roule
-réellement. Le moteur choisi à l'atelier s'entend au bon régime, au bon moment, avec les vraies
-montées de rapport.
-
-**Contrainte à traiter tôt** : tous les navigateurs exigent un geste utilisateur pour démarrer
-l'`AudioContext`.
-
-### 6.3 Le cockpit
-
-C'est l'identité du projet et il faut le porter proprement en 3D :
-
-- **Habitacle modélisé**, volant, montants de pare-brise, tableau de bord — la route est vue
-  *depuis* une voiture, pas d'une caméra flottante.
-- **Aiguilles physiques** qui oscillent, avec l'inertie d'une vraie aiguille.
-- **Compteurs justes** : la vitesse affichée est la vraie vitesse, le régime est celui de la
-  transmission alimentée par elle.
-- **Ombres portées de l'habitacle** sur le tableau de bord, qui bougent avec le soleil réel.
-- L'atelier moteur reste ce qu'il est aujourd'hui : plein écran, avec son banc d'essai.
-
-### 6.4 Le mouvement
-
-- **Flou cinétique par vecteurs de vitesse**, indexé sur la vitesse réelle.
-- **Champ de vision qui s'ouvre avec la vitesse**, très légèrement.
-- **Aucune secousse de caméra.** L'occupant ressent déjà les vraies secousses dans son corps ;
-  en ajouter à l'image crée un conflit sensoriel désagréable, et sur un téléphone tenu en main
-  dans une voiture qui bouge, un vrai risque de nausée. Stabilité absolue.
-
----
-
-## 7. La fluidité : 30 FPS verrouillés
-
-Les deux écrans pourraient viser 60 images par seconde. On ne le fera sur aucun des deux.
-
-1. **L'énergie.** Sur téléphone, une application 3D qui tourne tout un trajet vide la batterie.
-   Dans la voiture, l'APU sous charge coûte ~22 km d'autonomie.
-2. **La chaleur.** Un téléphone qui chauffe se bride tout seul, et une chute de 60 à 35 se voit
-   bien plus qu'un 30 stable. La régularité est perçue comme de la fluidité ; le nombre brut, non.
-3. **L'image.** Les 16 ms récupérées vont dans la lumière, les ombres et le flou cinétique.
-   C'est l'arbitrage demandé : du réalisme, en restant fluide.
-
-### 7.1 Budget d'image — 33,3 ms, identique sur les deux écrans
-
-| Poste | Budget |
-|---|---|
-| Télémétrie, fusion, transmission | 2 ms |
-| Audio | 1 ms |
-| Génération procédurale (amortie) | 2 ms |
-| Soumission du rendu (JS) | 4 ms |
-| GPU | 20 ms |
-| Marge | 4,3 ms |
-
-Le budget ne change pas d'un écran à l'autre. **Ce qui change, c'est ce qu'on fait tenir dans
-les 20 ms de GPU.**
-
-### 7.2 Deux profils, tenus tous les deux
-
-| | **Téléphone** | **Écran Tesla** |
-|---|---|---|
-| Échelle de rendu | 0,6 · plancher 0,45 | 0,7 · plancher 0,55 |
-| Appels de dessin | ≤ 90 | ≤ 200 |
-| Triangles visibles | ≤ 200 k | ≤ 700 k |
-| Ombres | 1 cascade 1024 | 2 cascades 2048 |
-| Post-traitement | tone mapping, vignettage, flou simplifié | + flou par vecteurs, SMAA |
-| Distance de vue | 350 m | 700 m |
-| **Plancher** | **30 FPS** | **30 FPS** |
-
-Deux cibles de livraison, pas un profil et sa version dégradée : chacun est accordé pour être
-beau à son échelle, et un profil qui casse bloque la livraison, quel qu'il soit.
-
-### 7.3 Les techniques
-
-1. **Génération amortie** : jamais une tuile entière dans une seule image. Un à-coup de
-   génération est plus visible que dix images moins belles.
-2. **`InstancedMesh` pour tout ce qui se répète.** Le corridor entier sous une centaine
-   d'appels de dessin.
-3. **Échelle de rendu adaptative** : on rend sous la résolution native et on remonte.
-4. **Culling par tuiles** le long du corridor.
-5. **Objets recyclés** : aucune allocation en régime établi — un ramasse-miettes au mauvais
-   moment, c'est une saccade.
-6. **Distance de vue courte, brouillard atmosphérique généreux**, cohérent avec le ciel physique.
-
-### 7.4 Vérification
-
-Un test Playwright rejoue trois traces enregistrées **dans les deux formats et sur les deux
-profils**, avec les deux implémentations de `MotionSource` : six combinaisons, une seule barre
-à 33,3 ms. C'est le garde-fou qui empêche l'écran Tesla de dériver pendant qu'on travaille au
-téléphone. Mais les seuls chiffres qui comptent sont mesurés sur un vrai téléphone et dans la
-vraie voiture.
+**Les techniques qui comptent** : `InstancedMesh` pour tout ce qui se répète, échelle de rendu
+adaptative (on rend sous la résolution native et on remonte — décisif à 2,5K), culling par
+tuiles, objets recyclés pour n'allouer rien en régime établi, distance de vue courte avec
+brouillard généreux.
 
 ---
 
 ## 8. Phases
 
-**Une phase n'est finie que quand elle tourne sur les deux écrans.**
-
 ### Phase 0 — Fondations *(~1 semaine)*
 - Vite + TypeScript ; `legacy/moteur-sim.html` déplacé et toujours servi ; `index.html`
   devient le hub à deux entrées.
-- **Extraction de la synthèse moteur** et de la transmission, avec tests de non-régression.
-- Squelette de déploiement HTTPS — la Geolocation API exige un contexte sécurisé, donc sans
-  ça il n'y a pas de phase 1.
-- ✅ *Le hub, et le jeu actuel intact derrière.*
+- Découpage du mono-fichier : synthèse moteur, transmission, GPS, rendu — chacun dans son
+  module, avec tests de non-régression sur l'audio.
+- Squelette de déploiement HTTPS (la Geolocation API exige un contexte sécurisé).
+- **Sonde WebGL** : une page qui mesure, dans la voiture et sur le téléphone, combien de
+  triangles tiennent à 30 FPS. Une demi-journée, et c'est la seule inconnue matérielle qui
+  reste.
+- ✅ *Le hub, le jeu actuel intact derrière, et un chiffre de budget géométrique.*
 
-### Phase 1 — Vérité terrain *(~1 semaine)* — 🚦 **avant tout le reste**
-- Une page de mesure ouverte **sur le téléphone** puis **dans la voiture** : cadence réelle du
-  GPS, `coords.speed` renseigné ou non, cadence de `DeviceMotion`, comportement des
-  permissions, densité de pixels réelle, et combien de triangles un WebGL2 nu tient à 30 FPS.
-- **Enregistrement de traces** GPS + inertie sur trois trajets types. Elles deviennent le jeu
-  de test de tout le projet.
-- ✅ *Deux jeux de mesures et trois traces rejouables.*
-- 🚦 Aucune ligne de moteur 3D avant ces chiffres.
+### Phase 1 — Le langage visuel *(~1–2 semaines)*
+- Maquettes de l'écran principal, **dans les deux formats**, jusqu'à ce que ce soit juste.
+- Le système : matières, source de lumière, rayons, ombres, typographie, échelle, durées
+  d'animation, états.
+- Un cadran de référence implémenté pour de bon, pas une image — c'est lui qui valide le système.
+- ✅ *On sait à quoi ça ressemble, et on l'a vu sur les deux écrans.*
+- 🚦 **C'est ici que le projet se joue.** Si le langage visuel n'est pas au niveau, tout le
+  reste n'y changera rien.
 
-### Phase 2 — Le mouvement juste *(~2–3 semaines)*
-- `MotionSource` et ses deux implémentations, testées sur les traces.
-- Transmission existante rebranchée sur la vitesse réelle ; compteurs justes.
-- Corridor procédural, semis par graine de position, recyclage des tuiles.
-- ✅ *On roule, la route avance à la vraie vitesse, le compte-tours dit vrai.*
+### Phase 2 — L'interface refaite *(~2 semaines)*
+- Tous les compteurs, les commandes, les menus, le HUD, aux deux formats.
+- L'atelier moteur en vrai banc de réglage.
+- États complets : allumage, veille, alerte, perte de GPS.
+- ✅ *L'interface complète, au niveau de finition visé.*
 
-### Phase 3 — La lumière *(~2–3 semaines)*
-- Ciel physique, soleil réel, ACES, ombres en cascade, matières PBR.
-- Verrouillage 30 FPS, échelle de rendu adaptative, les deux profils accordés séparément.
-- Les deux mises en page.
-- ✅ *L'écart avec le rendu canvas actuel est flagrant.*
+### Phase 3 — La scène en WebGL *(~2 semaines)*
+- Socle : route, véhicules et décor portés depuis le rasteriseur canvas, éclairage
+  directionnel et ombres en cascade, atmosphère.
+- Les huit scènes existantes reportées avec leurs réglages d'ambiance, plus un angle et une
+  intensité de lumière par scène.
+- Verrouillage 30 FPS, échelle de rendu adaptative, découplage d'avec l'interface.
+- ✅ *On roule en WebGL, à budget tenu.*
 
-### Phase 4 — Le son et le cockpit *(~2 semaines)*
-- Roulement, vent, sifflement de transmission, réverbération contextuelle.
-- Écran d'accueil unique : audio + capteurs en un geste.
-- Habitacle modélisé, aiguilles physiques, ombres portées.
-- Atelier moteur porté, avec son banc d'essai.
-- ✅ *Le cockpit complet, en 3D, qui sonne juste.*
+### Phase 4 — La scène au niveau *(~2 semaines)*
+- Revêtement, rugosité variable, marquages correctement filtrés, bords de chaussée.
+- Densité et LOD des côtés, arrière-plan en couches, perspective atmosphérique.
+- Nez de véhicule en avant-plan par scène.
+- Variantes de revêtement, route mouillée.
+- ✅ *L'écart avec le rendu actuel est flagrant, des deux côtés.*
 
-### Phase 5 — Profondeur *(~2 semaines)*
-- Végétation, biomes par latitude et altitude, cycle jour/nuit complet, éclairage nocturne.
-- Flou cinétique, brouillard atmosphérique, finitions de matières.
-- ✅ *Ça ressemble à une fenêtre, pas à un décor.*
+### Phase 5 — Finition *(~1 semaine)*
+- Passe de perf dans la voiture et sur téléphone, mesure de consommation sur un trajet long.
+- Ajustements de lisibilité à 80 cm.
+- ✅ *Livrable.*
 
-### Phase 6 — Finition *(continu)*
-- Davantage de biomes, de moteurs, de variations d'ambiance.
+**~8 semaines**, contre 11 dans la révision précédente — parce qu'une bonne partie de ce que
+j'avais planifié est déjà dans le fichier.
 
 ---
 
@@ -389,34 +290,25 @@ vraie voiture.
 
 | Risque | Gravité | Réponse |
 |---|---|---|
-| **Les capteurs ne donnent pas ce qu'on croit** | Élevée | Tout l'objet de la phase 1, sur les deux écrans. Une semaine, avant tout engagement d'architecture. |
-| **Le monde avance par à-coups** | Élevée | `MotionSource` est la phase 2, avant le rendu, testée sur traces rejouables. Le défaut le plus destructeur pour le réalisme. |
-| **L'écran Tesla dérive pendant qu'on développe au téléphone** | Élevée | Mesures dans la voiture dès la phase 1, validation des deux à chaque fin de phase, six combinaisons en intégration continue. |
-| **Nausée** | Moyenne | Caméra absolument stable, aucune secousse ajoutée. À tester tôt sur de vrais passagers. |
-| **Batterie et chauffe du téléphone** | Moyenne | 30 FPS verrouillés, échelle de rendu basse, veille dès l'arrêt. Mesurer sur un trajet d'une heure en phase 3. |
-| **Le procédural ne « ressemble » pas assez à la vraie route** | Moyenne | Assumé au §5. Si la reconnaissance littérale devient un besoin, rouvrir la question du réseau. |
-| **Régression de la synthèse audio à l'extraction** | Faible | Tests de non-régression ; le legacy reste jouable côte à côte pour comparer à l'oreille. |
+| **Le langage visuel n'atteint pas le niveau visé** | Élevée | C'est le risque principal, et c'est un risque de design, pas de technique. D'où une phase 1 dédiée, avec des maquettes avant tout code, et un cadran de référence réellement implémenté pour valider. |
+| **Illisible à 80 cm dans la voiture** | Moyenne | Les deux formats sont maquettés dès la phase 1, et vérifiés dans la voiture — pas sur un navigateur redimensionné. |
+| **La scène n'atteint pas le niveau visé** | Élevée | Même nature que le risque précédent, sur l'autre front. La route se traite en premier (§4.1) : c'est 90 % de ce qu'on regarde, et le reste peut se densifier progressivement. |
+| **Le GPU Tesla ne tient pas la scène** | Moyenne | La sonde WebGL est en phase 0, avant tout engagement. La densité des côtés et la distance de vue sont les deux variables d'ajustement, sans toucher à la route elle-même. |
+| **Scintillement des marquages au sol** | Moyenne | Mipmaps et filtrage anisotrope dès le premier jet de la route, pas en correctif. C'est le défaut le plus visible d'une route en 3D. |
+| **Régression de la synthèse audio au découpage** | Moyenne | Tests de non-régression sur la sortie ; le legacy reste jouable côte à côte pour comparer à l'oreille. |
+| **Batterie et chauffe du téléphone** | Faible | 30 FPS verrouillés sur la scène, échelle de rendu basse, veille dès l'arrêt. |
 
 ---
 
 ## 10. Par où commencer
 
-1. **La phase 1, cette semaine, sur les deux écrans.** Une page de mesure, un trajet avec le
-   téléphone, un trajet avec la page ouverte dans la voiture.
-2. **Extraire la synthèse moteur** en parallèle — travail sûr, indépendant du reste, et c'est
-   la pièce irremplaçable du projet.
-3. **Puis `MotionSource` et ses deux implémentations**, avec leurs tests, avant la moindre
-   ligne de rendu.
-4. **Ensuite seulement**, la route et la lumière.
+1. **Phase 0**, qui est du travail sûr : découpage, hub, et la sonde WebGL pour connaître le
+   budget géométrique.
+2. **Puis les maquettes de la phase 1** — cadrans *et* une image de la route visée — dans les
+   deux formats. C'est là que le projet se décide, et ça ne demande pas une ligne de moteur 3D.
 
-Le plan tient en ~11 semaines. Aucune physique, aucun serveur, aucune fonctionnalité nouvelle
-au-delà du réalisme : on remplace le rasteriseur et on branche la vraie voiture à la place des
-pédales à l'écran. Tout le reste du fichier actuel survit.
-
----
-
-## Annexe — sources consultées
-
-- Navigateur Tesla : [passage à Chromium](https://www.teslarati.com/tesla-chromium-in-car-web-browser/) · [Geolocation API](https://forums.tesla.com/forum/forums/web-browser-59-supports-geolocation-api) · [bug de permission connu](https://github.com/Leaflet/Leaflet/issues/7157) · [mise à jour été 2026](https://codriver.io/guides/tesla-browser-summer-2026-update)
-- Matériel : [MCU2 vs MCU3](https://www.notateslaapp.com/news/2417/tesla-intel-atom-mcu-2-and-amd-ryzen-mcu-3-feature-differences-and-how-to-tell-what-you-have) · [APU Ryzen et autonomie](https://insideevs.com/news/588007/tesla-showdown-old-intel-gpu-vs-new-amd-apu/) · [écran Model Y 2026](https://tslablog.com/vehicles/2026-model-y-juniper-premium-awd/)
-- three.js : [état 2026](https://www.utsubo.com/blog/threejs-2026-what-changed) · [100 astuces de performance](https://www.utsubo.com/blog/threejs-best-practices-100-tips)
+Une question ouverte avant de maquetter : **quelle référence visuelle ?** Un tableau de bord
+d'hypercar moderne, un HUD de jeu de course type Forza / Gran Turismo, ou un registre plus
+instrument d'aviation. La palette actuelle (ambre, cyan, métal, fond presque noir) marche pour
+les trois, mais le dessin des cadrans et le traitement de la route changent complètement selon
+la réponse.
