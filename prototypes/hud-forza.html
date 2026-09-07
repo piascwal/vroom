@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Vroom HUD</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --ground:#05070a;
+    --ink:#f4f7fa;
+    --ink-2:#9fa9b5;
+    --ink-3:#5e6773;
+    --amber:#ff8c3c;
+    --mint:#5eead4;
+    --red:#ff3b3b;
+    --green:#7ddc5a;
+    --panel:rgba(9,13,19,.62);
+    --edge:rgba(255,255,255,.10);
+  }
+  body{ background:var(--ground); color:var(--ink); font-family:'Barlow',system-ui,sans-serif; }
+  *{ box-sizing:border-box; }
+
+  .wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 60px; display:flex; flex-direction:column; gap:18px; }
+
+  /* ---- en-tête ---- */
+  header{ display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:14px; }
+  .title h1{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:30px; letter-spacing:.01em;
+    margin:0; line-height:1.05; text-transform:uppercase;
+  }
+  .title p{ margin:4px 0 0; font-size:13.5px; color:var(--ink-2); max-width:58ch; line-height:1.5; }
+  .title .tag{
+    font-family:'Barlow',sans-serif; font-size:10.5px; font-weight:600; letter-spacing:.18em; text-transform:uppercase;
+    color:var(--amber); display:block; margin-bottom:5px;
+  }
+
+  .ctl{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .seg{ display:flex; border:1px solid var(--edge); border-radius:3px; overflow:hidden; }
+  .seg button{
+    appearance:none; border:0; background:transparent; color:var(--ink-2); cursor:pointer;
+    font-family:'Barlow',sans-serif; font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+    padding:8px 13px; transition:background .15s ease, color .15s ease;
+  }
+  .seg button + button{ border-left:1px solid var(--edge); }
+  .seg button[aria-pressed="true"]{ background:rgba(255,140,60,.16); color:var(--amber); }
+  .seg button:focus-visible{ outline:2px solid var(--amber); outline-offset:-2px; }
+  .slider{ display:flex; align-items:center; gap:9px; }
+  .slider label{ font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); }
+  .slider input{ width:130px; accent-color:var(--amber); }
+  .slider input:disabled{ opacity:.3; }
+
+  /* ---- scène ---- */
+  .stage{
+    position:relative; width:100%; border:1px solid var(--edge); border-radius:4px; overflow:hidden;
+    background:#04060a; transition:max-width .3s ease;
+  }
+  .stage.landscape{ aspect-ratio:16/10; max-width:100%; }
+  .stage.portrait{ aspect-ratio:390/844; max-width:390px; margin:0 auto; }
+  .stage canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .hud{ position:absolute; inset:0; pointer-events:none; }
+
+  /* ---- grappe HUD ---- */
+  .cluster{
+    position:absolute; left:50%; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  .stage.landscape .cluster{ bottom:5.5%; width:min(30%,270px); }
+  .stage.portrait  .cluster{ bottom:9%;   width:74%; }
+
+  /* témoins de passage */
+  .shift{ display:flex; gap:3px; width:82%; }
+  .shift i{
+    flex:1; height:5px; border-radius:1px; background:rgba(255,255,255,.09);
+    transition:background .06s linear, box-shadow .06s linear;
+  }
+  .shift i.on-g{ background:var(--green); box-shadow:0 0 7px rgba(125,220,90,.75); }
+  .shift i.on-a{ background:var(--amber); box-shadow:0 0 7px rgba(255,140,60,.8); }
+  .shift i.on-r{ background:var(--red);   box-shadow:0 0 9px rgba(255,59,59,.9); }
+
+  .dialwrap{
+    position:relative; width:100%; padding:14px 12px 12px; border-radius:6px;
+    background:var(--panel); border:1px solid var(--edge);
+    backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+  }
+  svg.dial{ display:block; width:100%; height:auto; overflow:visible; }
+  .arc-bg{ fill:none; stroke:rgba(255,255,255,.12); stroke-linecap:round; }
+  .arc-red{ fill:none; stroke:var(--red); stroke-linecap:butt; opacity:.85; }
+  .arc-val{ fill:none; stroke:var(--amber); stroke-linecap:round; filter:drop-shadow(0 0 5px rgba(255,140,60,.6)); transition:stroke .1s linear; }
+  .arc-val.warn{ stroke:var(--red); filter:drop-shadow(0 0 8px rgba(255,59,59,.75)); }
+  .tick{ stroke:rgba(255,255,255,.34); }
+  .tick.major{ stroke:rgba(255,255,255,.6); }
+  .ticknum{ fill:var(--ink-3); font-family:'Barlow',sans-serif; font-size:11px; font-weight:600; text-anchor:middle; dominant-baseline:middle; }
+
+  .readout{
+    position:absolute; left:12px; right:12px; top:14px; aspect-ratio:220/190;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; padding-top:7%;
+  }
+  .gear{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; line-height:.86;
+    font-size:clamp(44px,17cqw,80px); letter-spacing:-.02em; color:var(--ink);
+    font-variant-numeric:tabular-nums;
+  }
+  .gear.warn{ color:var(--red); }
+  .speed{ display:flex; align-items:baseline; gap:5px; margin-top:2px; }
+  .speed b{
+    font-family:'Barlow Condensed',sans-serif; font-weight:600; line-height:1;
+    font-size:clamp(22px,8.4cqw,38px); color:var(--ink); font-variant-numeric:tabular-nums;
+  }
+  .speed span{ font-size:clamp(9px,2.6cqw,12px); font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); }
+  .dialwrap{ container-type:inline-size; }
+
+  .rpmline{
+    display:flex; justify-content:space-between; align-items:baseline; width:100%;
+    margin-top:4px; padding:0 4px;
+    font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3);
+  }
+  .rpmline b{ font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:15px; letter-spacing:.02em; color:var(--ink-2); font-variant-numeric:tabular-nums; }
+
+  /* bandeau latéral : régime numérique + moteur, façon Forza */
+  .side{
+    position:absolute; display:flex; flex-direction:column; gap:9px;
+  }
+  .stage.landscape .side{ left:3%; bottom:6%; }
+  .stage.portrait  .side{ left:5%; top:4.5%; flex-direction:row; gap:8px; }
+  .pill{
+    background:var(--panel); border:1px solid var(--edge); border-radius:4px; padding:7px 11px;
+    backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); min-width:96px;
+  }
+  .pill dt{ font-size:9.5px; font-weight:600; letter-spacing:.15em; text-transform:uppercase; color:var(--ink-3); margin:0; }
+  .pill dd{ margin:2px 0 0; font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:19px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .pill dd.sm{ font-family:'Barlow',sans-serif; font-size:13px; font-weight:600; letter-spacing:.01em; }
+
+  /* ---- notes ---- */
+  .notes{ display:grid; gap:1px; background:var(--edge); border:1px solid var(--edge); border-radius:4px; overflow:hidden; grid-template-columns:1fr; }
+  @media (min-width:760px){ .notes{ grid-template-columns:repeat(3,1fr); } }
+  .notes > div{ background:#080b10; padding:15px 17px; }
+  .notes h3{
+    margin:0 0 7px; font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:15px;
+    text-transform:uppercase; letter-spacing:.04em; color:var(--amber);
+  }
+  .notes ul{ margin:0; padding-left:1.05em; display:flex; flex-direction:column; gap:6px; font-size:13.5px; color:var(--ink-2); line-height:1.5; }
+  .notes b{ color:var(--ink); font-weight:600; }
+  .foot{ font-size:12.5px; color:var(--ink-3); line-height:1.6; max-width:78ch; }
+  .foot b{ color:var(--ink-2); font-weight:600; }
+
+  @media (prefers-reduced-motion:reduce){ *{ transition:none !important; } }
+</style>
+
+<style>*{box-sizing:border-box}html,body{margin:0;padding:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <span class="tag">Vroom · cadran de référence · phase 1</span>
+      <h1>HUD registre Forza</h1>
+      <p>Arc de compte-tours, rapport au centre, vitesse dessous, témoins de passage au-dessus. Translucide et
+        lumineux — aucune lunette métal, aucun verre, aucune skeuomorphie. La boîte, les rapports et les seuils de
+        passage sont ceux du fichier actuel.</p>
+    </div>
+    <div class="ctl">
+      <div class="seg" role="group" aria-label="Format d'écran">
+        <button id="bL" aria-pressed="true">Paysage · Tesla</button>
+        <button id="bP" aria-pressed="false">Portrait · téléphone</button>
+      </div>
+      <div class="seg" role="group" aria-label="Source de vitesse">
+        <button id="bAuto" aria-pressed="true">Trajet simulé</button>
+        <button id="bMan" aria-pressed="false">Manuel</button>
+      </div>
+      <div class="slider">
+        <label for="sp">Vitesse</label>
+        <input id="sp" type="range" min="0" max="220" value="0" step="1" disabled>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage landscape" id="stage">
+    <canvas id="road"></canvas>
+    <div class="hud">
+      <div class="side">
+        <dl class="pill"><dt>Régime</dt><dd id="pRpm">0</dd></dl>
+        <dl class="pill"><dt>Moteur</dt><dd class="sm">V8 Compétition</dd></dl>
+      </div>
+      <div class="cluster">
+        <div class="shift" id="shift" aria-hidden="true"></div>
+        <div class="dialwrap">
+          <svg class="dial" viewBox="0 0 220 190" role="img" aria-label="Compte-tours en arc, de 0 à 7000 tours par minute, zone rouge à partir de 6300.">
+            <path class="arc-bg"  d="M32.06,155 A90,90 0 1 1 187.94,155" stroke-width="9"></path>
+            <path class="arc-val" d="M32.06,155 A90,90 0 1 1 187.94,155" stroke-width="9"
+                  stroke-dasharray="377" stroke-dashoffset="377" id="arc"></path>
+            <g id="ticks"></g>
+          </svg>
+          <div class="readout">
+            <div class="gear" id="gear">N</div>
+            <div class="speed"><b id="spd">0</b><span>km/h</span></div>
+          </div>
+          <div class="rpmline"><span>tr/min</span><b id="rpm">0</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div>
+      <h3>Ce qui vient de Forza</h3>
+      <ul>
+        <li><b>Arc</b> plutôt que cadran circulaire complet — 240°, le rapport occupe le centre.</li>
+        <li><b>Témoins de passage</b> qui se remplissent vert → ambre → rouge à l'approche du rupteur.</li>
+        <li><b>Panneaux translucides</b> avec flou d'arrière-plan, traits fins et lumineux.</li>
+        <li><b>Condensée géométrique</b> pour les chiffres, chasse tabulaire pour qu'ils ne dansent pas.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Ce qui vient du projet</h3>
+      <ul>
+        <li>La palette : ambre <b>#ff8c3c</b>, rouge de rupteur, fond presque noir.</li>
+        <li>Les <b>rapports réels</b> du fichier — 8 vitesses, pont 3,9, seuil de passage à 97 % de la plage.</li>
+        <li>Le profil <b>V8 Compétition</b> : ralenti 900, rupteur 7000.</li>
+        <li>Le HUD est <b>en 2D par-dessus</b> la scène, jamais dedans.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Deux formats, pas une échelle</h3>
+      <ul>
+        <li><b>Paysage</b> : grappe compacte en bas au centre, régime déporté à gauche.</li>
+        <li><b>Portrait</b> : grappe élargie en bas, sous le pouce ; les pastilles remontent en haut.</li>
+        <li>Les tailles ne sont pas mises à l'échelle : elles sont <b>redéfinies</b> pour la distance de lecture.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="foot">
+    <b>Ce que ce prototype vaut.</b> L'arrière-plan est un canvas 2D volontairement sommaire — il n'est là que pour
+    juger la lisibilité du HUD sur une route en mouvement, ce n'est pas la scène WebGL de la phase 3. En revanche
+    la boîte de vitesses est réelle : passages, rétrogradations et rupteur reprennent les constantes de
+    <b>moteur-sim.html</b>. À regarder sur téléphone et dans la voiture avant d'aller plus loin.
+  </p>
+</div>
+
+<script>
+(function(){
+  // --- constantes reprises de moteur-sim.html -----------------------------------------
+  var RATIOS = [6.5, 4.1, 2.75, 2.05, 1.72, 1.46, 1.24, 1.05];
+  var FINAL_DRIVE = 3.9, WHEEL_FACTOR = 0.1131;
+  var IDLE = 900, REDLINE = 7000, MAXDISP = 7500;   // profil « V8 Compétition »
+  var SHIFT_UP = 0.97, SHIFT_DOWN = 0.24;
+
+  var ARC_LEN = 377, SWEEP = 240, A0 = 150, CX = 110, CY = 110, R = 90;
+
+  function rpmFor(speedKmh, gear){
+    return (speedKmh / WHEEL_FACTOR) * RATIOS[gear - 1] * FINAL_DRIVE;
+  }
+  function pt(a, r){
+    var rad = a * Math.PI / 180;
+    return [CX + r * Math.cos(rad), CY + r * Math.sin(rad)];
+  }
+
+  // --- graduations --------------------------------------------------------------------
+  // Pas de chiffres sur l'arc : Forza n'en met pas, et ils encombraient le centre où vivent
+  // le rapport et la vitesse. Seules les graduations restent, en deux longueurs.
+  var g = document.getElementById('ticks'), parts = [];
+  for(var k = 0; k <= 15; k++){
+    var rv = k * 500, major = (k % 2 === 0);
+    var a = A0 + (rv / MAXDISP) * SWEEP;
+    var p1 = pt(a, major ? 72 : 77), p2 = pt(a, 81);
+    parts.push('<line class="tick' + (major ? ' major' : '') + '" x1="' + p1[0].toFixed(1) + '" y1="' + p1[1].toFixed(1) +
+               '" x2="' + p2[0].toFixed(1) + '" y2="' + p2[1].toFixed(1) + '" stroke-width="' + (major ? 2 : 1) + '"></line>');
+  }
+  // Zone rouge : un arc fin à l'extérieur, pas une bande sous la valeur — sinon elle dépasse
+  // du remplissage et se lit comme un défaut d'affichage.
+  var aR = A0 + (REDLINE / MAXDISP) * SWEEP, aM = A0 + SWEEP;
+  var q1 = pt(aR, 101), q2 = pt(aM, 101);
+  parts.push('<path class="arc-red" d="M' + q1[0].toFixed(1) + ',' + q1[1].toFixed(1) +
+             ' A101,101 0 0 1 ' + q2[0].toFixed(1) + ',' + q2[1].toFixed(1) + '" stroke-width="3"></path>');
+  g.innerHTML = parts.join('');
+
+  // --- témoins de passage --------------------------------------------------------------
+  var SEGS = 12, shiftEl = document.getElementById('shift'), segs = [];
+  for(var i = 0; i < SEGS; i++){ var e = document.createElement('i'); shiftEl.appendChild(e); segs.push(e); }
+
+  // --- état ----------------------------------------------------------------------------
+  var st = { speed: 0, gear: 1, rpm: IDLE, auto: true, target: 0, phase: 0, t: 0 };
+  var stage = document.getElementById('stage');
+  var arc = document.getElementById('arc'), gearEl = document.getElementById('gear');
+  var spdEl = document.getElementById('spd'), rpmEl = document.getElementById('rpm'), pRpm = document.getElementById('pRpm');
+  var slider = document.getElementById('sp');
+
+  function setFormat(portrait){
+    stage.classList.toggle('portrait', portrait);
+    stage.classList.toggle('landscape', !portrait);
+    document.getElementById('bP').setAttribute('aria-pressed', String(portrait));
+    document.getElementById('bL').setAttribute('aria-pressed', String(!portrait));
+    sizeCanvas();
+  }
+  document.getElementById('bL').onclick = function(){ setFormat(false); };
+  document.getElementById('bP').onclick = function(){ setFormat(true); };
+  function setAuto(on){
+    st.auto = on;
+    document.getElementById('bAuto').setAttribute('aria-pressed', String(on));
+    document.getElementById('bMan').setAttribute('aria-pressed', String(!on));
+    slider.disabled = on;
+    if(!on) slider.value = Math.round(st.speed);
+  }
+  document.getElementById('bAuto').onclick = function(){ setAuto(true); };
+  document.getElementById('bMan').onclick = function(){ setAuto(false); };
+
+  // --- arrière-plan : route sommaire, juste pour juger la lisibilité --------------------
+  var cv = document.getElementById('road'), ctx = cv.getContext('2d'), W = 0, H = 0, dash = 0;
+  function sizeCanvas(){
+    var r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', sizeCanvas);
+
+  function drawRoad(dt){
+    var hz = H * 0.42;                                  // horizon
+    var sky = ctx.createLinearGradient(0, 0, 0, hz);
+    sky.addColorStop(0, '#0a1421'); sky.addColorStop(1, '#33506e');
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, hz);
+    // liseré d'horizon : sans lui, le ciel est un aplat mort
+    var hg = ctx.createLinearGradient(0, hz - H * 0.09, 0, hz);
+    hg.addColorStop(0, 'rgba(120,160,200,0)'); hg.addColorStop(1, 'rgba(150,185,220,.30)');
+    ctx.fillStyle = hg; ctx.fillRect(0, hz - H * 0.09, W, H * 0.09);
+
+    // bas-côté nettement plus clair que la chaussée, sinon la route ne se lit pas
+    var gr = ctx.createLinearGradient(0, hz, 0, H);
+    gr.addColorStop(0, '#3c4a44'); gr.addColorStop(1, '#1a231f');
+    ctx.fillStyle = gr; ctx.fillRect(0, hz, W, H - hz);
+
+    // chaussée en perspective
+    var cxp = W / 2, wTop = W * 0.045, wBot = W * 1.5;
+    var rg = ctx.createLinearGradient(0, hz, 0, H);
+    rg.addColorStop(0, '#2a2f36'); rg.addColorStop(1, '#0e1116');
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.moveTo(cxp - wTop / 2, hz); ctx.lineTo(cxp + wTop / 2, hz);
+    ctx.lineTo(cxp + wBot / 2, H); ctx.lineTo(cxp - wBot / 2, H);
+    ctx.closePath(); ctx.fill();
+
+    // bandes centrales : leur défilement suit la vitesse
+    dash = (dash + st.speed * dt * 0.55) % 1;
+    ctx.fillStyle = 'rgba(236,238,242,.72)';
+    for(var i = 0; i < 22; i++){
+      var f0 = ((i + dash) / 22), f1 = f0 + 0.022;
+      if(f1 > 1) continue;
+      var y0 = hz + (H - hz) * f0 * f0, y1 = hz + (H - hz) * f1 * f1;
+      var w0 = (wTop + (wBot - wTop) * f0 * f0) * 0.016, w1 = (wTop + (wBot - wTop) * f1 * f1) * 0.016;
+      ctx.beginPath();
+      ctx.moveTo(cxp - w0, y0); ctx.lineTo(cxp + w0, y0);
+      ctx.lineTo(cxp + w1, y1); ctx.lineTo(cxp - w1, y1);
+      ctx.closePath(); ctx.fill();
+    }
+    // bords
+    ctx.strokeStyle = 'rgba(236,238,242,.55)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cxp - wTop / 2, hz); ctx.lineTo(cxp - wBot / 2, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cxp + wTop / 2, hz); ctx.lineTo(cxp + wBot / 2, H); ctx.stroke();
+    // assombrissement bas, pour que le HUD se détache
+    var vg = ctx.createLinearGradient(0, H * 0.55, 0, H);
+    vg.addColorStop(0, 'rgba(4,6,10,0)'); vg.addColorStop(1, 'rgba(4,6,10,.72)');
+    ctx.fillStyle = vg; ctx.fillRect(0, H * 0.55, W, H * 0.45);
+  }
+
+  // --- boucle --------------------------------------------------------------------------
+  var last = performance.now();
+  function frame(now){
+    var dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+    if(st.auto){
+      // trajet : accélération franche, palier, décélération, arrêt, on recommence
+      st.t += dt;
+      var cyc = st.t % 34;
+      if(cyc < 13)      st.target = 165;
+      else if(cyc < 21) st.target = 118;
+      else if(cyc < 27) st.target = 62;
+      else              st.target = 0;
+      var k = st.target > st.speed ? 0.55 : 0.9;
+      st.speed += (st.target - st.speed) * Math.min(1, dt * k);
+      if(st.speed < 0.4) st.speed = 0;
+    } else {
+      st.speed += (parseFloat(slider.value) - st.speed) * Math.min(1, dt * 4);
+    }
+
+    // boîte : mêmes seuils que le fichier actuel, en fractions de la plage ralenti-rupteur
+    var span = REDLINE - IDLE;
+    var up = IDLE + SHIFT_UP * span, down = IDLE + SHIFT_DOWN * span;
+    var r = rpmFor(st.speed, st.gear);
+    if(r > up && st.gear < RATIOS.length){ st.gear++; r = rpmFor(st.speed, st.gear); }
+    else if(r < down && st.gear > 1){ st.gear--; r = rpmFor(st.speed, st.gear); }
+    st.rpm = st.speed < 1 ? IDLE : Math.max(IDLE, Math.min(REDLINE, r));
+
+    // --- rendu du HUD ---
+    var f = Math.min(1, st.rpm / MAXDISP);
+    arc.setAttribute('stroke-dashoffset', (ARC_LEN * (1 - f)).toFixed(1));
+    var hot = st.rpm >= REDLINE - 250;
+    arc.classList.toggle('warn', hot);
+
+    var moving = st.speed >= 1;
+    gearEl.textContent = moving ? String(st.gear) : 'N';
+    gearEl.classList.toggle('warn', hot && moving);
+    spdEl.textContent = Math.round(st.speed);
+    var rr = Math.round(st.rpm / 10) * 10;
+    rpmEl.textContent = rr.toLocaleString('fr-FR');
+    pRpm.textContent = rr.toLocaleString('fr-FR');
+
+    // témoins : ils ne s'allument que sur le dernier tiers de la plage
+    var lit = Math.round(Math.max(0, (st.rpm - (IDLE + span * 0.62)) / (span * 0.38)) * SEGS);
+    for(var i = 0; i < SEGS; i++){
+      var e = segs[i];
+      e.className = i < lit ? (i < SEGS * 0.5 ? 'on-g' : (i < SEGS * 0.83 ? 'on-a' : 'on-r')) : '';
+    }
+
+    drawRoad(dt);
+    requestAnimationFrame(frame);
+  }
+
+  sizeCanvas();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
