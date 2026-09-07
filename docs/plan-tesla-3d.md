@@ -265,8 +265,10 @@ la même hauteur, avec la même couleur.
 Pour le passager qui alterne entre la vitre et son écran, c'est exactement le détail qui fait
 basculer la perception de « décor » à « fenêtre ». Pour un coût dérisoire.
 
-*Limite honnête* : le soleil est juste, la météo ne l'est pas. Sans serveur, pas d'API météo.
-La couverture nuageuse reste soit un réglage, soit une variation lente et neutre. À trancher.
+*Limite assumée* : le soleil est juste, la météo ne l'est pas — et **c'est tranché, on ne la
+fait pas.** Pas d'API météo, pas de réglage, pas de pluie. Le ciel varie avec l'heure et avec
+la qualité de conduite (§7), un point c'est tout. Une chose de moins à construire, à tester et
+à expliquer.
 
 ### 5.3 Les matières
 
@@ -471,7 +473,7 @@ continue mesure les deux profils à chaque commit.
 - ✅ *La boucle est fermée.*
 
 ### Phase 6 — Finition *(continu)*
-- Météo réglable, pluie et route mouillée, davantage de biomes et de moteurs.
+- Davantage de biomes, de moteurs et de variations d'ambiance.
 
 ---
 
