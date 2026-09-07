@@ -1874,6 +1874,21 @@
       propsFar: ['planet', 'planet', 'moon'], farSparse: 0.3, racing: true,
       foliage: ['#1a3550', '#12283c'], propDark: '#3fd0ff', propStone: '#25415c',
     },
+    // Seule scène qui ne cherche pas le réalisme : tout y est cubique, aux couleurs franches,
+    // et l'image entière est ramenée à une grille de gros pixels avant d'être affichée. Les
+    // éléments sont volontairement génériques (arbre cubique, cactus, torche, barrière de
+    // bois, rocher) : c'est le vocabulaire du jeu de blocs, pas les personnages d'un jeu en
+    // particulier.
+    pixel: {
+      name: 'Pixel World', sky: ['#4d9bec', '#a9d6fb'], ground: '#5aa54a',
+      road: ['#9a9a9a', '#6f6f6f'], edge: 'rgba(196,196,196,0.9)', dash: 'rgba(232,232,232,0.95)',
+      glow: '255,255,255', glowStrength: 0.25, particle: 'streak', particleRGB: [255, 255, 255],
+      haze: null, decor: 'blocks', sun: { y: -0.17, r: 0.038, color: '#fff6bd' }, sunSquare: true,
+      carLight: 0.3, pixelate: 5, blockClouds: true,
+      props: ['blocktree', 'blocktree', 'torch', 'woodfence', 'cobble', 'blockcactus'],
+      propsFar: ['blocktree', 'blockhill', 'blocktree'],
+      foliage: ['#57a83c', '#489231'], propDark: '#6b4a28', propStone: '#8f8f8f', trunk: '#6b4a28',
+    },
     orage: {
       name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
       road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
@@ -1971,6 +1986,9 @@
       } else if(kind === 'skyline'){
         // gratte-ciel : des hauteurs très contrastées, c'est ce qui fait une ligne de ville
         h = 0.15 + Math.pow(rnd(), 2.2) * 0.95;
+      } else if(kind === 'blocks'){
+        // collines de blocs : hauteurs quantifiées, jamais de pente continue
+        h = 0.22 + Math.round(rnd() * 4) * 0.17;
       } else if(kind === 'stands'){
         // gradins : des blocs francs et des paliers, pas un relief naturel
         h = 0.28 + Math.round(rnd() * 3) * 0.2;
@@ -2119,11 +2137,12 @@
   // exactement la même taille, et c'est ce qui les rend crédibles
   function propScale(kind){
     if(kind === 'barrier' || kind === 'panel' || kind === 'fence' || kind === 'streetlight') return 1;
+    if(kind === 'torch' || kind === 'woodfence') return 1;
     return 0.75 + Math.random() * 0.6;
   }
 
   function propYaw(kind, side){
-    if(kind === 'barrier' || kind === 'fence') return 0;
+    if(kind === 'barrier' || kind === 'fence' || kind === 'woodfence' || kind === 'torch') return 0;
     if(kind === 'panel') return side * (0.18 + Math.random() * 0.14);
     if(kind === 'building' || kind === 'tower' || kind === 'streetlight') return (Math.random() - 0.5) * 0.5;
     return Math.random() * Math.PI * 2;
@@ -2193,6 +2212,8 @@
     if(kind === 'tyres')   return 5.6 + Math.random() * 1.2;
     if(kind === 'panel')   return 7.0 + Math.random() * 2.5;
     if(kind === 'fence')   return 8.5 + Math.random() * 1.5;
+    if(kind === 'torch') return 4.7 + Math.random() * 0.5;
+    if(kind === 'woodfence') return 5.8 + Math.random() * 0.6;
     if(kind === 'marker' || kind === 'snowpole') return 4.8 + Math.random() * 0.8;
     return 5.5 + Math.random() * 10;
   }
@@ -2667,6 +2688,75 @@
       }
       return;
     }
+    // --- monde en blocs -------------------------------------------------------------------
+    // Tout y est bâti à partir d'un seul cube, dessiné avec sa face droite à l'ombre et son
+    // arête supérieure éclairée : c'est ce contraste, et rien d'autre, qui donne le volume
+    // d'un décor cubique. Les tailles sont des multiples entiers du cube.
+    if(kind === 'blocktree' || kind === 'blockcactus' || kind === 'torch' || kind === 'woodfence'
+       || kind === 'cobble' || kind === 'blockhill'){
+      const u = s * 0.85;                       // côté du cube, en pixels
+      const cube = (bx, by, bw, bh, col) => {
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = 'rgba(0,0,0,0.24)';                       // face de droite
+        ctx.fillRect(bx + bw * 0.76, by, bw * 0.24, bh);
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';                 // arête du dessus
+        ctx.fillRect(bx, by, bw, Math.max(0.8, bh * 0.15));
+      };
+      if(kind === 'blocktree'){
+        const trunk = sc.trunk || '#6b4a28';
+        const leafA = leaf[0], leafB = leaf[1];
+        // fût d'abord, houppier ensuite : le feuillage doit recouvrir le haut du tronc
+        for(let i = 0; i < 4; i++) cube(x - u / 2, y - u * (i + 1), u, u, trunk);
+        // silhouette classique : deux rangs larges, un rang étroit au sommet
+        const rows = [[5, -4], [5, -5], [3, -6]];
+        rows.forEach(([wBlocks, level], ri) => {
+          for(let i = 0; i < wBlocks; i++){
+            const bx = x + (i - (wBlocks - 1) / 2) * u - u / 2;
+            cube(bx, y + level * u, u, u, ((i + ri) % 2) ? leafA : leafB);
+          }
+        });
+        return;
+      }
+      if(kind === 'blockcactus'){
+        const h = 3 + Math.round(seed * 2);
+        for(let i = 0; i < h; i++) cube(x - u / 2, y - u * (i + 1), u, u, leaf[0]);
+        cube(x + u / 2, y - u * (h - 1), u, u, leaf[1]);          // bras
+        return;
+      }
+      if(kind === 'torch'){
+        for(let i = 0; i < 3; i++) cube(x - u * 0.18, y - u * (i + 1), u * 0.36, u, '#6b4a28');
+        cube(x - u * 0.3, y - u * 3.7, u * 0.6, u * 0.6, '#ffcf4a');   // flamme
+        if(s > 0.9) drawGlow(GLOW_WARM, x, y - u * 3.4, u * 3.2, 0.5);
+        return;
+      }
+      if(kind === 'woodfence'){
+        const wood = '#8a6034';
+        cube(x - u * 1.6, y - u * 1.6, u * 0.4, u * 1.6, wood);        // poteaux
+        cube(x + u * 1.2, y - u * 1.6, u * 0.4, u * 1.6, wood);
+        cube(x - u * 1.6, y - u * 1.5, u * 3.2, u * 0.28, wood);       // lisses
+        cube(x - u * 1.6, y - u * 0.9, u * 3.2, u * 0.28, wood);
+        return;
+      }
+      if(kind === 'cobble'){
+        const stone = sc.propStone || '#8f8f8f';
+        cube(x - u, y - u, u, u, stone);
+        cube(x, y - u, u, u, stone);
+        cube(x - u * 0.5, y - u * 2, u, u, stone);
+        return;
+      }
+      // blockhill : butte en marches, pour le décor lointain
+      const steps = 3 + Math.round(seed * 2);
+      for(let i = 0; i < steps; i++){
+        const wBlocks = (steps - i) * 2;
+        for(let j = 0; j < wBlocks; j++){
+          const bx = x + (j - (wBlocks - 1) / 2) * u - u / 2;
+          cube(bx, y - u * (i + 1), u, u, (i + j) % 2 ? leaf[0] : leaf[1]);
+        }
+      }
+      return;
+    }
+
     // Buisson : une seule ellipse donnait une tache sombre parfaitement lisse, très visible
     // quand elle passe près de la caméra. Quatre lobes qui se chevauchent cassent le contour,
     // et la couronne éclairée en haut à gauche lui donne enfin un dessus et un dessous.
@@ -2762,6 +2852,11 @@
   // image coûte cher. Un dégradé vertical n'ayant aucune variation horizontale, on le rend une
   // fois dans une bande d'un pixel de large qu'on étire ensuite : un redimensionnement d'image
   // est presque gratuit, et le résultat est identique au pixel près.
+  // Tampon de pixellisation : la scène est rendue normalement, puis réduite au plus proche
+  // voisin et réagrandie. Un seul aller-retour suffit à ramener toute l'image — décor, route,
+  // véhicules, halos — sur une grille de gros pixels, sans avoir à pixelliser chaque élément.
+  let pixelBuf = null;
+
   const stripCache = new Map();
   function verticalStrip(key, h, paint){
     const px = Math.max(1, Math.round(h));
@@ -3041,15 +3136,48 @@
         halo.addColorStop(1, 'rgba(255,180,90,0)');
         visctx.fillStyle = halo;
         visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
-        // bord adouci sur les derniers pour cent : un disque à arête nette se lit comme une
-        // gommette collée sur le ciel, pas comme une source lumineuse
-        const disc = visctx.createRadialGradient(sx, sy, sr * 0.72, sx, sy, sr * 1.06);
-        disc.addColorStop(0, sc.sun.color);
-        disc.addColorStop(0.78, sc.sun.color);
-        disc.addColorStop(1, rgba(sc.sun.color, 0));
-        visctx.fillStyle = disc;
-        visctx.beginPath(); visctx.arc(sx, sy, sr * 1.06, 0, Math.PI * 2); visctx.fill();
+        if(sc.sunSquare){
+          // monde en blocs : même le soleil est un carré, arête franche comprise
+          visctx.fillStyle = sc.sun.color;
+          visctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2);
+        } else {
+          // bord adouci sur les derniers pour cent : un disque à arête nette se lit comme une
+          // gommette collée sur le ciel, pas comme une source lumineuse
+          const disc = visctx.createRadialGradient(sx, sy, sr * 0.72, sx, sy, sr * 1.06);
+          disc.addColorStop(0, sc.sun.color);
+          disc.addColorStop(0.78, sc.sun.color);
+          disc.addColorStop(1, rgba(sc.sun.color, 0));
+          visctx.fillStyle = disc;
+          visctx.beginPath(); visctx.arc(sx, sy, sr * 1.06, 0, Math.PI * 2); visctx.fill();
+        }
       }
+    }
+
+    // --- nuages en blocs : la signature visuelle d'un monde cubique ----------------------
+    // Dalles blanches à hauteur fixe, qui défilent avec le cap comme le reste du paysage. Leur
+    // découpe est tirée d'une table fixe : des nuages qui changent de forme d'une image à
+    // l'autre scintilleraient.
+    if(sc.blockClouds){
+      const cu = W * 0.035;                       // côté d'un bloc de nuage
+      // [décalage horizontal, largeur en blocs, hauteur dans le ciel] : la hauteur varie d'une
+      // dalle à l'autre, sinon les nuages forment trois bandes régulières en travers du ciel
+      const shapes = [
+        [0, 3, -0.20], [3.4, 2, -0.14], [1.2, 4, -0.25], [5.0, 3, -0.17],
+        [2.6, 2, -0.11], [0.4, 5, -0.23], [4.2, 3, -0.15], [1.8, 2, -0.27],
+      ];
+      const span = cu * 30;
+      [[0.30, 0.95], [0.18, 0.72]].forEach(([par, alpha]) => {
+        visctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        let base = -((worldHeading * pxPerDeg) * par) % span;
+        if(base > 0) base -= span;
+        for(let rep = 0; rep < 3; rep++){
+          shapes.forEach((sh, i) => {
+            const bx = base + rep * span + (i * 3.6 + sh[0]) * cu;
+            if(bx > W + cu || bx < -cu * 6) return;
+            visctx.fillRect(bx, vpY + (sh[2] - par * 0.08) * H, sh[1] * cu, cu * 0.85);
+          });
+        }
+      });
     }
 
     // --- silhouette d'horizon (sommets, collines, dunes) ---------------------------------
@@ -3060,7 +3188,7 @@
       const span = W * 1.6;
       let base = -(worldHeading * pxPerDeg) % span;
       if(base > 0) base -= span;
-      const stepped = sc.decor === 'stands' || sc.decor === 'skyline'; // tribunes et immeubles montent par paliers francs
+      const stepped = sc.decor === 'stands' || sc.decor === 'skyline' || sc.decor === 'blocks'; // tribunes, immeubles et collines de blocs montent par paliers francs
       visctx.beginPath();
       [base, base + span].forEach(off => {
         visctx.moveTo(pts[0][0] + off, vpY);
@@ -3084,6 +3212,10 @@
         dg.addColorStop(0, '#dfe6ed');
         dg.addColorStop(0.35, '#8f99a5');
         dg.addColorStop(1, '#5c646e');
+      } else if(sc.decor === 'blocks'){
+        dg.addColorStop(0, '#66b552');   // herbe au sommet
+        dg.addColorStop(0.42, '#4d8f3e');
+        dg.addColorStop(1, '#3a6f2f');
       } else if(sc.decor === 'skyline'){
         dg.addColorStop(0, '#161a26');
         dg.addColorStop(1, '#2a2340');   // halo de pollution lumineuse à la base
@@ -3109,6 +3241,35 @@
         g.fillRect(0, 0, 1, h);
       });
       visctx.drawImage(gStrip, 0, vpY, W, H - vpY);
+      // Damier d'herbe : un sol uni ne défile pas, et c'est le défilement du sol qui donne la
+      // vitesse dans un monde cubique. Une case sur deux est assombrie, sur une grille de 6 m
+      // ancrée à la distance parcourue — donc solidaire du décor, comme les tirets de la route.
+      if(sc.pixelate){
+        const CELL = 6;
+        visctx.fillStyle = 'rgba(0,0,0,0.10)';
+        const first = Math.ceil(travelled / CELL) * CELL - travelled;
+        for(let k = 0; k < 11; k++){
+          const d0 = first + k * CELL, d1 = d0 + CELL;
+          if(d0 < 2) continue;
+          const tt0 = camNear / d0, tt1 = camNear / d1;
+          if(tt0 < 0.02) break;
+          if(tt0 > 1.7) continue;
+          const y0 = rowY(tt0), y1 = rowY(tt1);
+          const ppm0 = roadHalfAt(Math.min(1.6, tt0)) / 4, ppm1 = roadHalfAt(Math.min(1.6, tt1)) / 4;
+          const c0 = roadCenterAt(tt0), c1 = roadCenterAt(tt1);
+          const rowIdx = Math.round((travelled + d0) / CELL);
+          for(let j = -6; j <= 6; j++){
+            if((rowIdx + j) % 2) continue;
+            const l0 = j * CELL, l1 = l0 + CELL;
+            visctx.beginPath();
+            visctx.moveTo(c0 + l0 * ppm0, y0);
+            visctx.lineTo(c0 + l1 * ppm0, y0);
+            visctx.lineTo(c1 + l1 * ppm1, y1);
+            visctx.lineTo(c1 + l0 * ppm1, y1);
+            visctx.closePath(); visctx.fill();
+          }
+        }
+      }
     }
 
     // --- décor lointain --------------------------------------------------------------------
@@ -3198,6 +3359,37 @@
       });
     }
 
+    // Dallage de la chaussée : dans un monde en blocs, une route n'est pas un ruban lisse mais
+    // un pavage. Une dalle sur deux est éclaircie, sur une grille de 2 m ancrée à la distance
+    // parcourue — c'est ce pavage qui défile et qui remplit tout le premier plan, jusqu'ici un
+    // grand aplat gris.
+    if(sc.pixelate){
+      const PAVE = 2;
+      visctx.fillStyle = 'rgba(255,255,255,0.055)';
+      const first = Math.ceil(travelled / PAVE) * PAVE - travelled;
+      for(let k = 0; k < 16; k++){
+        const d0 = first + k * PAVE, d1 = d0 + PAVE;
+        if(d0 < 1.5) continue;
+        const tt0 = camNear / d0, tt1 = camNear / d1;
+        if(tt0 < 0.03) break;
+        if(tt0 > 1.7) continue;
+        const y0 = rowY(tt0), y1 = rowY(tt1);
+        const ppm0 = roadHalfAt(Math.min(1.6, tt0)) / 4, ppm1 = roadHalfAt(Math.min(1.6, tt1)) / 4;
+        const c0 = roadCenterAt(tt0), c1 = roadCenterAt(tt1);
+        const rowIdx = Math.round((travelled + d0) / PAVE);
+        for(let j = -2; j < 2; j++){
+          if((rowIdx + j) % 2) continue;
+          const l0 = j * PAVE, l1 = l0 + PAVE;
+          visctx.beginPath();
+          visctx.moveTo(c0 + l0 * ppm0, y0);
+          visctx.lineTo(c0 + l1 * ppm0, y0);
+          visctx.lineTo(c1 + l1 * ppm1, y1);
+          visctx.lineTo(c1 + l0 * ppm1, y1);
+          visctx.closePath(); visctx.fill();
+        }
+      }
+    }
+
     // Nappe de nos propres phares : de nuit, ce que le conducteur voit du bitume, c'est
     // d'abord ce que ses feux éclairent. Sans elle, tout le premier plan des scènes sombres
     // restait un aplat noir — c'est là que le vide se voyait le plus.
@@ -3262,7 +3454,10 @@
 
     // bords : dans l'espace ce sont deux rubans de lumière, donc un trait large et diffus
     // sous un trait fin et vif — deux passes suffisent à donner le néon, sans filtre coûteux
-    [sc.space ? { w: 9, c: 'rgba(90,220,255,0.18)' } : null, { w: 2, c: sc.edge }]
+    // un trait de 2 px ne survit pas à la pixellisation : il se réduit à un pointillé en
+    // escalier. Dans un monde en blocs, la rive est une rangée de dalles, donc un trait large.
+    const edgeWidth = sc.pixelate ? Math.max(3, sc.pixelate * 1.6) : 2;
+    [sc.space ? { w: 9, c: 'rgba(90,220,255,0.18)' } : null, { w: edgeWidth, c: sc.edge }]
       .filter(Boolean).forEach(pass => {
         visctx.lineWidth = pass.w;
         visctx.strokeStyle = pass.c;
@@ -3479,6 +3674,24 @@
     // --- vignettage : les bords s'assombrissent, comme sur toute image réelle. C'est ce qui
     // referme le cadre et empêche la chaussée de partir en aplat jusqu'aux quatre coins.
     visctx.drawImage(getVignette(W, H, vpY), 0, 0);
+
+    // --- pixellisation : dernière étape, elle s'applique à l'image finie ------------------
+    if(sc.pixelate){
+      // le canevas est dimensionné en pixels CSS (resizeVisionCanvas), pas en pixels physiques :
+      // multiplier par la densité d'écran doublait la taille des blocs sur un téléphone
+      const f = sc.pixelate;
+      const pw = Math.max(1, Math.round(W / f)), ph = Math.max(1, Math.round(H / f));
+      if(!pixelBuf) pixelBuf = document.createElement('canvas');
+      if(pixelBuf.width !== pw || pixelBuf.height !== ph){ pixelBuf.width = pw; pixelBuf.height = ph; }
+      const pctx = pixelBuf.getContext('2d');
+      pctx.imageSmoothingEnabled = false;        // au plus proche voisin dans les deux sens :
+      pctx.clearRect(0, 0, pw, ph);              // c'est ce qui donne des carrés nets plutôt
+      pctx.drawImage(visionCanvas, 0, 0, W, H, 0, 0, pw, ph);   // qu'une mosaïque floue
+      visctx.imageSmoothingEnabled = false;
+      visctx.clearRect(0, 0, W, H);
+      visctx.drawImage(pixelBuf, 0, 0, pw, ph, 0, 0, W, H);
+      visctx.imageSmoothingEnabled = true;
+    }
 
     // --- éclairs (orage) : un flash bref sur toute la scène --------------------------------
     if(sc.lightning){
