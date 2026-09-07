@@ -62,15 +62,14 @@
   .hud{ position:absolute; inset:0; pointer-events:none; }
 
   /* ---- grappe HUD ---- */
-  .cluster{
-    position:absolute; left:50%; transform:translateX(-50%);
-    display:flex; flex-direction:column; align-items:center; gap:10px;
-  }
-  .stage.landscape .cluster{ bottom:5.5%; width:min(30%,270px); }
-  .stage.portrait  .cluster{ bottom:9%;   width:74%; }
+  /* Forza pose la grappe en bas à DROITE, jamais au centre : le centre de l'écran doit
+     rester dégagé, c'est là qu'on regarde la route. */
+  .cluster{ position:absolute; display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
+  .stage.landscape .cluster{ right:3.5%; bottom:6%;  width:min(25%,235px); }
+  .stage.portrait  .cluster{ right:5%;   bottom:11%; width:62%; }
 
   /* témoins de passage */
-  .shift{ display:flex; gap:3px; width:82%; }
+  .shift{ display:flex; gap:3px; width:86%; align-self:center; filter:drop-shadow(0 1px 4px rgba(0,0,0,.8)); }
   .shift i{
     flex:1; height:5px; border-radius:1px; background:rgba(255,255,255,.09);
     transition:background .06s linear, box-shadow .06s linear;
@@ -79,19 +78,21 @@
   .shift i.on-a{ background:var(--amber); box-shadow:0 0 7px rgba(255,140,60,.8); }
   .shift i.on-r{ background:var(--red);   box-shadow:0 0 9px rgba(255,59,59,.9); }
 
+  /* Aucun panneau : l'arc et les chiffres flottent au-dessus de la route. La lisibilité
+     vient d'un assombrissement radial très doux et d'une ombre portée sur le texte, pas
+     d'un cartouche opaque. */
   .dialwrap{
-    position:relative; width:100%; padding:14px 12px 12px; border-radius:6px;
-    background:var(--panel); border:1px solid var(--edge);
-    backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+    position:relative; width:100%; padding:2px 2px 0;
+    background:radial-gradient(58% 58% at 50% 46%, rgba(3,6,10,.46) 0%, rgba(3,6,10,.16) 62%, rgba(3,6,10,0) 100%);
   }
   svg.dial{ display:block; width:100%; height:auto; overflow:visible; }
-  .arc-bg{ fill:none; stroke:rgba(255,255,255,.12); stroke-linecap:round; }
+  .arc-bg{ fill:none; stroke:rgba(255,255,255,.16); stroke-linecap:round; filter:drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
   .arc-red{ fill:none; stroke:var(--red); stroke-linecap:butt; opacity:.85; }
   .arc-val{ fill:none; stroke:var(--amber); stroke-linecap:round; filter:drop-shadow(0 0 5px rgba(255,140,60,.6)); transition:stroke .1s linear; }
   .arc-val.warn{ stroke:var(--red); filter:drop-shadow(0 0 8px rgba(255,59,59,.75)); }
-  .tick{ stroke:rgba(255,255,255,.34); }
-  .tick.major{ stroke:rgba(255,255,255,.6); }
-  .ticknum{ fill:var(--ink-3); font-family:'Barlow',sans-serif; font-size:11px; font-weight:600; text-anchor:middle; dominant-baseline:middle; }
+  .tick{ stroke:rgba(255,255,255,.40); }
+  .tick.major{ stroke:rgba(255,255,255,.68); }
+  #ticks{ filter:drop-shadow(0 1px 2px rgba(0,0,0,.7)); }
 
   .readout{
     position:absolute; left:12px; right:12px; top:14px; aspect-ratio:220/190;
@@ -99,38 +100,37 @@
   }
   .gear{
     font-family:'Barlow Condensed',sans-serif; font-weight:700; line-height:.86;
-    font-size:clamp(44px,17cqw,80px); letter-spacing:-.02em; color:var(--ink);
+    font-size:clamp(44px,19cqw,84px); letter-spacing:-.02em; color:var(--ink);
     font-variant-numeric:tabular-nums;
+    text-shadow:0 2px 10px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9);
   }
   .gear.warn{ color:var(--red); }
   .speed{ display:flex; align-items:baseline; gap:5px; margin-top:2px; }
   .speed b{
     font-family:'Barlow Condensed',sans-serif; font-weight:600; line-height:1;
-    font-size:clamp(22px,8.4cqw,38px); color:var(--ink); font-variant-numeric:tabular-nums;
+    font-size:clamp(22px,9cqw,40px); color:var(--ink); font-variant-numeric:tabular-nums;
+    text-shadow:0 2px 8px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.9);
   }
-  .speed span{ font-size:clamp(9px,2.6cqw,12px); font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); }
+  .speed span{
+    font-size:clamp(9px,2.7cqw,12px); font-weight:600; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-2); text-shadow:0 1px 5px rgba(0,0,0,.9);
+  }
   .dialwrap{ container-type:inline-size; }
 
   .rpmline{
-    display:flex; justify-content:space-between; align-items:baseline; width:100%;
-    margin-top:4px; padding:0 4px;
-    font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3);
+    display:flex; justify-content:flex-end; align-items:baseline; gap:7px; width:100%;
+    margin-top:2px; padding-right:6px;
+    font-size:10px; font-weight:600; letter-spacing:.13em; text-transform:uppercase; color:var(--ink-3);
+    text-shadow:0 1px 5px rgba(0,0,0,.9);
   }
-  .rpmline b{ font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:15px; letter-spacing:.02em; color:var(--ink-2); font-variant-numeric:tabular-nums; }
-
-  /* bandeau latéral : régime numérique + moteur, façon Forza */
-  .side{
-    position:absolute; display:flex; flex-direction:column; gap:9px;
+  .rpmline b{
+    font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:15px; letter-spacing:.02em;
+    color:var(--ink-2); font-variant-numeric:tabular-nums;
   }
-  .stage.landscape .side{ left:3%; bottom:6%; }
-  .stage.portrait  .side{ left:5%; top:4.5%; flex-direction:row; gap:8px; }
-  .pill{
-    background:var(--panel); border:1px solid var(--edge); border-radius:4px; padding:7px 11px;
-    backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); min-width:96px;
+  .engine{
+    margin-top:5px; padding-right:6px; font-size:10px; font-weight:600; letter-spacing:.15em;
+    text-transform:uppercase; color:var(--ink-3); text-shadow:0 1px 5px rgba(0,0,0,.9);
   }
-  .pill dt{ font-size:9.5px; font-weight:600; letter-spacing:.15em; text-transform:uppercase; color:var(--ink-3); margin:0; }
-  .pill dd{ margin:2px 0 0; font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:19px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
-  .pill dd.sm{ font-family:'Barlow',sans-serif; font-size:13px; font-weight:600; letter-spacing:.01em; }
 
   /* ---- notes ---- */
   .notes{ display:grid; gap:1px; background:var(--edge); border:1px solid var(--edge); border-radius:4px; overflow:hidden; grid-template-columns:1fr; }
@@ -156,9 +156,9 @@
     <div class="title">
       <span class="tag">Vroom · cadran de référence · phase 1</span>
       <h1>HUD registre Forza</h1>
-      <p>Arc de compte-tours, rapport au centre, vitesse dessous, témoins de passage au-dessus. Translucide et
-        lumineux — aucune lunette métal, aucun verre, aucune skeuomorphie. La boîte, les rapports et les seuils de
-        passage sont ceux du fichier actuel.</p>
+      <p>Grappe en bas à droite, posée sur la route sans cartouche : arc de compte-tours, rapport au centre,
+        vitesse dessous, témoins de passage au-dessus. Aucune lunette métal, aucun verre, aucune skeuomorphie.
+        La boîte, les rapports et les seuils de passage sont ceux du fichier actuel.</p>
     </div>
     <div class="ctl">
       <div class="seg" role="group" aria-label="Format d'écran">
@@ -179,10 +179,6 @@
   <div class="stage landscape" id="stage">
     <canvas id="road"></canvas>
     <div class="hud">
-      <div class="side">
-        <dl class="pill"><dt>Régime</dt><dd id="pRpm">0</dd></dl>
-        <dl class="pill"><dt>Moteur</dt><dd class="sm">V8 Compétition</dd></dl>
-      </div>
       <div class="cluster">
         <div class="shift" id="shift" aria-hidden="true"></div>
         <div class="dialwrap">
@@ -196,8 +192,9 @@
             <div class="gear" id="gear">N</div>
             <div class="speed"><b id="spd">0</b><span>km/h</span></div>
           </div>
-          <div class="rpmline"><span>tr/min</span><b id="rpm">0</b></div>
+          <div class="rpmline"><b id="rpm">0</b><span>tr/min</span></div>
         </div>
+        <div class="engine">V8 Compétition</div>
       </div>
     </div>
   </div>
@@ -208,7 +205,7 @@
       <ul>
         <li><b>Arc</b> plutôt que cadran circulaire complet — 240°, le rapport occupe le centre.</li>
         <li><b>Témoins de passage</b> qui se remplissent vert → ambre → rouge à l'approche du rupteur.</li>
-        <li><b>Panneaux translucides</b> avec flou d'arrière-plan, traits fins et lumineux.</li>
+        <li><b>Aucun cartouche</b> : l'arc et les chiffres flottent sur la route, lisibles par ombre portée et assombrissement radial.</li>
         <li><b>Condensée géométrique</b> pour les chiffres, chasse tabulaire pour qu'ils ne dansent pas.</li>
       </ul>
     </div>
@@ -224,8 +221,8 @@
     <div>
       <h3>Deux formats, pas une échelle</h3>
       <ul>
-        <li><b>Paysage</b> : grappe compacte en bas au centre, régime déporté à gauche.</li>
-        <li><b>Portrait</b> : grappe élargie en bas, sous le pouce ; les pastilles remontent en haut.</li>
+        <li><b>Paysage</b> : grappe compacte en bas à droite, le centre de l'écran reste dégagé.</li>
+        <li><b>Portrait</b> : grappe élargie, toujours à droite, sous le pouce.</li>
         <li>Les tailles ne sont pas mises à l'échelle : elles sont <b>redéfinies</b> pour la distance de lecture.</li>
       </ul>
     </div>
@@ -284,7 +281,7 @@
   var st = { speed: 0, gear: 1, rpm: IDLE, auto: true, target: 0, phase: 0, t: 0 };
   var stage = document.getElementById('stage');
   var arc = document.getElementById('arc'), gearEl = document.getElementById('gear');
-  var spdEl = document.getElementById('spd'), rpmEl = document.getElementById('rpm'), pRpm = document.getElementById('pRpm');
+  var spdEl = document.getElementById('spd'), rpmEl = document.getElementById('rpm');
   var slider = document.getElementById('sp');
 
   function setFormat(portrait){
@@ -404,7 +401,6 @@
     spdEl.textContent = Math.round(st.speed);
     var rr = Math.round(st.rpm / 10) * 10;
     rpmEl.textContent = rr.toLocaleString('fr-FR');
-    pRpm.textContent = rr.toLocaleString('fr-FR');
 
     // témoins : ils ne s'allument que sur le dernier tiers de la plage
     var lit = Math.round(Math.max(0, (st.rpm - (IDLE + span * 0.62)) / (span * 0.38)) * SEGS);

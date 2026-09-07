@@ -2,10 +2,138 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="0; url=moteur-sim.html">
-<title>Cockpit — Simulateur moteur</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Vroom</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --ground:#05070a;
+    --card:#0b0f15;
+    --ink:#f4f7fa;
+    --ink-2:#9fa9b5;
+    --ink-3:#5e6773;
+    --amber:#ff8c3c;
+    --mint:#5eead4;
+    --edge:rgba(255,255,255,.10);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; }
+  body{ min-height:100dvh; }
+  body{
+    background:
+      radial-gradient(120% 90% at 50% -20%, #14202e 0%, rgba(5,7,10,0) 62%),
+      var(--ground);
+    color:var(--ink);
+    font-family:'Barlow', system-ui, -apple-system, sans-serif;
+    display:flex; flex-direction:column;
+    padding:
+      max(28px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+      max(28px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  }
+  .shell{ width:100%; max-width:940px; margin:auto; display:flex; flex-direction:column; gap:34px; }
+
+  header .mark{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:clamp(46px,11vw,88px);
+    line-height:.88; letter-spacing:.01em; margin:0; text-transform:uppercase;
+  }
+  header .mark em{ font-style:normal; color:var(--amber); }
+  header p{
+    margin:12px 0 0; font-size:15px; line-height:1.55; color:var(--ink-2); max-width:52ch;
+  }
+
+  .grid{ display:grid; gap:14px; grid-template-columns:1fr; }
+  @media (min-width:680px){ .grid{ grid-template-columns:1fr 1fr; } }
+
+  .card{
+    position:relative; display:flex; flex-direction:column; gap:9px;
+    background:var(--card); border:1px solid var(--edge); border-radius:5px;
+    padding:22px 22px 24px; overflow:hidden;
+  }
+  a.card{
+    text-decoration:none; color:inherit;
+    transition:border-color .18s ease, transform .18s ease, background .18s ease;
+  }
+  a.card::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background:var(--amber); transform:scaleY(.18); transform-origin:top;
+    transition:transform .22s cubic-bezier(.2,.8,.3,1);
+  }
+  a.card.alt::before{ background:var(--mint); }
+  a.card:hover, a.card:focus-visible{ border-color:rgba(255,255,255,.22); background:#0e131b; transform:translateY(-2px); }
+  a.card:hover::before, a.card:focus-visible::before{ transform:scaleY(1); }
+  a.card:focus-visible{ outline:2px solid var(--amber); outline-offset:3px; }
+
+  .chip{
+    align-self:flex-start; font-size:10px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    padding:4px 9px; border:1px solid; border-radius:2px;
+  }
+  .chip.live{ color:var(--amber); border-color:rgba(255,140,60,.4); background:rgba(255,140,60,.10); }
+  .chip.proto{ color:var(--mint); border-color:rgba(94,234,212,.35); background:rgba(94,234,212,.09); }
+  .chip.soon{ color:var(--ink-3); border-color:var(--edge); background:rgba(255,255,255,.03); }
+
+  .card h2{
+    font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:29px; line-height:1.02;
+    margin:0; letter-spacing:.005em; text-transform:uppercase;
+  }
+  .card p{ margin:0; font-size:14px; line-height:1.55; color:var(--ink-2); }
+  .card .go{
+    margin-top:4px; font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-3); display:flex; align-items:center; gap:7px;
+  }
+  a.card:hover .go{ color:var(--amber); }
+  a.card.alt:hover .go{ color:var(--mint); }
+
+  div.card{ opacity:.55; background:transparent; border-style:dashed; }
+
+  footer{
+    border-top:1px solid var(--edge); padding-top:18px;
+    font-size:12.5px; line-height:1.6; color:var(--ink-3); display:flex; flex-wrap:wrap; gap:6px 22px;
+  }
+  footer a{ color:var(--ink-2); text-decoration:none; border-bottom:1px solid var(--edge); }
+  footer a:hover{ color:var(--amber); border-bottom-color:currentColor; }
+
+  @media (prefers-reduced-motion:reduce){ *{ transition:none !important; } }
+</style>
 </head>
 <body>
-<p>Redirection vers <a href="moteur-sim.html">moteur-sim.html</a>…</p>
+  <div class="shell">
+    <header>
+      <h1 class="mark">Vroom<em>.</em></h1>
+      <p>Simulateur de moteur et de conduite. Le compte-tours suit la vitesse réelle du véhicule,
+         la synthèse sonore suit le compte-tours.</p>
+    </header>
+
+    <div class="grid">
+      <a class="card" href="moteur-sim.html">
+        <span class="chip live">En service</span>
+        <h2>Cockpit</h2>
+        <p>La version actuelle : dix-huit moteurs, l'atelier et son banc d'essai, huit paysages,
+           la boîte automatique et le mode pédales.</p>
+        <span class="go">Ouvrir &rarr;</span>
+      </a>
+
+      <a class="card alt" href="prototypes/hud-forza.html">
+        <span class="chip proto">Prototype</span>
+        <h2>HUD Forza</h2>
+        <p>Le cadran de référence de la refonte : arc de compte-tours, témoins de passage,
+           deux formats d'écran. Vraie boîte de vitesses, décor sommaire.</p>
+        <span class="go">Ouvrir &rarr;</span>
+      </a>
+
+      <div class="card">
+        <span class="chip soon">À venir</span>
+        <h2>Vroom 3D</h2>
+        <p>La route et le décor en WebGL, l'interface refaite, sur téléphone et sur écran embarqué.</p>
+      </div>
+    </div>
+
+    <footer>
+      <span>Tout tourne dans le navigateur. Rien n'est envoyé nulle part.</span>
+      <a href="https://github.com/piascwal/vroom">Dépôt</a>
+    </footer>
+  </div>
 </body>
 </html>
