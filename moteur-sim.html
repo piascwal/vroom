@@ -1048,6 +1048,24 @@
   let outBus = null;        // limiteur de sortie : empêche la saturation quand tout joue en même temps
   let exhaustBus = null, pipeA = null, pipeB = null, pipeC = null, pipeLP = null; // tube d'échappement des détonations
   let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
+  let preBus = null;        // tout ce qui s'entend passe ici : sortie directe + réverbération d'habitacle
+  let fireOsc = null, noiseGate = null, tickGain = null; // souffle et cliquetis rythmés par les combustions
+  let jitterSrc = null, jitterAmp = null, jitterPitch = null, engineJitter = null; // dispersion cycle à cycle
+  let roadFilter = null, roadGain = null, windFilters = [], windGain = null;       // roulement et vent
+  let rainGain = null;                            // pluie de la scène d'orage
+  let turboOsc = null, turboGain = null, turboHissFilter = null, turboHissGain = null; // sifflement du turbo
+  let turboBoost = 0;       // pression de suralimentation 0..1, avec son temps de réponse
+  let windGust = 0, windGustTarget = 0, windGustTimer = 0;
+  let ambienceOn = true;    // roulement, vent, pluie et tonnerre : débrayables depuis le menu Paysage
+  try{ ambienceOn = localStorage.getItem('vroomAmbience') !== '0'; }catch(e){}
+
+  // panoramique : absent de quelques vieux navigateurs embarqués, un simple gain le remplace
+  function makePan(v){
+    if(typeof actx.createStereoPanner !== 'function') return actx.createGain();
+    const p = actx.createStereoPanner();
+    p.pan.value = v;
+    return p;
+  }
 
   // Une détonation : l'étincelle n'est qu'une excitation très courte, tout le reste — la
   // hauteur, le corps, la longueur — vient des résonances du tube en aval. C'est pourquoi on
@@ -1068,7 +1086,9 @@
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.linearRampToValueAtTime(Math.max(0.001, amp), t0 + 0.003);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(lp); lp.connect(g); g.connect(exhaustBus);
+    // deux sorties d'échappement : chaque détonation sort d'un côté ou de l'autre
+    const pan = makePan((Math.random() * 2 - 1) * 0.45);
+    src.connect(lp); lp.connect(g); g.connect(pan); pan.connect(exhaustBus);
     src.start(t0); src.stop(t0 + dur + 0.03);
   }
 
@@ -1225,6 +1245,149 @@
 
   // ---- (atelier de test supprimé — la pétarade est intégrée directement à spawnPop) ----
 
+  // Démarreur : un moteur ne passe pas de rien au ralenti. Le lanceur tourne une demi-seconde
+  // — un gémissement d'engrenage dont la vitesse cale à chaque compression — puis le moteur
+  // prend. Le régime qui s'envole juste après est géré dans la boucle (startFlare).
+  const STARTER_S = 0.55;
+  function spawnStarter(){
+    if(!actx) return;
+    const now = actx.currentTime, end = now + STARTER_S;
+    const whine = actx.createOscillator();
+    whine.type = 'sawtooth';
+    whine.frequency.setValueAtTime(150, now);
+    whine.frequency.linearRampToValueAtTime(235, now + 0.12);
+    whine.frequency.linearRampToValueAtTime(260, end);
+    const comp = actx.createOscillator();       // les compressions freinent le lanceur
+    comp.type = 'sine';
+    comp.frequency.value = 7.5;
+    const compPitch = actx.createGain(); compPitch.gain.value = 16;
+    comp.connect(compPitch); compPitch.connect(whine.frequency);
+    const bp = actx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1050; bp.Q.value = 1.4;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.16, now + 0.03);
+    g.gain.setValueAtTime(0.16, end - 0.05);
+    g.gain.linearRampToValueAtTime(0.0001, end + 0.04);
+    const compAmp = actx.createGain(); compAmp.gain.value = 0.06;
+    comp.connect(compAmp); compAmp.connect(g.gain);
+    whine.connect(bp); bp.connect(g); g.connect(fxGain);
+    // les coups sourds des compressions elles-mêmes
+    const thud = actx.createBufferSource();
+    thud.buffer = noiseNode.buffer; thud.loop = true;
+    const tlp = actx.createBiquadFilter();
+    tlp.type = 'lowpass'; tlp.frequency.value = 170;
+    const tg = actx.createGain(); tg.gain.value = 0;
+    const thudAmp = actx.createGain(); thudAmp.gain.value = 0.5;
+    comp.connect(thudAmp); thudAmp.connect(tg.gain);
+    thud.connect(tlp); tlp.connect(tg); tg.connect(g);
+    [whine, comp, thud].forEach(n => { n.start(now); n.stop(end + 0.06); });
+  }
+
+  // Tonnerre : un grondement grave qui roule plusieurs secondes, précédé d'un claquement si
+  // l'éclair est proche. `delay` est l'écart éclair-tonnerre : la distance de la foudre.
+  function spawnThunder(delay, strength){
+    if(!actx || !brownBuffer || !ambienceOn) return;
+    const t0 = actx.currentTime + delay;
+    const dur = 3.2 + Math.random() * 2.6;
+    const near = Math.max(0, 1 - delay / 1.6);       // proche : plus fort, plus sec
+    const src = actx.createBufferSource();
+    src.buffer = brownBuffer; src.loop = true;
+    src.playbackRate.value = 0.6 + Math.random() * 0.3;
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.Q.value = 0.5;
+    lp.frequency.setValueAtTime(260 + near * 900, t0);
+    lp.frequency.exponentialRampToValueAtTime(70, t0 + dur);
+    const g = actx.createGain();
+    const peak = (0.35 + near * 0.45) * strength;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + 0.04 + (1 - near) * 0.25);
+    // le roulement : quelques reprises irrégulières dans la décroissance
+    let t = t0 + 0.25, lvl = peak;
+    while(t < t0 + dur - 0.4){
+      lvl *= 0.45 + Math.random() * 0.5;
+      g.gain.linearRampToValueAtTime(Math.max(0.001, lvl * (0.5 + Math.random() * 0.9)), t);
+      t += 0.22 + Math.random() * 0.5;
+    }
+    g.gain.linearRampToValueAtTime(0.0001, t0 + dur);
+    const pan = makePan((Math.random() * 2 - 1) * 0.6);
+    src.connect(lp); lp.connect(g); g.connect(pan); pan.connect(preBus);
+    src.start(t0, Math.random() * 3); src.stop(t0 + dur + 0.05);
+    if(near > 0.35){                                  // claquement sec de la foudre proche
+      const crack = actx.createBufferSource();
+      crack.buffer = noiseNode.buffer;
+      const cf = actx.createBiquadFilter();
+      cf.type = 'bandpass'; cf.frequency.value = 1400; cf.Q.value = 0.5;
+      const cg = actx.createGain();
+      cg.gain.setValueAtTime(0.0001, t0);
+      cg.gain.linearRampToValueAtTime(0.4 * near * strength, t0 + 0.006);
+      cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
+      crack.connect(cf); cf.connect(cg); cg.connect(pan);
+      crack.start(t0, Math.random()); crack.stop(t0 + 0.32);
+    }
+  }
+
+  // Bruit brun (intégré) : toute son énergie est dans le grave, c'est la matière du roulement
+  // des pneus et du tonnerre. Normalisé, puisque l'intégration donne un niveau arbitraire.
+  let brownBuffer = null;
+  function buildBrownBuffer(ctx){
+    const len = ctx.sampleRate * 4;
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let v = 0, peak = 0;
+    for(let i=0;i<len;i++){
+      v = (v + (Math.random()*2 - 1) * 0.02) * 0.998;
+      data[i] = v; peak = Math.max(peak, Math.abs(v));
+    }
+    // fondu des deux bouts l'un vers l'autre : la boucle ne claque pas
+    const fadeN = Math.floor(ctx.sampleRate * 0.05);
+    for(let i=0;i<fadeN;i++){
+      const k = i / fadeN;
+      data[i] = data[i] * k + data[len - fadeN + i] * (1 - k);
+    }
+    for(let i=0;i<len;i++) data[i] /= peak || 1;
+    return buffer;
+  }
+
+  // Tirages bloqués : une valeur aléatoire tenue pendant 64 échantillons, puis une autre. Lue
+  // à une vitesse calée sur la fréquence d'allumage, elle donne UNE valeur par combustion —
+  // c'est la dispersion cycle à cycle d'un vrai moteur, où aucune explosion ne vaut la
+  // précédente.
+  const JITTER_HOLD = 64;
+  function buildJitterBuffer(ctx){
+    const steps = 2048;
+    const buffer = ctx.createBuffer(1, steps * JITTER_HOLD, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let s=0;s<steps;s++){
+      const v = Math.random()*2 - 1;
+      for(let i=0;i<JITTER_HOLD;i++) data[s * JITTER_HOLD + i] = v;
+    }
+    return buffer;
+  }
+
+  // Habitacle : réponse impulsionnelle fabriquée, pas enregistrée. Quelques réflexions nettes
+  // dans les 15 premières millisecondes (vitres, pavillon) puis une queue courte et sourde.
+  // Gauche et droite sont tirées séparément : c'est ce qui donne de la largeur à un moteur
+  // par ailleurs monophonique.
+  function buildCabinImpulse(ctx){
+    const len = Math.floor(ctx.sampleRate * 0.26);
+    const buffer = ctx.createBuffer(2, len, ctx.sampleRate);
+    for(let ch=0;ch<2;ch++){
+      const data = buffer.getChannelData(ch);
+      let lp = 0;
+      for(let i=0;i<len;i++){
+        const t = i / ctx.sampleRate;
+        lp += ((Math.random()*2 - 1) - lp) * 0.22;        // queue assourdie
+        data[i] = lp * Math.exp(-t / 0.045) * 0.9;
+      }
+      [[0.0031, 0.7], [0.0057, -0.5], [0.0088, 0.42], [0.0124, -0.3]].forEach(([t, a], k) => {
+        const idx = Math.floor((t + (ch ? 0.0009 : 0) * (k + 1)) * ctx.sampleRate);
+        if(idx < len) data[idx] += a;
+      });
+    }
+    return buffer;
+  }
+
   function buildNoiseBuffer(ctx){
     const len = ctx.sampleRate * 2;
     const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -1248,19 +1411,37 @@
     outBus.release.value = 0.25;
     outBus.connect(actx.destination);
 
+    // Habitacle : le son direct, plus une part réverbérée. Sans elle le moteur sonne « dans
+    // le casque », collé à l'oreille ; avec, il est quelque part dans une voiture.
+    preBus = actx.createGain();
+    preBus.connect(outBus);
+    try{
+      const cabin = actx.createConvolver();
+      cabin.buffer = buildCabinImpulse(actx);
+      const wet = actx.createGain();
+      wet.gain.value = 0.5;
+      preBus.connect(cabin); cabin.connect(wet); wet.connect(outBus);
+    }catch(e){}
+
     master = actx.createGain();
     master.gain.value = 0;
-    master.connect(outBus);
+    master.connect(preBus);
 
     lowpass = actx.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 800;
     lowpass.Q.value = 0.7;
-    lowpass.connect(master);
+    // Pente de l'aigu : mesuré à pleine charge, le spectre restait presque plat de 250 Hz à
+    // 4 kHz — la signature d'un buzzer. Un vrai moteur perd régulièrement de l'énergie
+    // au-dessus de 1 à 2 kHz ; ce plateau incliné suffit à l'en rapprocher sans l'étouffer.
+    const tilt = actx.createBiquadFilter();
+    tilt.type = 'highshelf'; tilt.frequency.value = 2000; tilt.gain.value = -6;
+    lowpass.connect(tilt);
+    tilt.connect(master);
 
     fxGain = actx.createGain();
     fxGain.gain.value = 0.9;
-    fxGain.connect(outBus);
+    fxGain.connect(preBus);
 
     // Ligne d'échappement des détonations. Une pétarade n'a pas lieu dans le vide : elle a
     // lieu DANS le tube, dont les résonances lui donnent sa hauteur, son corps et sa longueur.
@@ -1283,7 +1464,7 @@
     pipeA.connect(pipeB);
     pipeB.connect(pipeC);
     pipeC.connect(pipeLP);
-    pipeLP.connect(outBus);
+    pipeLP.connect(preBus);
 
     // LFO de "grogne" : irrégularité grave du ralenti, module le volume moteur
     growlLFO = actx.createOscillator();
@@ -1338,7 +1519,11 @@
     engineBodyGain = actx.createGain();
     engineBodyGain.gain.value = 1;
 
-    engineSum.connect(engineHP);
+    // dispersion cycle à cycle : le niveau de chaque combustion varie autour de 1
+    engineJitter = actx.createGain();
+    engineJitter.gain.value = 1;
+    engineSum.connect(engineJitter);
+    engineJitter.connect(engineHP);
     engineHP.connect(bodyLow);
     bodyLow.connect(bodyMid);
     bodyMid.connect(bodyHigh);
@@ -1355,10 +1540,94 @@
     noiseFilter.Q.value = 0.8;
     noiseGain = actx.createGain();
     noiseGain.gain.value = 0;
+    // Le souffle ne coule pas en continu : il sort par bouffées, une par combustion. Un
+    // oscillateur joue le même train d'impulsions que le moteur (posé dans setEngineProfile),
+    // redressé pour ne garder que les pointes, et ouvre le passage du bruit à chaque allumage.
+    // Un bruit constant posé sur une note se lit comme un sifflement de bande ; le même bruit
+    // haché au rythme des cylindres se lit comme de l'échappement.
+    noiseGate = actx.createGain();
+    noiseGate.gain.value = 0.22;
+    fireOsc = actx.createOscillator();
+    fireOsc.frequency.value = 10;
+    const rect = actx.createWaveShaper();
+    const rc = new Float32Array(257);
+    for(let i=0;i<257;i++){ const x = i / 128 - 1; rc[i] = x > 0 ? x : 0; }
+    rect.curve = rc;
+    const gateDepth = actx.createGain();
+    gateDepth.gain.value = 1.8;
+    fireOsc.connect(rect); rect.connect(gateDepth); gateDepth.connect(noiseGate.gain);
+    fireOsc.start();
+    // cliquetis mécanique (distribution, injecteurs) : aigu, sec, lui aussi une pointe par
+    // combustion. Il contourne le filtre principal, fermé au ralenti — c'est justement au
+    // ralenti qu'on l'entend, et c'est lui qui survit sur un petit haut-parleur.
+    const tickFilter = actx.createBiquadFilter();
+    tickFilter.type = 'bandpass'; tickFilter.frequency.value = 2700; tickFilter.Q.value = 0.8;
+    const tickGate = actx.createGain(); tickGate.gain.value = 0;
+    const tickDepth = actx.createGain(); tickDepth.gain.value = 1.6;
+    rect.connect(tickDepth); tickDepth.connect(tickGate.gain);
+    tickGain = actx.createGain(); tickGain.gain.value = 0;
+    noiseNode.connect(tickFilter); tickFilter.connect(tickGate); tickGate.connect(tickGain); tickGain.connect(master);
     noiseNode.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
+    noiseFilter.connect(noiseGate);
+    noiseGate.connect(noiseGain);
     noiseGain.connect(lowpass);
     noiseNode.start();
+
+    // tirages bloqués, un par combustion : niveau (engineJitter) et instant (désaccord des
+    // oscillateurs, branché dans setEngineProfile)
+    jitterSrc = actx.createBufferSource();
+    jitterSrc.buffer = buildJitterBuffer(actx);
+    jitterSrc.loop = true;
+    jitterAmp = actx.createGain();   jitterAmp.gain.value = 0;
+    jitterPitch = actx.createGain(); jitterPitch.gain.value = 0;
+    jitterSrc.connect(jitterAmp);   jitterAmp.connect(engineJitter.gain);
+    jitterSrc.connect(jitterPitch);
+    jitterSrc.start();
+
+    // --- roulement, vent, pluie : ce qui prend le relais quand le moteur s'efface -----------
+    brownBuffer = buildBrownBuffer(actx);
+    const road = actx.createBufferSource();
+    road.buffer = brownBuffer; road.loop = true;
+    roadFilter = actx.createBiquadFilter();
+    roadFilter.type = 'lowpass'; roadFilter.frequency.value = 200; roadFilter.Q.value = 0.8;
+    roadGain = actx.createGain(); roadGain.gain.value = 0;
+    road.connect(roadFilter); roadFilter.connect(roadGain); roadGain.connect(preBus);
+    road.start();
+
+    // vent : deux lectures décalées du même bruit, une par oreille, donc décorrélées
+    windGain = actx.createGain(); windGain.gain.value = 0;
+    windGain.connect(preBus);
+    rainGain = actx.createGain(); rainGain.gain.value = 0;
+    rainGain.connect(preBus);
+    [-0.8, 0.8].forEach((side, i) => {
+      const src = actx.createBufferSource();
+      src.buffer = noiseNode.buffer; src.loop = true;
+      const bp = actx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.55;
+      const pan = makePan(side);
+      src.connect(bp); bp.connect(pan); pan.connect(windGain);
+      // la pluie part des mêmes lectures : aiguë et large, le crépitement sur le pare-brise
+      const rf = actx.createBiquadFilter();
+      rf.type = 'highpass'; rf.frequency.value = 2600; rf.Q.value = 0.5;
+      const rpan = makePan(side * 0.9);
+      src.connect(rf); rf.connect(rpan); rpan.connect(rainGain);
+      src.start(0, 0.37 + i * 0.83);
+      windFilters.push(bp);
+    });
+
+    // Turbo : un sifflement qui monte avec la pression, pas seulement la décharge au lever de
+    // pied. Une note pure très aiguë et un filet de bruit étroit autour d'elle.
+    turboOsc = actx.createOscillator();
+    turboOsc.type = 'sine'; turboOsc.frequency.value = 2000;
+    turboGain = actx.createGain(); turboGain.gain.value = 0;
+    turboHissFilter = actx.createBiquadFilter();
+    turboHissFilter.type = 'bandpass'; turboHissFilter.frequency.value = 2000; turboHissFilter.Q.value = 9;
+    turboHissGain = actx.createGain(); turboHissGain.gain.value = 0;
+    const turboPan = makePan(0.25);
+    turboOsc.connect(turboGain); turboGain.connect(turboPan);
+    noiseNode.connect(turboHissFilter); turboHissFilter.connect(turboHissGain); turboHissGain.connect(turboPan);
+    turboPan.connect(preBus);
+    turboOsc.start();
 
     // échappement en bruit filtré en peigne : un délai rebouclé sur lui-même, calé sur la
     // période d'allumage réelle (1/firingFreq), transforme le bruit blanc en une série
@@ -1398,7 +1667,8 @@
   function clearOscBank(){
     oscBank.forEach(o => {
       try{ o.osc.stop(); }catch(e){}
-      try{ o.osc.disconnect(); o.gain.disconnect(); }catch(e){}
+      try{ o.osc.disconnect(); o.gain.disconnect(); if(o.pan) o.pan.disconnect(); }catch(e){}
+      try{ if(jitterPitch) jitterPitch.disconnect(o.osc.detune); }catch(e){}
     });
     oscBank = [];
   }
@@ -1510,13 +1780,20 @@
       osc.setPeriodicWave(buildEngineWave(profile, sharp, seedBase + n * 911));
       osc.frequency.value = 10;
       osc.detune.value = (n % 2 ? 1 : -1) * (4 + (profile.roughness || 0) * 10);
+      if(jitterPitch) jitterPitch.connect(osc.detune);
       const gain = actx.createGain();
       gain.gain.value = 0;
+      // les deux exemplaires de chaque timbre partent un peu à gauche et un peu à droite :
+      // leur lente dérive devient un mouvement dans l'espace au lieu d'un battement
+      const pan = makePan((n % 2 ? 1 : -1) * 0.3);
       osc.connect(gain);
-      gain.connect(engineSum);
+      gain.connect(pan);
+      pan.connect(engineSum);
       osc.start();
-      oscBank.push({ osc, gain, sharp });
+      oscBank.push({ osc, gain, sharp, pan });
     });
+    // le souffle suit le calendrier d'allumage de CE moteur, irrégularités comprises
+    if(fireOsc) fireOsc.setPeriodicWave(buildEngineWave(profile, true, seedBase));
   }
 
   // cruiseFade : 1 = phase qui compte (accélération, freinage, changement de rapport),
@@ -1537,6 +1814,16 @@
     // charge moteur : à pied levé l'impulsion est molle et sourde, à pleine charge elle claque.
     // À allure constante on tire volontairement vers le timbre « pied levé », plus discret.
     const load = Math.min(1, throttle * 1.2 + rpmRatio * 0.15) * (0.35 + 0.65 * fade);
+    if(fireOsc) fireOsc.frequency.setTargetAtTime(cycleFreq, now, 0.035);
+    if(jitterSrc){
+      // une valeur par combustion ; marquée au ralenti et pied levé (là où un vrai moteur est
+      // le plus irrégulier), presque effacée à haut régime en charge
+      jitterSrc.playbackRate.setTargetAtTime(Math.min(4, firingFreq * JITTER_HOLD / actx.sampleRate), now, 0.05);
+      const rough = profile.roughness || 0;
+      const unsteady = (1 - rpmRatio * 0.75) * (1 - throttle * 0.45);
+      jitterAmp.gain.setTargetAtTime(running ? (0.07 + rough * 0.30) * unsteady : 0, now, 0.08);
+      jitterPitch.gain.setTargetAtTime(running ? (5 + rough * 22) * unsteady : 0, now, 0.08);   // en cents
+    }
     oscBank.forEach(o => {
       o.osc.frequency.setTargetAtTime(cycleFreq, now, 0.035);
       const amp = (o.sharp ? load : 1 - load * 0.8) * 0.5;
@@ -1553,10 +1840,15 @@
 
     lowpass.frequency.setTargetAtTime((450 + rpmRatio * 5500 * profile.brightness + throttle * 900) * (0.30 + 0.70 * fade), now, 0.05);
 
-    noiseFilter.frequency.setTargetAtTime(300 + rpmRatio * 3500, now, 0.05);
+    noiseFilter.frequency.setTargetAtTime(350 + rpmRatio * 2300, now, 0.05);
     // souffle d'admission et cliquetis : ce sont eux qui « claquent » à l'oreille, donc ils
     // s'effacent bien plus vite que le grave quand on tient une allure constante
     const targetNoise = running ? (0.02 + throttle * 0.10 + rpmRatio * 0.05) * fade * fade : 0;
+    // cliquetis : surtout au ralenti, où rien d'autre ne le couvre
+    if(tickGain){
+      const tick = (0.05 + (profile.mechanical || 0) * 0.08) * (1 - Math.min(0.75, rpmRatio * 1.1)) * (0.5 + 0.5 * fade);
+      tickGain.gain.setTargetAtTime(running ? tick : 0, now, 0.08);
+    }
     noiseGain.gain.setTargetAtTime(targetNoise, now, 0.08);
 
     // échappement en peigne : le délai suit la fréquence d'allumage réelle, l'intensité varie
@@ -1583,6 +1875,46 @@
       const mech = profile.mechanical || 0;
       pulseDepth.gain.setTargetAtTime(running ? mech * 0.18 * fade : 0, now, 0.05);
     }
+  }
+
+  // Tout ce qui n'est pas le moteur : roulement des pneus, vent, pluie, sifflement du turbo.
+  // Ces couches ne passent PAS par l'atténuation d'allure constante — c'est précisément leur
+  // rôle de rester quand le moteur s'efface, comme dans une vraie voiture à vitesse stabilisée.
+  function updateAmbience(dt, speedKmh, throttle, rpmRatio, running, profile){
+    if(!actx || !roadGain) return;
+    const now = actx.currentTime;
+    const sc = SCENES[currentSceneKey] || SCENES.nuit;
+    const on = running && ambienceOn;
+    const v = Math.min(1.6, Math.max(0, speedKmh) / 130);
+
+    // roulement : grave, il s'éclaircit et monte à peu près comme la vitesse. Dans l'espace,
+    // ni pneus ni air.
+    const tyre = sc.space ? 0 : Math.pow(v, 1.1) * 0.42 * (sc.particle === 'rain' ? 1.25 : 1);
+    roadFilter.frequency.setTargetAtTime(140 + v * 420, now, 0.2);
+    roadGain.gain.setTargetAtTime(on ? tyre : 0, now, 0.25);
+
+    // vent : croît comme le carré de la vitesse, avec des rafales lentes. En montagne et sous
+    // l'orage il souffle déjà à l'arrêt.
+    windGustTimer -= dt;
+    if(windGustTimer <= 0){ windGustTarget = Math.random() * 2 - 1; windGustTimer = 0.6 + Math.random() * 1.8; }
+    windGust += (windGustTarget - windGust) * Math.min(1, dt * 1.2);
+    const still = sc.particle === 'snow' ? 0.035 : sc.particle === 'rain' ? 0.03 : 0;
+    const wind = sc.space ? 0 : (v * v * 0.075 + still) * (1 + windGust * 0.22);
+    windFilters.forEach((f, i) => f.frequency.setTargetAtTime((380 + v * 650) * (1 + windGust * (i ? 0.10 : -0.10)), now, 0.3));
+    windGain.gain.setTargetAtTime(on ? wind : 0, now, 0.25);
+
+    // pluie : régulière à l'arrêt, plus dense sur le pare-brise quand on roule
+    rainGain.gain.setTargetAtTime(on && sc.particle === 'rain' ? 0.045 + v * 0.05 : 0, now, 0.4);
+
+    // turbo : la pression suit la charge avec retard (le temps que la turbine se lance), et
+    // retombe d'un coup au lever de pied
+    const boostTarget = (running && profile.turbo) ? Math.max(0, throttle - 0.15) * Math.min(1, rpmRatio * 2.2) : 0;
+    turboBoost += (boostTarget - turboBoost) * Math.min(1, dt * (boostTarget > turboBoost ? 2.2 : 6));
+    const tf = 1500 + turboBoost * 3800 + rpmRatio * 700;
+    turboOsc.frequency.setTargetAtTime(tf, now, 0.05);
+    turboHissFilter.frequency.setTargetAtTime(tf, now, 0.05);
+    turboGain.gain.setTargetAtTime(turboBoost * turboBoost * 0.014, now, 0.05);
+    turboHissGain.gain.setTargetAtTime(turboBoost * 0.11, now, 0.05);
   }
 
   // ---------------------------------------------------------------------
@@ -1770,13 +2102,14 @@
   const CAM_H = 1.8;            // mètres : hauteur de l'œil — c'est le réglage de l'impression de vitesse
   const CAM_F_FRAC = 0.72;      // focale en fraction de largeur d'écran (champ ≈ 70°)
   const HORIZON = 0.28;         // position de l'horizon, en fraction de la hauteur d'écran
+  let horizonFrac = HORIZON;    // une scène peut le descendre pour donner de la place au paysage
   const CAM_FOV = 70;           // degrés de paysage couverts par la largeur de l'écran
   let camNear = 6;              // mètres : distance du bas de l'écran (recalculé au redimensionnement)
   let roadSlope = 400;          // pixels de demi-chaussée par unité de tt
 
   function updateCamera(){
     const W = visionCanvas.width, H = visionCanvas.height;
-    const below = H - H * HORIZON;
+    const below = H - H * horizonFrac;
     // En portrait, la hauteur voulue étalerait la chaussée sur près de dix largeurs d'écran
     // et il ne resterait que du bitume : on plafonne, quitte à relever un peu la caméra.
     roadSlope = Math.min(4 * below / CAM_H, W * 1.9);
@@ -1814,13 +2147,34 @@
       foliage: ['#141d16', '#0f1712'], propDark: '#2a2f36', propStone: '#3a3f46', trunk: '#241a12',
     },
     montagne: {
-      name: 'Montagne', sky: ['#7d99b4', '#cfdde8'], ground: '#e6edf2',
-      road: ['#5a6068', '#3c4148'], edge: 'rgba(255,255,255,0.8)', dash: 'rgba(250,250,255,0.9)',
-      glow: '255,255,255', glowStrength: 0.3, particle: 'snow', particleRGB: [255, 255, 255],
+      name: 'Montagne', horizon: 0.40,
+      sky: ['#4f76a4', '#8fb0cf', '#d9e6ef'], ground: '#e4ebf2',
+      road: ['#565c64', '#33383f'], edge: 'rgba(238,242,248,0.86)', dash: 'rgba(244,246,250,0.9)',
+      glow: '255,255,255', glowStrength: 0, particle: 'snow', particleRGB: [255, 255, 255],
       haze: 'rgba(207,221,232,0.9)', decor: 'peaks', sun: null, carLight: 0.5,
-      props: ['snowfir', 'snowfir', 'snowfir', 'rock', 'snowpole'],
-      propsFar: ['snowfir', 'rock', 'snowfir'],
+      props: ['snowfir', 'snowfir', 'snowfir', 'snowfir', 'baretree', 'rock', 'snowpole'],
+      propsFar: ['snowfir', 'snowfir', 'snowfir', 'snowfir', 'baretree', 'rock'],
       foliage: ['#24382b', '#1b2c21'], propDark: '#4c5560', propStone: '#8d97a3', snowy: true, trunk: '#2e2419',
+      // --- rendu détaillé ---
+      fog: { color: '#cfdde9', start: 25, end: 520, max: 0.86 },
+      lines: true,
+      verge: { w: 1.3, color: '#f1f5f9' },
+      groundTex: { cell: 11, rows: 22, cols: 8, light: '255,255,255', dark: '104,134,172', contrast: 0.20,
+        speck: { n: 2, colors: ['#c3cfdc', '#aebccb', '#9aa9ba', '#7d8068'], tuft: 0.22 } },
+      art: { leaf: '#182c25', leafLit: '#33523f', snow: '#f5f8fc', snowShade: '#b3c5db', trunk: '#3b2d23',
+        bark: '#4a4038', barkLit: '#8d8378', rock: '#5e6771', rockLit: '#a2abb5', shadow: '52,78,118' },
+      // trois plans de relief, du plus lointain (pâle, presque de la couleur du ciel) au plus
+      // proche (sombre, boisé) : c'est leur étagement qui donne la distance
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 41, count: 11, y0: 0.08, y1: 0.40, w0: 0.7, w1: 1.9, thick: 0.16, light: '255,255,255', dark: '176,194,214', alpha: 0.5 });
+        panoRidge(g, span, h, { seed: 7, cells: 5, oct: 5, ridged: true, sharp: 1.3, base: 0.20, amp: 0.62, light: 1, relief: 0.5,
+          lit: '#a9bccf', shadow: '#8097b1', foot: '#cfdde9', haze: 0.85, snow: { line: 0.36, vary: 0.10, lit: '#f6f9fc', shadow: '#b4c7dc' } });
+        panoClouds(g, span, h, { seed: 97, count: 5, y0: 0.50, y1: 0.66, w0: 1.2, w1: 2.4, thick: 0.07, light: '244,248,252', dark: '200,214,228', alpha: 0.38 });
+        panoRidge(g, span, h, { seed: 23, cells: 7, oct: 5, ridged: true, sharp: 1.15, base: 0.10, amp: 0.50, light: 1, relief: 0.75,
+          lit: '#8496a8', shadow: '#4f6278', foot: '#b9cadb', haze: 0.7, snow: { line: 0.27, vary: 0.11, lit: '#eef3f8', shadow: '#9db2ca' } });
+        panoRidge(g, span, h, { seed: 51, cells: 9, oct: 4, base: 0.035, amp: 0.15, trees: 0.022, light: 1, relief: 0.5, grainAmt: 0.7,
+          lit: '#5b7480', shadow: '#2c4350', foot: '#a4b9cb', haze: 0.55 });
+      },
     },
     sunset: {
       name: 'Coucher de soleil', sky: ['#2c1a42', '#ff9a4d'], ground: '#2a1f1c',
@@ -2171,8 +2525,11 @@
   // du bitume et ce qui glisse lentement à l'arrière-plan qui donne la profondeur. Sans elle,
   // tout le décor était collé au bord et la scène paraissait plate.
   const FAR_SPAN = 640;
-  const farProps = Array.from({ length: 20 }, (_, i) => ({
-    dist: 40 + (i / 20) * FAR_SPAN,
+  // 20 éléments pour les scènes dessinées à la volée, 28 de plus en réserve pour celles dont
+  // le décor est pré-rendu : une copie d'image ne coûte presque rien, on peut boiser pour de bon
+  const farProps = Array.from({ length: 48 }, (_, i) => ({
+    i,
+    dist: i < 20 ? 40 + (i / 20) * FAR_SPAN : 30 + ((i - 20) / 28) * FAR_SPAN,
     side: Math.random() < 0.5 ? -1 : 1,
     offset: 24 + Math.random() * 72,   // mètres depuis l'axe
     scale: 0.9 + Math.random() * 0.9,
@@ -2841,6 +3198,321 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // 4f. PAYSAGES — panorama d'horizon, décor pré-rendu, texture de sol
+  // ---------------------------------------------------------------------
+  // Trois outils communs, que chaque scène active dans sa propre description :
+  //  · le panorama : ciel, nuages et reliefs en plusieurs plans, peints UNE fois dans une
+  //    bande plus large que l'écran, puis simplement décalée avec le cap ;
+  //  · les éléments de décor pré-rendus : un arbre est dessiné une fois, avec tout le détail
+  //    qu'on veut, puis recopié à l'échelle — ce qui coûte moins qu'une silhouette tracée à
+  //    chaque image et autorise un dessin autrement plus riche ;
+  //  · la texture du sol : des parcelles de teinte posées en perspective et ancrées à la
+  //    distance parcourue, pour que le sol ait une matière et qu'il défile.
+  function hexLerp(a, b, t){
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const k = Math.max(0, Math.min(1, t));
+    const f = sh => Math.round(((pa >> sh) & 255) * (1 - k) + ((pb >> sh) & 255) * k);
+    return '#' + ((1 << 24) | (f(16) << 16) | (f(8) << 8) | f(0)).toString(16).slice(1);
+  }
+  const hexRgb = hex => { const n = parseInt(hex.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+
+  // Bruit lisse qui se referme sur lui-même : le panorama se répète bord à bord quand la
+  // voiture a fait le tour de l'horizon, donc ses reliefs doivent boucler sans marche.
+  function makeLoopNoise(seed){
+    const rnd = seededRandom(seed);
+    const tab = Array.from({ length: 2048 }, () => rnd());
+    return (u, cells, salt) => {
+      const L = Math.max(1, Math.round(cells));
+      const x = (((u % 1) + 1) % 1) * L;
+      const i = Math.floor(x), f = x - i, s = f * f * (3 - 2 * f);
+      const k = (salt || 0) * 389;
+      const a = tab[((i % L) * 7 + k) & 2047], b = tab[(((i + 1) % L) * 7 + k) & 2047];
+      return a + (b - a) * s;
+    };
+  }
+  function fbmLoop(noise, u, cells, oct, salt){
+    let v = 0, amp = 1, tot = 0;
+    for(let o = 0; o < oct; o++){
+      v += noise(u, cells << o, (salt || 0) + o) * amp;
+      tot += amp; amp *= 0.5;
+    }
+    return v / tot;
+  }
+
+  const panoScale = (span, h) => Math.min(1, (span / h) / 10.6);
+
+  // Un plan de relief. Chaque colonne de pixels reçoit son propre dégradé : sa teinte dépend
+  // de la pente de la crête à cet endroit (versant tourné vers la lumière ou à l'ombre), d'un
+  // grain fin, et de la neige au-dessus d'une limite elle-même irrégulière. Le pied du relief
+  // se fond dans la teinte de brume : c'est ce qui sépare les plans les uns des autres.
+  function panoRidge(g, span, h, o){
+    const noise = makeLoopNoise(o.seed);
+    // Les reliefs sont décrits pour un écran large. Sur un écran étroit (téléphone tenu
+    // debout) la bande est bien moins longue pour la même hauteur de ciel : on y loge moins
+    // de sommets, sinon ils se resserrent en aiguilles.
+    const ks = panoScale(span, h);
+    const cells = Math.max(2, Math.round((o.cells || 6) * ks)), oct = o.oct || 5;
+    const hs = new Float32Array(span);
+    for(let x = 0; x < span; x++){
+      const u = x / span;
+      let n = fbmLoop(noise, u, cells, oct, 0);
+      if(o.ridged){
+        // crêtes vives : le pli du bruit donne des arêtes, une enveloppe lente évite que tous
+        // les sommets culminent à la même hauteur
+        n = Math.pow(1 - Math.abs(2 * n - 1), o.sharp || 1.5) * (0.4 + 0.6 * noise(u, Math.max(2, cells / 2), 21));
+      }
+      let v = (o.base + o.amp * n) * h;
+      if(o.trees) v += o.trees * h * Math.pow(noise(u, span / 5, 11), 1.6);   // cimes d'une lisière
+      hs[x] = v;
+    }
+    const light = o.light || 1;
+    for(let x = 0; x < span; x++){
+      const u = x / span, top = h - hs[x];
+      const slope = (hs[(x + 3) % span] - hs[(x - 3 + span) % span]) / 6 * light;
+      let lit = 0.5 + slope * (o.relief != null ? o.relief : 0.8) + (noise(u, o.grain || span / 16, 7) - 0.5) * (o.grainAmt != null ? o.grainAmt : 0.16);
+      lit = Math.max(0, Math.min(1, lit));
+      const rock = hexLerp(o.shadow, o.lit, lit);
+      const grad = g.createLinearGradient(0, top, 0, h);
+      let snowDone = false;
+      if(o.snow){
+        const line = (o.snow.line + (fbmLoop(noise, u, Math.max(3, Math.round(18 * ks)), 3, 3) - 0.5) * o.snow.vary * 1.6 + (noise(u, span / 14, 5) - 0.5) * o.snow.vary * 0.22 - (lit - 0.5) * o.snow.vary * 0.9) * h;
+        const depth = hs[x] - line;
+        if(depth > 1){
+          const p = Math.min(0.97, depth / hs[x]);
+          const sn = hexLerp(o.snow.shadow, o.snow.lit, lit);
+          grad.addColorStop(0, sn); grad.addColorStop(p, sn);
+          grad.addColorStop(Math.min(1, p + 0.035), rock);
+          snowDone = true;
+        }
+      }
+      if(!snowDone) grad.addColorStop(0, rock);
+      grad.addColorStop(1, hexLerp(rock, o.foot, o.haze != null ? o.haze : 0.6));
+      g.fillStyle = grad;
+      g.fillRect(x, top, 1, hs[x] + 1);
+    }
+  }
+
+  // Nuages : des amas de bouffées à bord flou, le dessous à l'ombre dessiné d'abord, le dessus
+  // éclairé par-dessus. Chaque nuage est peint aussi un tour d'horizon plus loin de chaque
+  // côté, pour qu'aucun ne soit coupé net au raccord du panorama.
+  function panoClouds(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    const puff = (x, y, r, rgb, a) => {
+      // bouffée aplatie : un nuage est bien plus large que haut
+      g.save();
+      g.translate(x, y); g.scale(1, 0.55);
+      const gr = g.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
+      gr.addColorStop(0, `rgba(${rgb},${a})`);
+      gr.addColorStop(0.72, `rgba(${rgb},${a * 0.8})`);
+      gr.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = gr;
+      g.fillRect(-r, -r, r * 2, r * 2);
+      g.restore();
+    };
+    const count = Math.max(2, Math.round(o.count * panoScale(span, h)));
+    for(let c = 0; c < count; c++){
+      const cx = rnd() * span, cy = (o.y0 + rnd() * (o.y1 - o.y0)) * h;
+      const w = (o.w0 + rnd() * (o.w1 - o.w0)) * h;
+      const th = w * (o.thick || 0.2) * (0.7 + rnd() * 0.6);
+      const n = 14 + Math.floor(rnd() * 12);
+      const puffs = [];
+      for(let i = 0; i < n; i++){
+        const t = rnd() * 2 - 1, env = 1 - t * t;
+        const r = th * (0.3 + 0.7 * env) * (0.5 + rnd() * 0.6);
+        puffs.push([t * w / 2, -r * 0.5 * env - rnd() * th * 0.2, r]);
+      }
+      [-span, 0, span].forEach(off => {
+        const x0 = cx + off;
+        if(x0 + w < 0 || x0 - w > span) return;
+        puffs.forEach(p => puff(x0 + p[0], cy + p[1] + p[2] * 0.30, p[2], o.dark, o.alpha * 0.8));
+        puffs.forEach(p => puff(x0 + p[0] - p[2] * 0.12, cy + p[1] - p[2] * 0.12, p[2] * 0.86, o.light, o.alpha));
+      });
+    }
+  }
+
+  let panoCache = { key: null, cv: null, span: 0 };
+  function getPanorama(sc, W, skyH){
+    const key = currentSceneKey + ':' + W + ':' + Math.round(skyH);
+    if(panoCache.key === key) return panoCache;
+    const span = Math.round(W * 2.4), h = Math.max(8, Math.round(skyH));
+    const cv = document.createElement('canvas');
+    cv.width = span; cv.height = h;
+    sc.pano(cv.getContext('2d'), span, h, W);
+    panoCache = { key, cv, span };
+    return panoCache;
+  }
+
+  // --- décor pré-rendu ---------------------------------------------------------------------
+  // Chaque peintre dessine en MÈTRES, origine au pied de l'objet, y vers le haut négatif. La
+  // lumière vient toujours de la gauche, ombre portée à droite : un seul éclairage pour toute
+  // la scène, ce qui manquait le plus aux anciennes silhouettes. `A` est la palette de la scène.
+  const jag = (rnd, amt) => 1 + (rnd() * 2 - 1) * amt;
+  const groundShadow = (g, A, w, len) => {
+    const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    gr.addColorStop(0, `rgba(${A.shadow},0.42)`);
+    gr.addColorStop(0.6, `rgba(${A.shadow},0.26)`);
+    gr.addColorStop(1, `rgba(${A.shadow},0)`);
+    g.save();
+    g.translate(len * 0.45, 0.02);
+    g.scale(w + len * 0.6, 0.20 + w * 0.07);
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill();
+    g.restore();
+  };
+
+  const PROP_ART = {
+    // Sapin : une dizaine d'étages de branches tombantes, chacun à bord dentelé, le flanc
+    // gauche pris par la lumière. `A.snow` pose un manteau sur le dessus de chaque étage.
+    snowfir: { h: 12.5, w: 9, variants: 4, paint(g, rnd, A){
+      const H = 7.5 + rnd() * 4.5, W = H * (0.19 + rnd() * 0.05);
+      groundShadow(g, A, W * 0.9, H * 0.28);
+      g.fillStyle = A.trunk;
+      g.fillRect(-H * 0.017, -H * 0.16, H * 0.034, H * 0.16);
+      const tiers = 11 + Math.floor(rnd() * 4), step = H * 0.80 / tiers;
+      const poly = (pts, col) => {
+        g.fillStyle = col; g.beginPath();
+        pts.forEach((p, k) => k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+        g.closePath(); g.fill();
+      };
+      for(let i = tiers - 1; i >= 0; i--){               // du bas vers la cime : chaque étage recouvre le précédent
+        const t = (i + 1) / tiers;
+        const yA = -H + i * step, th = step * (1.9 + rnd() * 0.5), yB = yA + th;
+        const w = W * (0.12 + 0.88 * Math.pow(t, 0.9)) * jag(rnd, 0.12);
+        const lean = (rnd() - 0.5) * w * 0.10;
+        const teeth = 2 + Math.floor(t * 4);
+        const edge = [];
+        for(let k = 0; k <= teeth * 2; k++){
+          const f = k / (teeth * 2) * 2 - 1;             // -1 .. 1 d'un bout à l'autre
+          const droop = Math.abs(f) * th * 0.30;         // les branches tombent vers les bouts
+          edge.push([lean + f * w, yB + droop - ((k % 2) ? th * (0.22 + rnd() * 0.14) : 0)]);
+        }
+        const apex = [lean * 0.3, yA];
+        poly([apex].concat(edge.slice(0, teeth + 1), [[lean, yB]]), hexLerp(A.leaf, A.leafLit, 0.5 + rnd() * 0.35));
+        poly([apex].concat(edge.slice(teeth), [[lean, yB]]), hexLerp(A.leaf, '#000000', 0.10 + rnd() * 0.14));
+        if(A.snow){
+          // la neige tient sur le dessus des branches : une bande le long de chaque versant,
+          // d'où dépassent les pointes vertes
+          [[-1, A.snow], [1, A.snowShade]].forEach(([sd, col]) => {
+            const reach = 0.80 + rnd() * 0.16, tip = edge[sd < 0 ? 0 : teeth * 2];
+            const tx = lean + (tip[0] - lean) * reach, ty = yA + (tip[1] - yA) * reach;
+            poly([apex, [tx, ty - th * 0.06], [tx - sd * w * 0.10, ty + th * 0.10],
+                  [lean + sd * w * 0.42, yA + th * (0.60 + rnd() * 0.12)], [lean + sd * w * 0.12, yA + th * 0.34]], col);
+          });
+        }
+      }
+    } },
+    // Arbre nu : tronc et branches tracés par ramifications successives, comme un vrai
+    // squelette d'arbre en hiver.
+    baretree: { h: 9.5, w: 9, variants: 3, paint(g, rnd, A){
+      const H = 5.5 + rnd() * 3;
+      groundShadow(g, A, H * 0.10, H * 0.30);
+      g.lineCap = 'round';
+      const branch = (x, y, ang, len, wid, depth) => {
+        const x2 = x + Math.sin(ang) * len, y2 = y - Math.cos(ang) * len;
+        g.strokeStyle = A.bark; g.lineWidth = wid;
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+        if(wid > 0.05){                                 // filet de lumière sur le flanc gauche
+          g.strokeStyle = A.barkLit; g.lineWidth = wid * 0.36;
+          g.beginPath(); g.moveTo(x - wid * 0.26, y); g.lineTo(x2 - wid * 0.26, y2); g.stroke();
+        }
+        if(A.snow && depth > 0 && depth < 4 && Math.abs(ang) > 0.5){   // neige sur les branches couchées
+          g.strokeStyle = A.snow; g.lineWidth = wid * 0.5;
+          g.beginPath(); g.moveTo(x, y - wid * 0.4); g.lineTo(x2, y2 - wid * 0.4); g.stroke();
+        }
+        if(depth >= 5 || len < 0.18) return;
+        const kids = depth === 0 ? 3 : 2 + (rnd() < 0.35 ? 1 : 0);
+        for(let k = 0; k < kids; k++){
+          const spread = (k / (kids - 1 || 1) - 0.5) * (0.85 + rnd() * 0.45);
+          branch(x2, y2, ang * 0.55 + spread + (rnd() - 0.5) * 0.3, len * (0.62 + rnd() * 0.16), wid * 0.62, depth + 1);
+        }
+      };
+      branch(0, 0, (rnd() - 0.5) * 0.12, H * 0.34, H * 0.045, 0);
+    } },
+    // Rocher : un contour irrégulier à fond plat, une face éclairée découpée en haut à gauche.
+    rock: { h: 2.4, w: 6, variants: 4, paint(g, rnd, A){
+      const rw = 0.6 + rnd() * 0.9, rh = rw * (0.55 + rnd() * 0.4);
+      groundShadow(g, A, rw * 1.0, rh * 0.5);
+      const n = 8, pts = [];
+      for(let i = 0; i <= n; i++){
+        const a = Math.PI * (1 - i / n);
+        const r = (i === 0 || i === n) ? 1 : jag(rnd, 0.2);
+        pts.push([Math.cos(a) * rw * r, -Math.sin(a) * rh * r]);
+      }
+      const poly = (list, col) => { g.fillStyle = col; g.beginPath(); list.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); };
+      poly(pts, A.rock);
+      const mid = [pts[4][0] + rw * 0.12, pts[4][1] * 0.42];
+      poly([pts[0], pts[1], pts[2], pts[3], pts[4], mid, [pts[1][0] * 0.4, 0]], A.rockLit);
+      poly([pts[4], pts[5], pts[6], mid], hexLerp(A.rock, A.rockLit, 0.4));
+      if(A.snow){
+        g.fillStyle = A.snow;
+        g.beginPath(); g.moveTo(pts[1][0], pts[1][1]);
+        for(let i = 2; i <= 6; i++) g.lineTo(pts[i][0], pts[i][1]);
+        g.quadraticCurveTo(mid[0], mid[1] - rh * 0.5, pts[1][0], pts[1][1]);
+        g.fill();
+      }
+    } },
+    // Jalon à neige : la perche orange et noire qui marque le bord de la route sous la neige.
+    snowpole: { h: 3, w: 2.4, variants: 1, paint(g, rnd, A){
+      groundShadow(g, A, 0.12, 0.7);
+      for(let i = 0; i < 5; i++){
+        g.fillStyle = (i % 2) ? '#22252a' : '#e2622a';
+        g.fillRect(-0.045, -2.5 + i * 0.5, 0.09, 0.5);
+      }
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.fillRect(-0.045, -2.5, 0.03, 2.5);
+      g.fillStyle = '#f4f4f0';
+      g.fillRect(-0.06, -2.34, 0.12, 0.16);
+    } },
+  };
+
+  const spriteCache = new Map();
+  function getSprite(sceneKey, sc, kind, seed){
+    const spec = PROP_ART[kind];
+    if(!spec) return null;
+    const variant = Math.floor(seed * spec.variants) % spec.variants;
+    const key = sceneKey + '|' + kind + '|' + variant;
+    let e = spriteCache.get(key);
+    if(e) return e;
+    const ppm = Math.min(110, 360 / spec.h);
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(spec.w * ppm) + 4;
+    cv.height = Math.ceil((spec.h + 0.5) * ppm) + 4;
+    const ax = cv.width * 0.42, ay = cv.height - 0.42 * ppm;   // l'ombre porte à droite : pied décalé à gauche
+    const g = cv.getContext('2d');
+    g.translate(ax, ay); g.scale(ppm, ppm);
+    spec.paint(g, seededRandom(kind.length * 977 + variant * 7919 + 13), sc.art, variant);
+    // version « noyée dans la brume » : la même découpe, dans la teinte du lointain. La
+    // superposer plus ou moins fort teinte l'objet sans jamais le rendre transparent.
+    const fog = document.createElement('canvas');
+    fog.width = cv.width; fog.height = cv.height;
+    const fg = fog.getContext('2d');
+    fg.drawImage(cv, 0, 0);
+    fg.globalCompositeOperation = 'source-in';
+    fg.fillStyle = sc.fog.color;
+    fg.fillRect(0, 0, fog.width, fog.height);
+    e = { cv, fog, ppm, ax, ay };
+    spriteCache.set(key, e);
+    return e;
+  }
+  function drawSprite(e, x, y, pxPerM, fog){
+    const k = pxPerM / e.ppm, dw = e.cv.width * k, dh = e.cv.height * k;
+    if(dh < 1.5) return;
+    const dx = x - e.ax * k, dy = y - e.ay * k;
+    visctx.drawImage(e.cv, dx, dy, dw, dh);
+    if(fog > 0.02){
+      const a = visctx.globalAlpha;
+      visctx.globalAlpha = a * fog;
+      visctx.drawImage(e.fog, dx, dy, dw, dh);
+      visctx.globalAlpha = a;
+    }
+  }
+  // brume selon la distance : nulle devant le capot, maximale au fond du décor
+  function fogAt(sc, dist){
+    const f = sc.fog;
+    return Math.max(0, Math.min(1, (dist - f.start) / (f.end - f.start))) * f.max;
+  }
+
   const TRAFFIC_MAX = 5;
   const TRAFFIC_COLORS = ['#8f2f28', '#2f4d8f', '#7d7f84', '#8a6a2c', '#2f6b4a', '#5a3a6e'];
   const traffic = [];
@@ -3114,7 +3786,7 @@
     const W = visctx.canvas.width, H = visctx.canvas.height;
     const sc = SCENES[currentSceneKey] || SCENES.nuit;
     visctx.clearRect(0, 0, W, H);
-    const vpX = W / 2, vpY = H * HORIZON;
+    const vpX = W / 2, vpY = H * horizonFrac;
     const bend = Math.max(-1, Math.min(1, curve || 0));
 
     // Géométrie de la route en virage. `tt` va de 0 (horizon, au loin) à 1 (bas de l'écran,
@@ -3158,8 +3830,8 @@
     // pose en transparence, si bien que les étoiles se voient au travers.
     const skyBottom = sc.space ? H : vpY;
     const sky = visctx.createLinearGradient(0, 0, 0, skyBottom);
-    sky.addColorStop(0, sc.sky[0]);
-    sky.addColorStop(1, sc.sky[1]);
+    sc.sky.forEach((c, i) => sky.addColorStop(i / (sc.sky.length - 1), c));
+    const skyLow = sc.sky[sc.sky.length - 1];   // teinte du ciel au ras de l'horizon
     visctx.fillStyle = sky;
     visctx.fillRect(0, 0, W, skyBottom);
 
@@ -3243,7 +3915,12 @@
 
     // --- silhouette d'horizon (sommets, collines, dunes) ---------------------------------
     // elle défile avec le cap, et se répète pour couvrir l'écran quel que soit l'angle
-    if(sc.decor){
+    if(sc.pano){
+      const pano = getPanorama(sc, W, vpY);
+      let base = -(worldHeading * pxPerDeg) % pano.span;
+      if(base > 0) base -= pano.span;
+      for(let off = base; off < W; off += pano.span) visctx.drawImage(pano.cv, Math.round(off), 0);
+    } else if(sc.decor){
       const pts = decorProfile(sc.decor, W);
       const maxH = vpY * (sc.decor === 'peaks' ? 0.62 : 0.28);
       const span = W * 1.6;
@@ -3297,11 +3974,70 @@
       // au ras de l'horizon, imperceptible mais jamais interrompu plus bas
       const gStrip = verticalStrip('sol|' + currentSceneKey, H - vpY, (g, h) => {
         const grad = g.createLinearGradient(0, 0, 0, h);
-        easedStops(grad, k => mix(sc.ground, sc.sky[1], 0.42 * k), 8, 3.4);
+        easedStops(grad, k => mix(sc.ground, sc.fog ? sc.fog.color : skyLow, (sc.fog ? 0.6 : 0.42) * k), 8, 3.4);
         g.fillStyle = grad;
         g.fillRect(0, 0, 1, h);
       });
       visctx.drawImage(gStrip, 0, vpY, W, H - vpY);
+      // Matière du sol : des parcelles aux coins décalés (jamais un damier), tantôt un peu plus
+      // claires, tantôt un peu plus sombres, ancrées à la distance parcourue. Elles s'effacent
+      // vers l'horizon, où elles ne seraient plus qu'un fourmillement.
+      if(sc.groundTex){
+        const gt = sc.groundTex, C = gt.cell;
+        const hsh = (a, b) => { const v = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return v - Math.floor(v); };
+        const corner = (i, j) => {
+          const d = Math.max(1.2, (i + (hsh(i, j) - 0.5) * 0.7) * C - travelled);
+          const tt = camNear / d, ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+          return [roadCenterAt(tt) + (j + (hsh(j + 31.5, i) - 0.5) * 0.7) * C * ppm, rowY(tt)];
+        };
+        const i0 = Math.floor(travelled / C);
+        for(let i = i0 + (gt.rows || 20); i >= i0; i--){
+          const dNear = Math.max(1.5, i * C - travelled);
+          const ttN = camNear / dNear;
+          const fadeFar = Math.min(1, ttN * 7);
+          if(fadeFar < 0.08) continue;
+          const ppmN = roadHalfAt(Math.min(1.6, ttN)) / 4;
+          const J = Math.min(gt.cols || 8, Math.ceil((W * 0.75) / (ppmN * C)) + 1);
+          for(let j = -J; j < J; j++){
+            const tone = hsh(i * 1.7 + 5.3, j * 2.3 + 9.1) * 2 - 1;
+            if(Math.abs(tone) < 0.3) continue;
+            const a = corner(i, j), b = corner(i, j + 1), c = corner(i + 1, j + 1), d = corner(i + 1, j);
+            visctx.fillStyle = `rgba(${tone > 0 ? gt.light : gt.dark},${(Math.abs(tone) * gt.contrast * fadeFar).toFixed(3)})`;
+            visctx.beginPath();
+            visctx.moveTo(a[0], a[1]); visctx.lineTo(b[0], b[1]); visctx.lineTo(c[0], c[1]); visctx.lineTo(d[0], d[1]);
+            visctx.closePath(); visctx.fill();
+          }
+        }
+        // semis du premier plan : cailloux, touffes, tout ce qui file au ras de l'accotement
+        if(gt.speck){
+          const R = 2.2, r0 = Math.floor(travelled / R), sp = gt.speck;
+          for(let i = r0 + 30; i > r0; i--){
+            const d = i * R - travelled;
+            if(d < 1.7) continue;
+            const tt = camNear / d, ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+            if(ppm < 5) continue;
+            const y = rowY(tt), cx = roadCenterAt(tt);
+            for(let k = 0; k < sp.n * 2; k++){
+              const side = (k % 2) ? 1 : -1;
+              const h1 = hsh(i * 3.1 + k, 7.7 + k * 1.3), h2 = hsh(i * 5.3 + k * 2.1, 3.3);
+              const x = cx + side * (4.9 + h1 * h1 * 16) * ppm;
+              if(x < -20 || x > W + 20) continue;
+              const r = (0.03 + h2 * 0.08) * ppm;
+              visctx.fillStyle = sp.colors[Math.floor(h2 * 7.3 * sp.colors.length) % sp.colors.length];
+              if(h1 < (sp.tuft || 0)){
+                // touffe : trois brins qui dépassent
+                visctx.beginPath();
+                visctx.moveTo(x - r * 1.4, y); visctx.lineTo(x - r * 0.9, y - r * 3.2); visctx.lineTo(x - r * 0.3, y);
+                visctx.lineTo(x + r * 0.1, y - r * 4.2); visctx.lineTo(x + r * 0.5, y);
+                visctx.lineTo(x + r * 1.2, y - r * 2.8); visctx.lineTo(x + r * 1.5, y);
+                visctx.closePath(); visctx.fill();
+              } else {
+                visctx.beginPath(); visctx.ellipse(x, y - r * 0.3, r * 2.4, r * 0.6, 0, 0, Math.PI * 2); visctx.fill();
+              }
+            }
+          }
+        }
+      }
       // Damier d'herbe : un sol uni ne défile pas, et c'est le défilement du sol qui donne la
       // vitesse dans un monde cubique. Une case sur deux est assombrie, sur une grille de 6 m
       // ancrée à la distance parcourue — donc solidaire du décor, comme les tirets de la route.
@@ -3339,7 +4075,10 @@
     // une planète tous les quatre éléments, pas une haie de planètes : `farSparse` dit quelle
     // proportion du décor lointain est réellement peuplée
     const farSparse = sc.farSparse != null ? sc.farSparse : 1;
-    farProps.forEach(pr => {
+    // décor pré-rendu : les éléments se recouvrent correctement, du plus loin au plus proche
+    const farList = sc.art ? farProps.slice().sort((a, b) => b.dist - a.dist) : farProps;
+    farList.forEach(pr => {
+      if(!sc.art && pr.i >= 20) return;          // la réserve ne sert qu'aux scènes pré-rendues
       if(pr.dist < 12 || pr.seed > farSparse) return;
       if(!pr.kind){
         pr.kind = farPalette[Math.floor(Math.random() * farPalette.length)];
@@ -3351,6 +4090,14 @@
       const x = roadCenterAt(tt) + pr.side * pr.offset * ppm;
       if(x < -W * 0.4 || x > W * 1.4) return;
       const lift = propLift(pr.kind) * pr.lift * ppm;
+      const farArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed);
+      if(farArt){
+        // apparition en fondu sur le dernier dixième de la portée, teinte de brume ensuite
+        visctx.globalAlpha = Math.max(0, Math.min(1, (FAR_SPAN + 30 - pr.dist) / 70));
+        drawSprite(farArt, x, rowY(tt) - lift, ppm * pr.scale, fogAt(sc, Math.hypot(pr.dist, pr.offset)));
+        visctx.globalAlpha = 1;
+        return;
+      }
       // fondu atmosphérique : au loin, un arbre n'a pas la même couleur que devant le capot,
       // il tire vers le ciel. Sans ça, la ligne d'arbres de l'horizon reste aussi contrastée
       // que celle qui longe le capot, et toute la profondeur s'écrase.
@@ -3377,6 +4124,30 @@
 
     // --- ruban de route : une suite de tranches horizontales, pour pouvoir le courber -----
     const SLICES = 34;
+    // bande au sol entre deux écarts latéraux donnés en mètres, de l'horizon au capot
+    const ribbon = (latA, latB, fill, wobble) => {
+      visctx.beginPath();
+      for(let i = 0; i <= SLICES; i++){
+        const tt = i / SLICES, ppm = roadHalfAt(tt) / 4;
+        const x = roadCenterAt(tt) + latA * ppm;
+        if(i === 0) visctx.moveTo(x, rowY(tt)); else visctx.lineTo(x, rowY(tt));
+      }
+      for(let i = SLICES; i >= 0; i--){
+        const tt = i / SLICES, ppm = roadHalfAt(tt) / 4;
+        const w = wobble ? roadNoise((travelled + distAt(tt)) / 7 + latB * 3.1) * wobble : 0;
+        visctx.lineTo(roadCenterAt(tt) + (latB + w * Math.sign(latB)) * ppm, rowY(tt));
+      }
+      visctx.closePath();
+      visctx.fillStyle = fill;
+      visctx.fill();
+    };
+    // accotement : la chaussée ne tombe pas directement dans le paysage
+    if(sc.verge){
+      [-1, 1].forEach(side => {
+        ribbon(side * 3.6, side * (4.25 + sc.verge.w), sc.verge.color, sc.verge.w * 0.35);
+        if(sc.verge.inner) ribbon(side * 3.6, side * (4.12 + sc.verge.w * 0.12), sc.verge.inner, 0.12);
+      });
+    }
     visctx.beginPath();
     for(let i = 0; i <= SLICES; i++){
       const tt = i / SLICES, y = rowY(tt);
@@ -3518,7 +4289,14 @@
     // un trait de 2 px ne survit pas à la pixellisation : il se réduit à un pointillé en
     // escalier. Dans un monde en blocs, la rive est une rangée de dalles, donc un trait large.
     const edgeWidth = sc.pixelate ? Math.max(3, sc.pixelate * 1.6) : 2;
-    [sc.space ? { w: 9, c: 'rgba(90,220,255,0.18)' } : null, { w: edgeWidth, c: sc.edge }]
+    // Lignes de rive peintes : 15 cm de large, donc épaisses sous le capot et filiformes au
+    // loin, comme tout ce qui est posé au sol. Un trait d'épaisseur constante flotte au-dessus.
+    if(sc.lines){
+      // salissures de bord (neige fondue, sable, terre) qui mordent sur l'enrobé
+      if(sc.roadDust) [-1, 1].forEach(side => ribbon(side * 4.3, side * (3.72 - sc.roadDust.w), sc.roadDust.color, sc.roadDust.w * 0.8));
+      [-1, 1].forEach(side => ribbon(side * 3.50, side * 3.66, sc.edge));
+    }
+    else [sc.space ? { w: 9, c: 'rgba(90,220,255,0.18)' } : null, { w: edgeWidth, c: sc.edge }]
       .filter(Boolean).forEach(pass => {
         visctx.lineWidth = pass.w;
         visctx.strokeStyle = pass.c;
@@ -3601,7 +4379,8 @@
     // --- décor de bord de route ------------------------------------------------------------
     // dessiné juste après la chaussée : les véhicules et les particules passeront devant
     const palette = sc.props || ['pine', 'bush', 'pole'];
-    roadProps.forEach(pr => {
+    const nearList = sc.art ? roadProps.slice().sort((a, b) => b.dist - a.dist) : roadProps;
+    nearList.forEach(pr => {
       if(pr.dist < 1.5) return;
       if(!pr.kind){
         pr.kind = palette[Math.floor(Math.random() * palette.length)];
@@ -3618,6 +4397,13 @@
       if(x < -W * 0.3 || x > W * 1.3) return;
       // volumes sur les scènes qui les demandent, silhouettes plates ailleurs
       const s3 = ppm * pr.scale;
+      const nearArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed);
+      if(nearArt){
+        visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - pr.dist) / 40));
+        drawSprite(nearArt, x, rowY(tt), s3, fogAt(sc, pr.dist));
+        visctx.globalAlpha = 1;
+        return;
+      }
       // sous une certaine taille un volume ne montre plus qu'un aplat : la silhouette plate
       // fait aussi bien pour bien moins cher, et sert donc de niveau de détail lointain
       // même fondu atmosphérique que le décor lointain, sur la portion la plus éloignée
@@ -3759,6 +4545,8 @@
       lightningTimer -= dt;
       if(lightningTimer <= 0){
         lightningFlash = 0.55 + Math.random() * 0.35;
+        // le tonnerre suit l'éclair, plus ou moins vite selon la distance de la foudre
+        if(running) spawnThunder(0.25 + Math.random() * 2.2, lightningFlash);
         lightningTimer = 4 + Math.random() * 9;
       }
       if(lightningFlash > 0){
@@ -3939,6 +4727,15 @@
   const DOWNSHIFT_BLIP_S = 0.4;
   const DOWNSHIFT_BLIP_FRAC = 0.12; // hauteur du coup de gaz, en % de la plage ralenti-zone rouge
   let rpmWander = 0, rpmWanderTarget = 0, rpmWanderTimer = 0; // micro-instabilité du régime
+  // Passage de rapport : le régime ne saute pas d'une valeur à l'autre, il y va — le temps
+  // que l'embrayage reprenne, avec le couple coupé pendant la montée d'un rapport. C'est ce
+  // creux suivi de la reprise qui fait entendre un changement de vitesse ; un saut instantané
+  // sonne comme une note qui change.
+  const UPSHIFT_S = 0.21, DOWNSHIFT_S = 0.17;
+  let rpmShown = 0;               // régime affiché et entendu, qui rejoint celui de la boîte
+  let shiftSlewTimer = 0, shiftSlewRate = 0, shiftCut = 0;
+  // Démarrage : le lanceur tourne, puis le moteur prend et s'envole avant de se poser au ralenti
+  let starterTimer = 0, startFlare = 0;
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
   const LIMITER_RECOVERY_TIME = 0.24; // secondes pour remonter après une coupure
@@ -4095,6 +4892,9 @@
 
   function selectScene(key){
     currentSceneKey = key;
+    horizonFrac = SCENES[key].horizon || HORIZON;
+    updateCamera();
+    panoCache = { key: null, cv: null, span: 0 };
     decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
     roadProps.forEach(pr => { pr.kind = null; }); // les arbres d'un désert n'ont rien à y faire
     farProps.forEach(pr => { pr.kind = null; });
@@ -4116,6 +4916,19 @@
     row.addEventListener('click', () => selectScene(key));
     sceneDropdown.appendChild(row);
   });
+  // ambiance sonore (roulement, vent, pluie, tonnerre) : dans une vraie voiture, la route et
+  // l'air font déjà ce bruit-là — on doit pouvoir ne garder que le moteur
+  const ambienceRow = document.createElement('button');
+  ambienceRow.type = 'button';
+  ambienceRow.className = 'menu-action';
+  const paintAmbience = () => { ambienceRow.textContent = 'Ambiance sonore : ' + (ambienceOn ? 'activée' : 'coupée'); };
+  paintAmbience();
+  ambienceRow.addEventListener('click', () => {
+    ambienceOn = !ambienceOn;
+    paintAmbience();
+    try{ localStorage.setItem('vroomAmbience', ambienceOn ? '1' : '0'); }catch(e){}
+  });
+  scenePanel.appendChild(ambienceRow);
   engineBtn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(engineBtn, enginePanel); });
   sceneBtn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(sceneBtn, scenePanel); });
   enginePanel.addEventListener('click', e => e.stopPropagation());
@@ -4618,6 +5431,8 @@
     physics.running = !physics.running;
     powerBtn.classList.toggle('on', physics.running);
     if(physics.running){
+      starterTimer = STARTER_S;
+      spawnStarter();
       if(!debugMode){
         smoothedGpsSpeed = physics.speed;
         prevSpeedForAccel = physics.speed;
@@ -4650,6 +5465,12 @@
     if(physics.running && physics.gear !== prevGearEvent){
       shiftPunchTimer = SHIFT_PUNCH_S;
       if(physics.gear < prevGearEvent) downshiftBlipTimer = DOWNSHIFT_BLIP_S;
+      if(physics.speed > 0.5){
+        const up = physics.gear > prevGearEvent;
+        shiftSlewTimer = up ? UPSHIFT_S : DOWNSHIFT_S;
+        shiftSlewRate = Math.abs(physics.rpm - rpmShown) / shiftSlewTimer;
+        shiftCut = up ? 1 : 0;
+      }
     }
     prevGearEvent = physics.gear;
     if(!physics.running){ shiftPunchTimer = 0; downshiftBlipTimer = 0; }
@@ -4758,7 +5579,30 @@
     // juste à l'arrêt comme en roulant, quel que soit le régime déjà atteint, alors qu'une
     // fraction fixe s'arrêtait avant la zone rouge (4600 sur 5300 avec le moteur par défaut).
     const revRpm = revPedal * Math.max(0, profile.redline - physics.rpm);
-    const displayRpm = Math.min(profile.maxRPM, physics.rpm + nitroKickIntensity * 1800 + blipRpm + revRpm);
+    // régime de la boîte rejoint à vitesse bornée pendant un passage, suivi tel quel sinon
+    if(shiftSlewTimer > 0 && physics.running){
+      shiftSlewTimer = Math.max(0, shiftSlewTimer - dt);
+      const gap = physics.rpm - rpmShown, step = shiftSlewRate * dt;
+      rpmShown += Math.max(-step, Math.min(step, gap));
+      // couple coupé sur les deux premiers tiers d'une montée de rapport, puis remis
+      if(shiftCut > 0 && shiftSlewTimer < UPSHIFT_S * 0.35) shiftCut = Math.max(0, shiftCut - dt * 14);
+    } else {
+      rpmShown = physics.rpm;
+      shiftCut = 0;
+    }
+    // démarrage : silence moteur tant que le lanceur tourne, puis envolée qui retombe
+    if(!physics.running){ starterTimer = 0; startFlare = 0; }
+    const cranking = starterTimer > 0;
+    if(cranking){
+      starterTimer -= dt;
+      if(starterTimer <= 0) startFlare = 1;
+    } else if(startFlare > 0){
+      startFlare = Math.max(0, startFlare - dt * 1.5);
+    }
+    const flareRpm = startFlare * startFlare * profile.idleRPM * 0.9;
+    const displayRpm = cranking
+      ? 220 + Math.sin(t / 42) * 40
+      : Math.min(profile.maxRPM, rpmShown + nitroKickIntensity * 1800 + blipRpm + revRpm + flareRpm);
 
     // micro-variations de régime : un moteur réel ne tient jamais un régime parfaitement fixe,
     // et c'est justement cette instabilité qui distingue un rombissement d'un bourdon de
@@ -4810,11 +5654,12 @@
     updateTraffic(dt, physics.speed, physics.running);
 
     // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
-    const audioThrottle = Math.max(physics.throttle, shiftBlip * 0.85, revPedal);
+    const audioThrottle = Math.max(physics.throttle * (1 - shiftCut), shiftBlip * 0.85, revPedal, startFlare * 0.6);
     // le coup de gaz est une demande explicite de l'utilisateur : il passe devant l'atténuation
     // d'allure constante comme devant celle de décélération, sinon donner un coup de gaz à
     // l'arrêt (le cas même où ces deux atténuations sont au plus bas) ne s'entendrait presque pas
-    updateAudio(audioRpm, audioThrottle, physics.running, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal));
+    updateAudio(audioRpm, audioThrottle, physics.running && !cranking, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal, startFlare));
+    updateAmbience(dt, physics.speed, audioThrottle, Math.min(1, audioRpm / profile.maxRPM), physics.running && !cranking, profile);
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
