@@ -2248,14 +2248,39 @@
       foliage: ['#4d6b40', '#3e5836'], propDark: '#7a6440', propStone: '#a08050', trunk: '#4a3a22',
     },
     circuit: {
-      name: 'Circuit F1', sky: ['#3d7ec0', '#c3daee'], ground: '#3f7238',
-      road: ['#54585e', '#2c2e33'], edge: 'rgba(255,255,255,0.9)', dash: null,
-      glow: '255,250,235', glowStrength: 0.4, particle: 'streak', particleRGB: [235, 240, 248],
-      haze: 'rgba(195,218,238,0.7)', decor: 'stands', sun: { y: -0.16, r: 0.045, color: '#fffbe8' },
-      carLight: 0.35, kerb: true, racing: true, solid: true,
-      props: ['barrier', 'barrier', 'panel', 'tyres', 'fence', 'barrier'],
-      propsFar: ['fence', 'panel', 'tower'],
+      name: 'Circuit F1', horizon: 0.37,
+      sky: ['#2b68b2', '#78aedb', '#d3e5f2'], ground: '#4a8a3c',
+      road: ['#4a4e55', '#26282d'], edge: 'rgba(255,255,255,0.92)', dash: null,
+      glow: '255,250,235', glowStrength: 0, particle: 'streak', particleRGB: [235, 240, 248],
+      haze: 'rgba(195,218,238,0.7)', sun: null,   // soleil de midi, au-dessus du cadre
+      carLight: 0.35, kerb: true, racing: true,
+      props: ['tyrestack', 'tyrestack', 'marshal'], nearSparse: 0.3,
+      propsFar: ['poplar', 'poplar', 'poplar', 'roundtree', 'roundtree', 'lighttower'], farSparse: 0.75,
       foliage: ['#e8ecf0', '#d8dee6'], propDark: '#9aa3ad', propStone: '#c8ced6',
+      // --- rendu détaillé ---
+      fog: { color: '#cfe0ee', start: 80, end: 900, max: 0.55 },
+      lines: true, crispEdge: true, boards: true,
+      rubber: { lat: -0.4, w: 1.1 },
+      verge: { w: 1.4, color: '#3e9c4f' },                 // gazon synthétique au-delà du vibreur
+      mow: { len: 9, rgb: '235,255,200', a: 0.085 },
+      groundTex: { cell: 13, rows: 18, cols: 7, light: '200,235,150', dark: '20,60,25', contrast: 0.09,
+        speck: { n: 1, colors: ['#3b7a30', '#5f9c46', '#2f6428'], tuft: 0.6 } },
+      wall: { lat: 9.6, h: 1.0, fence: 3.4, panel: 12, color: '#c6cad0', cap: '#eceef0',
+        mesh: 'rgba(58,66,76,0.22)', post: '#68707a',
+        ads: ['#d8342f', '#1f5fb4', '#f2c230', '#1d1e22', '#e9eaec', '#14905a'],
+        ink: ['#ffffff', '#f2c230', '#1d1e22', '#f2c230', '#d8342f', '#ffffff'] },
+      art: { leaf: '#2c5530', leafLit: '#76a656', trunk: '#4a3a2c', shadow: '24,56,24',
+        steel: '#9aa3ad', steelDark: '#4f575f' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 13, count: 12, y0: 0.10, y1: 0.58, w0: 0.45, w1: 1.3, thick: 0.24, light: '255,255,255', dark: '186,204,224', alpha: 0.78 });
+        panoRidge(g, span, h, { seed: 77, cells: 4, oct: 4, base: 0.05, amp: 0.17, light: 1, relief: 0.4,
+          lit: '#94adbf', shadow: '#7896ab', foot: '#c7dae8', haze: 0.8 });
+        panoRidge(g, span, h, { seed: 5, cells: 8, oct: 4, base: 0.03, amp: 0.05, trees: 0.07, light: 1, relief: 0.6, grainAmt: 0.5,
+          lit: '#5a8a58', shadow: '#2e5434', foot: '#9fbcab', haze: 0.45 });
+        panoStands(g, span, h, { seed: 3, count: 5, fog: '#cfe0ee', haze: 0.18,
+          frame: '#d4d8de', seat: '#2f5ea8', seat2: '#3a6bb6', wall: '#8e959e', post: '#5e666f', roof: '#e7eaee',
+          crowd: ['#d8342f', '#f2c230', '#1f6fc4', '#eeeeee', '#2a2a30', '#e86a2a', '#16935a', '#c9a27a', '#b03a8a'] });
+      },
     },
     ville: {
       name: 'Ville de nuit', sky: ['#06070d', '#221a33'], ground: '#0b0d12',
@@ -2542,6 +2567,7 @@
   function propScale(kind){
     if(kind === 'barrier' || kind === 'panel' || kind === 'fence' || kind === 'streetlight') return 1;
     if(kind === 'torch' || kind === 'woodfence') return 1;
+    if(kind === 'tyrestack' || kind === 'marshal' || kind === 'distboard') return 1;
     // une vache est une vache : pas de mise à l'échelle aléatoire sur du vivant
     if(kind === 'cow' || kind === 'pig' || kind === 'villager') return 1;
     return 0.75 + Math.random() * 0.6;
@@ -2606,6 +2632,25 @@
 
   let travelled = 0;   // mètres parcourus, sert d'ancre à tout ce qui défile avec la route
 
+  // Éléments placés à des distances fixes et non tirés au hasard : sur un circuit, les panneaux
+  // de freinage annoncent un virage par 300, 200 puis 100 mètres, toujours dans cet ordre.
+  const BRAKE_EVERY = 640;
+  function sceneExtras(sc){
+    if(!sc.boards) return [];
+    const out = [];
+    const n0 = Math.floor(travelled / BRAKE_EVERY);
+    for(let n = n0; n <= n0 + 1; n++){
+      const corner = n * BRAKE_EVERY + 520;
+      [[300, 2], [200, 1], [100, 0]].forEach(([m, v]) => {
+        const dist = corner - m - travelled;
+        if(dist > 1.5 && dist < PROP_SPAN){
+          out.push({ dist, side: 1, offset: 5.9, kind: 'distboard', seed: 0, variant: v, scale: 1, yaw: 0, fixed: true });
+        }
+      });
+    }
+    return out;
+  }
+
   // bruit lisse déterministe : les irrégularités de bord de chaussée doivent défiler avec la
   // route et non scintiller d'une image à l'autre, donc elles s'indexent sur la distance réelle
   function roadNoise(u){
@@ -2618,6 +2663,8 @@
   // Un rail de sécurité longe la piste au plus près, un grillage se tient en retrait, un arbre
   // pousse où il veut : la distance au bord fait partie de l'identité de l'élément.
   function propOffset(kind){
+    if(kind === 'tyrestack') return 8.5 + Math.random() * 0.4;   // contre le mur du circuit
+    if(kind === 'marshal')   return 7.6 + Math.random() * 0.6;
     if(kind === 'barrier') return 5.2 + Math.random() * 0.5;
     if(kind === 'tyres')   return 5.6 + Math.random() * 1.2;
     if(kind === 'panel')   return 7.0 + Math.random() * 2.5;
@@ -3381,6 +3428,63 @@
     }
   }
 
+  // Tribunes : gradins pleins de spectateurs, toit en porte-à-faux sur poteaux. Vues de loin,
+  // ce sont la foule en milliers de points de couleur et l'ombre du toit sur les rangs du
+  // haut qui les font lire comme des tribunes et non comme des immeubles.
+  function panoStands(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    const hz = c => hexLerp(c, o.fog, o.haze);
+    const crowd = o.crowd.map(hz);
+    const count = Math.max(2, Math.round(o.count * panoScale(span, h)));
+    const stand = (x, w, H) => {
+      const base = h, top = base - H;
+      g.fillStyle = hz(o.frame);
+      g.fillRect(x, top, w, H);
+      const rows = 9, rh = H * 0.80 / rows;
+      for(let r = 0; r < rows; r++){
+        const y = top + H * 0.08 + r * rh;
+        g.fillStyle = hz(r % 2 ? o.seat : o.seat2);
+        g.fillRect(x, y, w, rh * 0.9);
+        for(let px = x + 0.5; px < x + w - 0.5; px += 1.25){
+          if(rnd() < 0.18) continue;                      // places vides
+          g.fillStyle = crowd[Math.floor(rnd() * crowd.length)];
+          g.fillRect(px, y + rnd() * rh * 0.3, 1, Math.max(1, rh * 0.55));
+        }
+      }
+      // ombre portée du toit sur les rangs du haut
+      const sh = g.createLinearGradient(0, top, 0, top + H * 0.45);
+      sh.addColorStop(0, 'rgba(0,0,0,0.45)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = sh; g.fillRect(x, top, w, H * 0.45);
+      g.fillStyle = hz(o.wall);                           // muret de pied
+      g.fillRect(x, base - H * 0.10, w, H * 0.10);
+      const roofY = top - H * 0.16;
+      g.fillStyle = hz(o.post);
+      for(let c = 0; c <= 6; c++) g.fillRect(x + c * (w - 2) / 6, roofY, Math.max(1, w * 0.004), H * 0.2);
+      g.fillStyle = hz(o.roof);
+      g.fillRect(x - w * 0.02, roofY, w * 1.04, Math.max(2, H * 0.06));
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      g.fillRect(x - w * 0.02, roofY, w * 1.04, 1);
+      g.fillStyle = 'rgba(0,0,0,0.25)';                   // flanc droit à l'ombre
+      g.fillRect(x + w - Math.max(2, w * 0.02), top, Math.max(2, w * 0.02), H);
+      // mâts de drapeaux sur le toit
+      for(let f = 0; f < 3; f++){
+        const fx = x + w * (0.2 + f * 0.3);
+        g.fillStyle = hz(o.post); g.fillRect(fx, roofY - H * 0.32, 1, H * 0.32);
+        g.fillStyle = crowd[Math.floor(rnd() * crowd.length)];
+        g.fillRect(fx + 1, roofY - H * 0.32, Math.max(3, H * 0.16), Math.max(2, H * 0.1));
+      }
+    };
+    for(let s = 0; s < count; s++){
+      const w = h * (0.7 + rnd() * 1.1), H = h * (0.09 + rnd() * 0.06);
+      const x0 = (s + rnd() * 0.5) / count * span;
+      [-span, 0, span].forEach(off => {
+        const x = x0 + off;
+        if(x > span || x + w < 0) return;
+        stand(Math.round(x), Math.round(w), Math.round(H));
+      });
+    }
+  }
+
   let panoCache = { key: null, cv: null, span: 0 };
   function getPanorama(sc, W, skyH){
     const key = currentSceneKey + ':' + W + ':' + Math.round(skyH);
@@ -3514,13 +3618,110 @@
       g.fillStyle = '#f4f4f0';
       g.fillRect(-0.06, -2.34, 0.12, 0.16);
     } },
+    // --- circuit ---------------------------------------------------------------------------
+    // Mur de pneus : trois rangs liés, posés contre le béton. Variante 1 : habillé d'une bande
+    // de convoyeur aux couleurs de la piste, comme sur les circuits modernes.
+    tyrestack: { h: 1.4, w: 3.6, variants: 2, paint(g, rnd, A, v){
+      const R = 0.27, cols = 5, W = cols * R * 2;
+      groundShadow(g, A, W * 0.55, 0.5);
+      for(let r = 0; r < 3; r++){
+        for(let c = 0; c < cols; c++){
+          const x = -W / 2 + R + c * R * 2 + (r % 2 ? R * 0.15 : 0), y = -R - r * R * 1.84;
+          g.fillStyle = '#1a1b1e'; g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.fill();
+          g.fillStyle = '#2e3035'; g.beginPath(); g.arc(x - R * 0.12, y - R * 0.12, R * 0.78, Math.PI * 0.8, Math.PI * 1.7); g.lineTo(x, y); g.fill();
+          g.fillStyle = '#0c0d0f'; g.beginPath(); g.arc(x, y, R * 0.42, 0, Math.PI * 2); g.fill();
+        }
+      }
+      if(v === 1){
+        const top = -R * 2 - 2 * R * 1.84 + 0.05;
+        for(let i = 0; i < 4; i++){
+          g.fillStyle = i % 2 ? '#f0f0f0' : '#d0302b';
+          g.fillRect(-W / 2 + i * W / 4, top, W / 4 + 0.01, -top - 0.04);
+        }
+        g.fillStyle = 'rgba(255,255,255,0.28)'; g.fillRect(-W / 2, top, W, 0.06);
+        g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(W * 0.3, top, W * 0.2, -top - 0.04);
+      }
+    } },
+    // Poste de commissaire : petite cabine blanche à bande orange, auvent, drapeau vert
+    marshal: { h: 3.4, w: 3, variants: 1, paint(g, rnd, A){
+      groundShadow(g, A, 0.9, 1.2);
+      g.fillStyle = '#e8ebee'; g.fillRect(-0.7, -2.1, 1.4, 2.1);
+      g.fillStyle = '#c3c8cf'; g.fillRect(0.35, -2.1, 0.35, 2.1);          // flanc à l'ombre
+      g.fillStyle = '#ef7a1f'; g.fillRect(-0.7, -0.75, 1.4, 0.22);
+      g.fillStyle = '#26303a'; g.fillRect(-0.55, -1.75, 1.1, 0.6);          // vitre
+      g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(-0.55, -1.75, 0.35, 0.6);
+      g.fillStyle = '#7a828c'; g.fillRect(-0.85, -2.25, 1.7, 0.16);         // auvent
+      g.fillStyle = '#5d656e'; g.fillRect(0.82, -3.3, 0.05, 3.3);           // mât
+      g.fillStyle = '#1d9e4a'; g.fillRect(0.87, -3.25, 0.55, 0.36);
+    } },
+    // Panneau de freinage : chiffres noirs sur fond blanc, deux pieds
+    distboard: { h: 2.0, w: 1.8, variants: 3, paint(g, rnd, A, v){
+      groundShadow(g, A, 0.5, 0.6);
+      g.fillStyle = '#4d545c';
+      g.fillRect(-0.42, -0.9, 0.07, 0.9); g.fillRect(0.35, -0.9, 0.07, 0.9);
+      g.fillStyle = '#1d1f23'; g.fillRect(-0.6, -1.72, 1.2, 0.86);
+      g.fillStyle = '#f4f5f6'; g.fillRect(-0.55, -1.67, 1.1, 0.76);
+      g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(0.2, -1.67, 0.35, 0.76);
+      const k = g.getTransform().a;
+      g.save(); g.scale(1 / k, 1 / k);
+      g.fillStyle = '#16181b';
+      g.font = `900 ${Math.round(0.6 * k)}px Arial, Helvetica, sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(String((v + 1) * 100), 0, -1.28 * k);
+      g.restore();
+    } },
+    // Peuplier : la haute colonne de feuillage qui borde tant de circuits européens
+    poplar: { h: 22, w: 7, variants: 3, paint(g, rnd, A){
+      const H = 16 + rnd() * 5, W = H * 0.13;
+      groundShadow(g, A, W * 0.7, H * 0.12);
+      g.fillStyle = A.trunk; g.fillRect(-0.18, -H * 0.12, 0.36, H * 0.12);
+      for(let i = 0; i < 70; i++){
+        const t = rnd(), y = -H * (0.08 + t * 0.9);
+        const env = Math.sin(Math.PI * Math.min(1, t * 1.05)) * W * (0.6 + 0.4 * (1 - t));
+        const x = (rnd() * 2 - 1) * env, r = W * (0.25 + rnd() * 0.25);
+        g.fillStyle = hexLerp(A.leaf, A.leafLit, Math.max(0, Math.min(1, 0.55 - x / W * 0.6 + (rnd() - 0.5) * 0.4)));
+        g.beginPath(); g.ellipse(x, y, r, r * 1.5, 0, 0, Math.PI * 2); g.fill();
+      }
+    } },
+    // Feuillu : houppier en grappe de masses, éclairé à gauche
+    roundtree: { h: 13, w: 12, variants: 3, paint(g, rnd, A){
+      const H = 8 + rnd() * 4, R = H * 0.36;
+      groundShadow(g, A, R * 0.8, H * 0.25);
+      g.fillStyle = A.trunk; g.fillRect(-0.22, -H * 0.45, 0.44, H * 0.45);
+      const cy = -H + R * 1.05;
+      for(let i = 0; i < 46; i++){
+        const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * R * 0.8;
+        const x = Math.cos(a) * d * 1.1, y = cy + Math.sin(a) * d * 0.85, r = R * (0.28 + rnd() * 0.2);
+        g.fillStyle = hexLerp(A.leaf, A.leafLit, Math.max(0, Math.min(1, 0.5 - x / R * 0.45 - (y - cy) / R * 0.35 + (rnd() - 0.5) * 0.3)));
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      }
+    } },
+    // Pylône d'éclairage : mât en treillis et rampe de projecteurs
+    lighttower: { h: 28, w: 6, variants: 1, paint(g, rnd, A){
+      const H = 26;
+      groundShadow(g, A, 0.8, 4);
+      g.strokeStyle = A.steel; g.lineWidth = 0.14;
+      g.beginPath(); g.moveTo(-0.9, 0); g.lineTo(-0.3, -H); g.moveTo(0.9, 0); g.lineTo(0.3, -H); g.stroke();
+      g.lineWidth = 0.07; g.beginPath();
+      for(let i = 0; i < 16; i++){
+        const y0 = -i * H / 16, y1 = -(i + 1) * H / 16, w0 = 0.9 - 0.6 * i / 16, w1 = 0.9 - 0.6 * (i + 1) / 16;
+        g.moveTo(-w0, y0); g.lineTo(w1, y1); g.moveTo(w0, y0); g.lineTo(-w1, y1);
+      }
+      g.stroke();
+      g.fillStyle = A.steelDark; g.fillRect(-2.2, -H - 1.8, 4.4, 1.9);
+      for(let r = 0; r < 2; r++) for(let c = 0; c < 5; c++){
+        g.fillStyle = '#eef2f4'; g.fillRect(-2.0 + c * 0.82, -H - 1.65 + r * 0.85, 0.62, 0.62);
+      }
+    } },
   };
 
   const spriteCache = new Map();
-  function getSprite(sceneKey, sc, kind, seed){
+  function getSprite(sceneKey, sc, kind, seed, forced){
     const spec = PROP_ART[kind];
     if(!spec) return null;
-    const variant = Math.floor(seed * spec.variants) % spec.variants;
+    // la graine sert aussi à éclaircir le décor (nearSparse, farSparse) : on en tire la
+    // variante autrement, sinon les éléments conservés seraient tous de la même variante
+    const variant = forced != null ? forced % spec.variants : Math.floor(((seed * 7.31) % 1) * spec.variants) % spec.variants;
     const key = sceneKey + '|' + kind + '|' + variant;
     let e = spriteCache.get(key);
     if(e) return e;
@@ -3915,8 +4116,10 @@
         const sx = W / 2 + d * pxPerDeg, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
         const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.4);
         halo.addColorStop(0, sc.sun.color);
-        halo.addColorStop(0.22, 'rgba(255,200,120,0.45)');
-        halo.addColorStop(1, 'rgba(255,180,90,0)');
+        // halo teinté par scène : l'orangé d'un couchant fait une tache brune sur un ciel bleu
+        const hc = sc.sun.halo || '255,200,120';
+        halo.addColorStop(0.22, `rgba(${hc},0.45)`);
+        halo.addColorStop(1, `rgba(${hc},0)`);
         visctx.fillStyle = halo;
         visctx.fillRect(sx - sr * 3.4, sy - sr * 3.4, sr * 6.8, sr * 6.8);
         if(sc.sunSquare){
@@ -4088,6 +4291,27 @@
           }
         }
       }
+      // Tonte en bandes : l'herbe d'un circuit est tondue en passes alternées, qui renvoient la
+      // lumière différemment. Bandes transversales ancrées au sol : elles défilent sous les
+      // roues et donnent la vitesse jusque loin dans le champ.
+      if(sc.mow){
+        const M = sc.mow.len;
+        const first = Math.floor(travelled / M) * M - travelled;
+        for(let k = 0; k < 60; k++){
+          const d0 = first + k * M, d1 = d0 + M;
+          if(d1 < 1.5) continue;
+          if(Math.round((travelled + d0) / M) % 2) continue;
+          const tt0 = camNear / Math.max(1.5, d0), tt1 = camNear / d1;
+          if(tt1 < 0.012) break;
+          const ppm0 = roadHalfAt(Math.min(1.6, tt0)) / 4, ppm1 = roadHalfAt(Math.min(1.6, tt1)) / 4;
+          const c0 = roadCenterAt(tt0), c1 = roadCenterAt(tt1), L = 90;
+          visctx.fillStyle = `rgba(${sc.mow.rgb},${(sc.mow.a * Math.min(1, tt1 * 9)).toFixed(3)})`;
+          visctx.beginPath();
+          visctx.moveTo(c0 - L * ppm0, rowY(tt0)); visctx.lineTo(c0 + L * ppm0, rowY(tt0));
+          visctx.lineTo(c1 + L * ppm1, rowY(tt1)); visctx.lineTo(c1 - L * ppm1, rowY(tt1));
+          visctx.closePath(); visctx.fill();
+        }
+      }
       // Damier d'herbe : un sol uni ne défile pas, et c'est le défilement du sol qui donne la
       // vitesse dans un monde cubique. Une case sur deux est assombrie, sur une grille de 6 m
       // ancrée à la distance parcourue — donc solidaire du décor, comme les tirets de la route.
@@ -4167,7 +4391,7 @@
     const distAt = tt => camNear / Math.max(0.001, tt);
     const edgeAt = (tt, side) => {
       const d = distAt(tt);
-      if(d > 240) return roadHalfAt(tt);
+      if(d > 240 || sc.crispEdge) return roadHalfAt(tt);   // une piste est tracée au cordeau
       const ppm = roadHalfAt(tt) / 4;
       return roadHalfAt(tt) + roadNoise((travelled + d) / 11 + (side > 0 ? 37 : 0)) * 0.30 * ppm;
     };
@@ -4194,7 +4418,7 @@
     // accotement : la chaussée ne tombe pas directement dans le paysage
     if(sc.verge){
       [-1, 1].forEach(side => {
-        ribbon(side * 3.6, side * (4.25 + sc.verge.w), sc.verge.color, sc.verge.w * 0.35);
+        ribbon(side * 3.6, side * (4.25 + sc.verge.w), sc.verge.color, sc.crispEdge ? 0 : sc.verge.w * 0.35);
         if(sc.verge.inner) ribbon(side * 3.6, side * (4.12 + sc.verge.w * 0.12), sc.verge.inner, 0.12);
       });
     }
@@ -4303,7 +4527,12 @@
 
     // traces de roues : deux bandes lustrées le long des passages, ce qui use le plus
     // visiblement une chaussée. Elles suivent la courbure comme le reste du ruban.
-    if(!sc.space){
+    if(sc.rubber){
+      // sur un circuit, ce n'est pas deux ornières mais une trajectoire : une bande de gomme
+      // sombre, plus marquée au cœur, que toutes les voitures empruntent
+      ribbon(sc.rubber.lat - sc.rubber.w, sc.rubber.lat + sc.rubber.w, 'rgba(0,0,0,0.05)', 0);
+      ribbon(sc.rubber.lat - sc.rubber.w * 0.45, sc.rubber.lat + sc.rubber.w * 0.45, 'rgba(0,0,0,0.07)', 0);
+    } else if(!sc.space){
       visctx.fillStyle = 'rgba(0,0,0,0.045)';
       [-1.55, 1.55].forEach(lat => {
         visctx.beginPath();
@@ -4426,12 +4655,89 @@
     // Les teintes `haze` des scènes sont laissées dans la table : elles ne coûtent rien et
     // seront le point de départ si on reprend le sujet.
 
+    // --- mur de circuit : béton, panneaux publicitaires, grillage de retenue ---------------
+    // Un circuit n'est pas bordé d'objets isolés mais d'un mur continu, qui suit la piste et
+    // ses virages. Il est construit comme la route : des tranches, chacune projetée à sa
+    // distance, donc en vraie perspective. Les panneaux sont ancrés à la distance parcourue,
+    // c'est leur défilement qui porte la vitesse sur les côtés.
+    if(sc.wall){
+      const wl = sc.wall;
+      const at = (d, lat, hgt) => {
+        const tt = camNear / d, ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+        return [roadCenterAt(tt) + lat * ppm, rowY(tt) - hgt * ppm, ppm];
+      };
+      const vstrip = (lat, h0, h1, fill) => {
+        visctx.beginPath();
+        for(let i = 0; i <= SLICES; i++){
+          const tt = i / SLICES, ppm = roadHalfAt(tt) / 4, x = roadCenterAt(tt) + lat * ppm;
+          if(i === 0) visctx.moveTo(x, rowY(tt) - h1 * ppm); else visctx.lineTo(x, rowY(tt) - h1 * ppm);
+        }
+        for(let i = SLICES; i >= 0; i--){
+          const tt = i / SLICES, ppm = roadHalfAt(tt) / 4;
+          visctx.lineTo(roadCenterAt(tt) + lat * ppm, rowY(tt) - h0 * ppm);
+        }
+        visctx.closePath();
+        visctx.fillStyle = fill;
+        visctx.fill();
+      };
+      const quad = (d0, d1, lat, h0, h1, fill) => {
+        const a = at(d0, lat, h0), b = at(d1, lat, h0), c = at(d1, lat, h1), e = at(d0, lat, h1);
+        visctx.fillStyle = fill;
+        visctx.beginPath();
+        visctx.moveTo(a[0], a[1]); visctx.lineTo(b[0], b[1]); visctx.lineTo(c[0], c[1]); visctx.lineTo(e[0], e[1]);
+        visctx.closePath(); visctx.fill();
+        return Math.abs(a[0] - b[0]);
+      };
+      [-1, 1].forEach(side => {
+        const lat = side * wl.lat;
+        vstrip(lat, 0, wl.h, wl.color);
+        const P = wl.panel, first = Math.ceil(travelled / P) * P - travelled;
+        for(let k = 0; k < 40; k++){
+          const d0 = first + k * P, d1 = d0 + P * 0.94;
+          if(camNear / d0 > 1.6) continue;
+          if(camNear / d1 < 0.012) break;
+          const idx = Math.round((travelled + d0) / P) + (side > 0 ? 3 : 0);
+          const w = quad(d0, d1, lat, 0.16, wl.h - 0.08, wl.ads[idx % wl.ads.length]);
+          if(w > 14){
+            // motif de marque : un bandeau et un pavé, purement graphiques
+            const ink = wl.ink[idx % wl.ink.length], span = d1 - d0;
+            quad(d0 + span * 0.12, d0 + span * 0.62, lat, 0.40, 0.62, ink);
+            quad(d0 + span * 0.70, d0 + span * 0.86, lat, 0.30, 0.74, ink);
+          }
+        }
+        // éclairage : le mur de gauche montre sa face à l'ombre, celui de droite au soleil
+        if(side < 0) vstrip(lat, 0, wl.h, 'rgba(0,0,0,0.16)');
+        vstrip(lat, wl.h - 0.07, wl.h, wl.cap);
+        vstrip(lat, 0, 0.12, 'rgba(0,0,0,0.22)');            // pied du mur, dans l'herbe
+        // grillage : voile de maille, poteaux tous les 4 m, câbles
+        vstrip(lat, wl.h, wl.h + wl.fence, wl.mesh);
+        const PF = 4, fFirst = Math.ceil(travelled / PF) * PF - travelled;
+        visctx.strokeStyle = wl.post;
+        for(let k = 0; k < 45; k++){
+          const d = fFirst + k * PF;
+          if(camNear / d > 1.6) continue;
+          if(camNear / d < 0.02) break;
+          const lo = at(d, lat, wl.h), hi = at(d, lat, wl.h + wl.fence);
+          visctx.lineWidth = Math.max(0.7, 0.09 * lo[2]);
+          visctx.beginPath(); visctx.moveTo(lo[0], lo[1]); visctx.lineTo(hi[0], hi[1]);
+          // la potence penche vers la piste en haut du poteau
+          const top = at(d, lat - side * 0.5, wl.h + wl.fence + 0.35);
+          visctx.lineTo(top[0], top[1]); visctx.stroke();
+        }
+        [wl.h + wl.fence, wl.h + wl.fence * 0.5].forEach(hgt => {
+          vstrip(lat, hgt - 0.03, hgt + 0.03, wl.post);
+        });
+      });
+      visctx.lineWidth = 2;
+    }
+
     // --- décor de bord de route ------------------------------------------------------------
     // dessiné juste après la chaussée : les véhicules et les particules passeront devant
     const palette = sc.props || ['pine', 'bush', 'pole'];
-    const nearList = sc.art ? roadProps.slice().sort((a, b) => b.dist - a.dist) : roadProps;
+    const nearList = sc.art ? roadProps.concat(sceneExtras(sc)).sort((a, b) => b.dist - a.dist) : roadProps;
     nearList.forEach(pr => {
       if(pr.dist < 1.5) return;
+      if(!pr.fixed && sc.nearSparse != null && pr.seed > sc.nearSparse) return;
       if(!pr.kind){
         pr.kind = palette[Math.floor(Math.random() * palette.length)];
         pr.offset = propOffset(pr.kind);
@@ -4447,7 +4753,7 @@
       if(x < -W * 0.3 || x > W * 1.3) return;
       // volumes sur les scènes qui les demandent, silhouettes plates ailleurs
       const s3 = ppm * pr.scale;
-      const nearArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed);
+      const nearArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed, pr.variant);
       if(nearArt){
         visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - pr.dist) / 40));
         drawSprite(nearArt, x, rowY(tt), s3, fogAt(sc, pr.dist));
