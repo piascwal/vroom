@@ -2375,7 +2375,7 @@
       dash: 'rgba(140,235,255,0.55)',
       glow: '120,220,255', glowStrength: 0, particle: 'streak', particleRGB: [200, 225, 255],
       haze: null, decor: null, sun: null, carLight: 0.9,
-      space: true, grid: true, deepSpace: true,
+      space: true, grid: true, deepSpace: true, ships: true,
       props: ['lightpost'], nearSparse: 0.5,            // balises au ras de la piste, rien d'autre
       propsFar: [], farSparse: 0, racing: true,
       foliage: ['#1a3550', '#12283c'], propDark: '#3fd0ff', propStone: '#25415c',
@@ -4707,10 +4707,26 @@
 
   const RACE_COLORS = ['#d8342f', '#1f4fb4', '#f0a020', '#14805a', '#e8e2d2', '#1c1e24', '#2fb5c8'];
   const RACE_ACCENTS = ['#f2f2f2', '#f2c230', '#1c1e24', '#d8342f', '#2fb5c8'];
+  const SHIP_COLORS = ['#c9d0da', '#8d96a3', '#d9d2c3', '#4a5260', '#b8c2cf'];
+  const SHIP_ACCENTS = ['#e8622c', '#2fb5c8', '#f2c230', '#d8342f', '#7a5ac9'];
   function spawnTraffic(ourKmh){
     // sur un circuit, ce qu'on double est une monoplace : basse, large et vive
     const racing = (SCENES[currentSceneKey] || {}).racing === true;
     const truck = !racing && Math.random() < 0.22;
+    // dans l'espace, ce qu'on double est un vaisseau en vol stationnaire au-dessus de la piste
+    if((SCENES[currentSceneKey] || {}).ships){
+      traffic.push({
+        dist: 120 + Math.random() * 120,
+        lane: (Math.random() < 0.5 ? 1 : -1) * (0.28 + Math.random() * 0.3),
+        speed: Math.max(8, Math.min(ourKmh - 15, ourKmh - (18 + Math.random() * 50))),
+        width: 3.4, height: 1.8, truck: false, ship: true,
+        model: Math.floor(Math.random() * 3), phase: Math.random() * Math.PI * 2,
+        color: SHIP_COLORS[Math.floor(Math.random() * SHIP_COLORS.length)],
+        accent: SHIP_ACCENTS[Math.floor(Math.random() * SHIP_ACCENTS.length)],
+        flame: Math.random() < 0.7 ? 'cyan' : 'warm',
+      });
+      return;
+    }
     if(racing){
       traffic.push({
         dist: 110 + Math.random() * 110,
@@ -4902,6 +4918,86 @@
     }
   }
 
+  // Vaisseau vu de l'arrière, en vol stationnaire à un mètre de la piste. Trois silhouettes :
+  // 0 chasseur à ailes en flèche et deux dérives, 1 navette trapue à quatre tuyères,
+  // 2 intercepteur effilé à ailes en anneau. Les tuyères sont la seule vraie source de
+  // lumière : leur halo se pose sur la piste sous le vaisseau, et c'est elles qu'on suit de loin.
+  function drawShip(ctx, v, cx, gy, w, lamp){
+    const k = w / v.width, t = performance.now() / 1000;
+    const hover = 0.85 + Math.sin(t * 1.7 + v.phase) * 0.12;           // léger tangage vertical
+    const roll = Math.sin(t * 0.9 + v.phase) * 0.04;
+    const X = x => cx + x * k, Y = y => gy - (y + hover) * k;
+    const hull = v.color, hullLit = shade(v.color, 0.25), hullDim = shade(v.color, -0.38), acc = v.accent;
+    const flameRGB = v.flame === 'warm' ? '255,190,110' : '140,225,255';
+    const flick = 0.85 + 0.15 * Math.sin(t * 37 + v.phase * 5);
+    const poly = (pts, col) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      pts.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+      ctx.closePath(); ctx.fill();
+    };
+    // reflet des tuyères sur la piste, sous le vaisseau, et ombre douce
+    ctx.globalAlpha *= 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(cx, gy, w * 0.42, Math.max(0.6, w * 0.035), 0, 0, Math.PI * 2); ctx.fill();
+    drawGlow(v.flame === 'warm' ? GLOW_WARM : GLOW_CYAN, cx, gy, w * 0.55, 0.35 * flick);
+
+    ctx.save();
+    ctx.translate(cx, Y(0.6)); ctx.rotate(roll); ctx.translate(-cx, -Y(0.6));
+    const detail = w > 20;
+    let nozzles;
+    if(v.model === 1){
+      // navette : corps large et haut, ailerons courts, quatre tuyères
+      poly([[-1.15, 0.05], [1.15, 0.05], [1.0, 1.15], [0.55, 1.45], [-0.55, 1.45], [-1.0, 1.15]], hull);
+      poly([[-1.15, 0.05], [-0.2, 0.05], [-0.15, 1.45], [-0.55, 1.45], [-1.0, 1.15]], hullLit);
+      poly([[-1.15, 0.30], [-1.70, 0.12], [-1.70, 0.30], [-1.15, 0.55]], hullDim);
+      poly([[1.15, 0.30], [1.70, 0.12], [1.70, 0.30], [1.15, 0.55]], hullDim);
+      poly([[-0.9, 1.22], [0.9, 1.22], [0.9, 1.30], [-0.9, 1.30]], acc);
+      nozzles = [[-0.55, 0.42, 0.22], [0.55, 0.42, 0.22], [-0.55, 0.88, 0.19], [0.55, 0.88, 0.19]];
+    } else if(v.model === 2){
+      // intercepteur : fuselage effilé, aile en anneau qui l'entoure
+      poly([[-0.42, 0.2], [0.42, 0.2], [0.28, 1.05], [-0.28, 1.05]], hull);
+      poly([[-0.42, 0.2], [-0.05, 0.2], [-0.05, 1.05], [-0.28, 1.05]], hullLit);
+      ctx.strokeStyle = hullDim; ctx.lineWidth = Math.max(1, 0.16 * k);
+      ctx.beginPath(); ctx.ellipse(X(0), Y(0.62), 1.55 * k, 0.62 * k, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = acc; ctx.lineWidth = Math.max(0.8, 0.05 * k);
+      ctx.beginPath(); ctx.ellipse(X(0), Y(0.62), 1.55 * k, 0.62 * k, 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+      poly([[-0.42, 0.6], [-1.5, 0.62], [-0.42, 0.68]], hullDim);
+      poly([[0.42, 0.6], [1.5, 0.62], [0.42, 0.68]], hullDim);
+      nozzles = [[0, 0.55, 0.26]];
+    } else {
+      // chasseur : ailes en flèche, deux dérives inclinées
+      poly([[-1.65, 0.45], [-0.45, 0.62], [-0.45, 0.78], [-1.65, 0.55]], hullDim);
+      poly([[1.65, 0.45], [0.45, 0.62], [0.45, 0.78], [1.65, 0.55]], hullDim);
+      poly([[-1.65, 0.45], [-1.2, 0.51], [-1.2, 0.56], [-1.65, 0.55]], acc);
+      poly([[1.65, 0.45], [1.2, 0.51], [1.2, 0.56], [1.65, 0.55]], acc);
+      poly([[-0.70, 0.25], [0.70, 0.25], [0.55, 1.05], [-0.55, 1.05]], hull);
+      poly([[-0.70, 0.25], [-0.1, 0.25], [-0.1, 1.05], [-0.55, 1.05]], hullLit);
+      poly([[-0.42, 1.0], [-0.55, 1.62], [-0.46, 1.64], [-0.28, 1.0]], hullDim);
+      poly([[0.42, 1.0], [0.55, 1.62], [0.46, 1.64], [0.28, 1.0]], hullDim);
+      poly([[-0.30, 1.04], [0.30, 1.04], [0.18, 1.18], [-0.18, 1.18]], 'rgba(40,70,110,0.9)');   // verrière
+      nozzles = [[-0.33, 0.58, 0.24], [0.33, 0.58, 0.24]];
+    }
+    if(detail){
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(-0.3), Y(0.3)); ctx.lineTo(X(-0.3), Y(0.95)); ctx.moveTo(X(0.3), Y(0.3)); ctx.lineTo(X(0.3), Y(0.95)); ctx.stroke();
+    }
+    // tuyères : bague sombre, cœur incandescent, halo
+    nozzles.forEach(([nx, ny, nr]) => {
+      ctx.fillStyle = '#1b1e24'; ctx.beginPath(); ctx.arc(X(nx), Y(ny), nr * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(${flameRGB},${0.95 * flick})`; ctx.beginPath(); ctx.arc(X(nx), Y(ny), nr * 0.72 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgba(255,255,255,${0.9 * flick})`; ctx.beginPath(); ctx.arc(X(nx), Y(ny), nr * 0.35 * k, 0, Math.PI * 2); ctx.fill();
+      drawGlow(v.flame === 'warm' ? GLOW_WARM : GLOW_CYAN, X(nx), Y(ny), Math.max(3, nr * 3.2 * k), 0.75 * flick);
+    });
+    // feux de position en bout d'aile : rouge à gauche, vert à droite, clignotants
+    const blink = (Math.sin(t * 4 + v.phase) > 0.6) ? 1 : 0.25;
+    const tip = v.model === 1 ? 1.70 : v.model === 2 ? 1.55 : 1.65, ty = v.model === 1 ? 0.2 : v.model === 2 ? 0.62 : 0.5;
+    [[-tip, '255,60,50'], [tip, '80,255,140']].forEach(([lx, rgb]) => {
+      ctx.fillStyle = `rgba(${rgb},${blink})`;
+      ctx.fillRect(X(lx) - Math.max(1, 0.05 * k), Y(ty) - Math.max(1, 0.05 * k), Math.max(2, 0.1 * k), Math.max(2, 0.1 * k));
+    });
+    ctx.restore();
+  }
+
   function drawVehicle(ctx, v, cx, groundY, w, h, fade, lamp){
     const half = w / 2;
     const detail = w > 14;          // en dessous, les petits détails ne font que du bruit
@@ -4915,6 +5011,12 @@
 
     ctx.save();
     ctx.globalAlpha = fade;
+
+    if(v.ship){
+      drawShip(ctx, v, cx, groundY, w, lamp);
+      ctx.restore();
+      return;
+    }
 
     // ombre : serrée sous la caisse, pas un disque flottant
     ctx.fillStyle = `rgba(0,0,0,${0.34 + lamp * 0.18})`;
