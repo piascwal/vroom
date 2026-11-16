@@ -3363,28 +3363,53 @@
       if(o.trees) v += o.trees * h * Math.pow(noise(u, span / 5, 11), 1.6);   // cimes d'une lisière
       hs[x] = v;
     }
-    const light = o.light || 1;
+    // Éclairage par la pente de la crête. Calculé colonne par colonne et appliqué à toute la
+    // hauteur, il dessinait des stries verticales : chaque petit accident de la crête tirait
+    // un trait clair ou sombre jusqu'au pied. Il est donc lissé sur une quinzaine de pixels,
+    // et ne vaut qu'en haut du versant : plus bas, la teinte revient vers la moyenne, comme
+    // sur un vrai relief où la lumière rasante ne marque que les arêtes.
+    const light = o.light || 1, relief = o.relief != null ? o.relief : 0.8;
+    const raw = new Float32Array(span), lits = new Float32Array(span);
+    for(let x = 0; x < span; x++){
+      const slope = (hs[(x + 5) % span] - hs[(x - 5 + span) % span]) / 10 * light;
+      raw[x] = 0.5 + slope * relief + (noise(x / span, o.grain || span / 40, 7) - 0.5) * (o.grainAmt != null ? o.grainAmt : 0.12);
+    }
+    for(let pass = 0; pass < 2; pass++){
+      const src = pass ? lits.slice() : raw;
+      let acc = 0;
+      for(let i = -7; i <= 7; i++) acc += src[(i + span) % span];
+      for(let x = 0; x < span; x++){
+        lits[x] = acc / 15;
+        acc += src[(x + 8) % span] - src[(x - 7 + span) % span];
+      }
+    }
     for(let x = 0; x < span; x++){
       const u = x / span, top = h - hs[x];
-      const slope = (hs[(x + 3) % span] - hs[(x - 3 + span) % span]) / 6 * light;
-      let lit = 0.5 + slope * (o.relief != null ? o.relief : 0.8) + (noise(u, o.grain || span / 16, 7) - 0.5) * (o.grainAmt != null ? o.grainAmt : 0.16);
-      lit = Math.max(0, Math.min(1, lit));
+      const lit = Math.max(0, Math.min(1, lits[x]));
       const rock = hexLerp(o.shadow, o.lit, lit);
+      const rockMid = hexLerp(o.shadow, o.lit, 0.5 + (lit - 0.5) * 0.35);
+      const foot = hexLerp(rockMid, o.foot, o.haze != null ? o.haze : 0.6);
       const grad = g.createLinearGradient(0, top, 0, h);
-      let snowDone = false;
+      let start = 0;
       if(o.snow){
-        const line = (o.snow.line + (fbmLoop(noise, u, Math.max(3, Math.round(18 * ks)), 3, 3) - 0.5) * o.snow.vary * 1.6 + (noise(u, span / 14, 5) - 0.5) * o.snow.vary * 0.22 - (lit - 0.5) * o.snow.vary * 0.9) * h;
+        // limite de neige nette et déchirée : de petites dents de roche y mordent, sans flou
+        const line = (o.snow.line
+          + (fbmLoop(noise, u, Math.max(3, Math.round(18 * ks)), 3, 3) - 0.5) * o.snow.vary * 1.6
+          + (fbmLoop(noise, u, Math.round(span / 22), 3, 9) - 0.5) * o.snow.vary * 0.7
+          - (lit - 0.5) * o.snow.vary * 0.9) * h;
         const depth = hs[x] - line;
         if(depth > 1){
           const p = Math.min(0.97, depth / hs[x]);
           const sn = hexLerp(o.snow.shadow, o.snow.lit, lit);
-          grad.addColorStop(0, sn); grad.addColorStop(p, sn);
-          grad.addColorStop(Math.min(1, p + 0.035), rock);
-          snowDone = true;
+          const snLow = hexLerp(o.snow.shadow, o.snow.lit, 0.5 + (lit - 0.5) * 0.6);
+          grad.addColorStop(0, sn); grad.addColorStop(p, snLow);
+          grad.addColorStop(Math.min(1, p + 0.008), rock);
+          start = p + 0.008;
         }
       }
-      if(!snowDone) grad.addColorStop(0, rock);
-      grad.addColorStop(1, hexLerp(rock, o.foot, o.haze != null ? o.haze : 0.6));
+      if(!start) grad.addColorStop(0, rock);
+      grad.addColorStop(Math.min(1, Math.max(start, 0) + (1 - start) * 0.45), rockMid);
+      grad.addColorStop(1, foot);
       g.fillStyle = grad;
       g.fillRect(x, top, 1, hs[x] + 1);
     }
