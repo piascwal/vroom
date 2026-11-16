@@ -2248,15 +2248,34 @@
       },
     },
     sunset: {
-      name: 'Coucher de soleil', sky: ['#2c1a42', '#ff9a4d'], ground: '#2a1f1c',
-      road: ['#3b2f2c', '#191412'], edge: 'rgba(255,190,120,0.55)', dash: 'rgba(255,240,220,0.7)',
-      glow: '255,175,85', glowStrength: 1.5, particle: 'streak', particleRGB: [255, 190, 120],
-      haze: 'rgba(255,154,77,0.5)', decor: 'hills', sun: { y: 0.005, r: 0.085, color: '#ffd08a' },
+      name: 'Coucher de soleil', horizon: 0.40,
+      sky: ['#171230', '#352049', '#7c3656', '#cb5b48', '#f2914a', '#ffcf7f'], ground: '#5a3a24',
+      road: ['#5a443c', '#1e1614'], edge: 'rgba(255,214,170,0.75)', dash: 'rgba(255,236,210,0.8)',
+      glow: '255,175,85', glowStrength: 0, particle: 'streak', particleRGB: [255, 190, 120],
+      haze: null, decor: null, sun: { y: -0.004, r: 0.058, color: '#fff2cc', halo: '255,168,92', follow: 0.25 },
       carLight: 0.8,
-      // contre-jour : tout ce qui borde la route se réduit à une silhouette presque noire
-      props: ['tree', 'cypress', 'tree', 'pole', 'bush'],
-      propsFar: ['tree', 'cypress', 'tree'],
+      props: ['stonepine', 'tcypress', 'tcypress', 'haybale', 'haybale', 'shrub'], nearSparse: 0.55,
+      propsFar: ['stonepine', 'tcypress', 'tcypress', 'stonepine', 'haybale'], farSparse: 0.85,
       foliage: ['#241726', '#180f1b'], propDark: '#1a1220', propStone: '#2a1e28', trunk: '#150d18',
+      // --- rendu détaillé ---
+      fog: { color: '#d07a4c', start: 30, end: 620, max: 0.72 },
+      lines: true,
+      mirage: { color: '#ffc27e', depth: 0.16, a: 0.55 },   // le soleil se reflète sur le bitume
+      longShadows: { k: 3.4, a: 0.34, rgb: '40,18,24' },
+      verge: { w: 1.0, color: '#6a4628' },
+      groundTex: { cell: 10, rows: 20, cols: 8, light: '255,184,104', dark: '40,18,10', contrast: 0.16,
+        speck: { n: 3, colors: ['#8a5e30', '#a3743c', '#6b4424'], tuft: 0.6 } },
+      art: { leaf: '#2a1d1c', rim: '#c9824a', trunk: '#24160f', shadow: '30,12,16', leafLit: '#5a3a26',
+        hay: '#c58a3e', hayDark: '#7a4f24' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 44, count: 6, y0: 0.18, y1: 0.62, w0: 1.6, w1: 3.2, thick: 0.045, light: '255,168,118', dark: '94,46,86', alpha: 0.5 });
+        panoRidge(g, span, h, { seed: 21, cells: 4, oct: 4, base: 0.05, amp: 0.20, light: 1, relief: 0.2,
+          lit: '#9a4f5c', shadow: '#8a4658', foot: '#e08c5a', haze: 0.7 });
+        panoRidge(g, span, h, { seed: 64, cells: 7, oct: 4, base: 0.03, amp: 0.10, light: 1, relief: 0.2,
+          lit: '#5c2c46', shadow: '#4e2440', foot: '#b6644c', haze: 0.5 });
+        panoRidge(g, span, h, { seed: 17, cells: 11, oct: 3, base: 0.015, amp: 0.035, trees: 0.06, light: 1, relief: 0.2, grainAmt: 0.2,
+          lit: '#2c1626', shadow: '#26121f', foot: '#5a2c2c', haze: 0.25 });
+      },
     },
     desert: {
       name: 'Désert', horizon: 0.40,
@@ -4051,6 +4070,61 @@
     } },
   };
 
+  // --- coucher de soleil : contre-jour. Chaque masse est peinte deux fois, en couleur de
+  // liseré puis en silhouette décalée vers le bas : il reste un fin liseré doré sur le haut,
+  // celui que dessine un soleil rasant derrière les arbres.
+  const rimBlob = (g, A, x, y, rx, ry) => {
+    g.fillStyle = A.rim; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = A.leaf; g.beginPath(); g.ellipse(x + rx * 0.03, y + ry * 0.10, rx * 0.99, ry * 0.97, 0, 0, Math.PI * 2); g.fill();
+  };
+  // Pin parasol : long fût nu et légèrement courbe, houppier large et plat
+  PROP_ART.stonepine = { h: 15, w: 14, variants: 4, paint(g, rnd, A){
+    const H = 9 + rnd() * 5, lean = (rnd() - 0.5) * H * 0.18, W = H * (0.42 + rnd() * 0.18);
+    groundShadow(g, A, W * 0.4, 1);
+    g.strokeStyle = A.trunk; g.lineCap = 'round';
+    g.lineWidth = H * 0.035;
+    g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(lean * 0.2, -H * 0.45, lean, -H * 0.78); g.stroke();
+    g.lineWidth = H * 0.016;
+    g.beginPath(); g.moveTo(lean * 0.8, -H * 0.72); g.lineTo(lean - W * 0.3, -H * 0.84);
+    g.moveTo(lean * 0.9, -H * 0.74); g.lineTo(lean + W * 0.28, -H * 0.86); g.stroke();
+    const blobs = [];
+    for(let i = 0; i < 42; i++){
+      const t = rnd() * 2 - 1;
+      blobs.push([lean + t * W * 0.46, -H * (0.85 + (1 - t * t) * 0.07 + rnd() * 0.035), W * (0.15 + rnd() * 0.11), H * (0.05 + rnd() * 0.03)]);
+    }
+    blobs.sort((a, b) => a[1] - b[1]).forEach(bb => rimBlob(g, A, bb[0], bb[1], bb[2], bb[3]));
+  } };
+  // Cyprès : une flamme sombre, haute et serrée
+  PROP_ART.tcypress = { h: 15, w: 3.4, variants: 4, paint(g, rnd, A){
+    const H = 9 + rnd() * 5, W = H * (0.085 + rnd() * 0.03);
+    groundShadow(g, A, W * 0.8, 1);
+    g.fillStyle = A.trunk; g.fillRect(-W * 0.1, -H * 0.08, W * 0.2, H * 0.08);
+    const flame = (col, dy) => {
+      g.fillStyle = col; g.beginPath();
+      g.moveTo(0, -H + dy);
+      g.bezierCurveTo(W * 0.9, -H * 0.7 + dy, W * 1.05, -H * 0.25 + dy, W * 0.35, -H * 0.05 + dy);
+      g.lineTo(-W * 0.35, -H * 0.05 + dy);
+      g.bezierCurveTo(-W * 1.05, -H * 0.25 + dy, -W * 0.9, -H * 0.7 + dy, 0, -H + dy);
+      g.fill();
+    };
+    flame(A.rim, 0);
+    flame(A.leaf, H * 0.012);
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    for(let i = 0; i < 9; i++){ g.beginPath(); g.ellipse((rnd() - 0.5) * W, -H * (0.15 + rnd() * 0.7), W * 0.3, H * 0.04, 0, 0, Math.PI * 2); g.fill(); }
+  } };
+  // Botte de foin ronde : face spiralée, flanc à l'ombre, liseré doré sur le dessus
+  PROP_ART.haybale = { h: 1.7, w: 2.6, variants: 3, paint(g, rnd, A){
+    const R = 0.72 + rnd() * 0.1, Wd = 1.15;
+    groundShadow(g, A, R * 1.4, 0.6);
+    g.fillStyle = A.hayDark;
+    g.fillRect(-Wd / 2, -R * 2, Wd, R * 2);
+    g.beginPath(); g.ellipse(Wd / 2, -R, R * 0.38, R, 0, -Math.PI / 2, Math.PI / 2); g.fill();
+    g.fillStyle = A.hay;
+    g.beginPath(); g.ellipse(-Wd / 2, -R, R * 0.38, R, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = A.hayDark; g.lineWidth = 0.03;
+    for(let i = 1; i < 6; i++){ g.beginPath(); g.ellipse(-Wd / 2, -R, R * 0.38 * i / 6, R * i / 6, 0, 0, Math.PI * 2); g.stroke(); }
+    g.fillStyle = A.rim; g.fillRect(-Wd / 2, -R * 2, Wd, R * 0.08);
+  } };
   PROP_ART.fir = PROP_ART.snowfir;     // le même sapin, sans neige quand la palette n'en a pas
   PROP_ART.oak = PROP_ART.roundtree;
 
@@ -4896,6 +4970,9 @@
     // --- soleil (couchant / de plein désert) ---------------------------------------------
     if(sc.sun){
       if(sunBearing == null) sunBearing = worldHeading - 5;
+      // soleil couchant : il fait l'identité de la scène, il revient donc doucement devant
+      // après chaque virage au lieu de quitter le cadre pour de bon
+      if(sc.sun.follow) sunBearing += (worldHeading - 4 - sunBearing) * Math.min(1, dt * sc.sun.follow);
       const d = relBearing(sunBearing);
       if(Math.abs(d) < 95){
         const sx = W / 2 + d * pxPerDeg, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
@@ -5262,14 +5339,15 @@
     // Mirage : au loin, l'air surchauffé au ras du bitume renvoie le ciel. Une nappe claire
     // de la couleur du ciel bas, posée sur la chaussée près de l'horizon, qui ondule un peu.
     if(sc.mirage){
-      const mt = 0.075, wob = 0.85 + 0.15 * Math.sin(performance.now() / 430);
+      const M = typeof sc.mirage === 'string' ? { color: sc.mirage, depth: 0.075, a: 0.75 } : sc.mirage;
+      const mt = M.depth, wob = 0.85 + 0.15 * Math.sin(performance.now() / 430);
       visctx.save();
       visctx.beginPath();
       for(let i = 0; i <= 12; i++){ const tt = mt * i / 12; const x = roadCenterAt(tt) - edgeAt(tt, -1); if(i) visctx.lineTo(x, rowY(tt)); else visctx.moveTo(x, rowY(tt)); }
       for(let i = 12; i >= 0; i--){ const tt = mt * i / 12; visctx.lineTo(roadCenterAt(tt) + edgeAt(tt, 1), rowY(tt)); }
       visctx.closePath();
       const mg = visctx.createLinearGradient(0, vpY, 0, rowY(mt));
-      mg.addColorStop(0, rgba(sc.mirage, 0.75 * wob)); mg.addColorStop(0.5, rgba(sc.mirage, 0.30 * wob)); mg.addColorStop(1, rgba(sc.mirage, 0));
+      mg.addColorStop(0, rgba(M.color, M.a * wob)); mg.addColorStop(0.5, rgba(M.color, M.a * 0.4 * wob)); mg.addColorStop(1, rgba(M.color, 0));
       visctx.fillStyle = mg; visctx.fill();
       visctx.restore();
     }
@@ -5624,6 +5702,19 @@
       const nearArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed, pr.variant);
       if(nearArt){
         visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - pr.dist) / 40));
+        // Ombres longues : soleil bas droit devant, chaque objet projette son ombre vers nous,
+        // posée au sol en perspective — le signe le plus sûr d'une fin de journée
+        if(sc.longShadows){
+          const spec = PROP_ART[pr.kind], L = spec.h * 0.75 * pr.scale * sc.longShadows.k;
+          const w = Math.min(spec.w * 0.3, 2.2) * pr.scale, lat = pr.side * pr.offset;
+          const dn = Math.max(camNear / 1.5, pr.dist - L);
+          const P = (d, l) => { const t2 = camNear / d, p2 = roadHalfAt(Math.min(1.6, t2)) / 4; return [roadCenterAt(Math.min(1, t2)) + l * p2, rowY(t2)]; };
+          const a1 = P(pr.dist, lat - w * 0.5), a2 = P(pr.dist, lat + w * 0.5), b2 = P(dn, lat + w * 1.1), b1 = P(dn, lat - w * 1.1);
+          const sg = visctx.createLinearGradient(0, a1[1], 0, b1[1]);
+          sg.addColorStop(0, `rgba(${sc.longShadows.rgb},${sc.longShadows.a})`); sg.addColorStop(1, `rgba(${sc.longShadows.rgb},0)`);
+          visctx.fillStyle = sg;
+          visctx.beginPath(); visctx.moveTo(a1[0], a1[1]); visctx.lineTo(a2[0], a2[1]); visctx.lineTo(b2[0], b2[1]); visctx.lineTo(b1[0], b1[1]); visctx.closePath(); visctx.fill();
+        }
         const fd = sc.fog.lateral ? Math.hypot(pr.dist, pr.offset * sc.fog.lateral) : pr.dist;
         drawSprite(nearArt, x, rowY(tt), s3, fogAt(sc, fd));
         // Catadioptres et lampes : ils ne sont pas noyés dans la nuit comme le reste, ils
