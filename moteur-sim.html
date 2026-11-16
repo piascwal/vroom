@@ -1191,7 +1191,11 @@
   // réellement pendant quelques dizaines de millisecondes — c'est ce trou, et non un coup de
   // percussion, qui fait le « bra-bra-bra » d'un limiteur — puis les gaz accumulés pendant la
   // coupure s'enflamment dans le tube au moment où l'allumage revient.
-  function spawnLimiterCut(intensity){
+  // Cadence réelle : un limiteur coupe et rétablit l'allumage une dizaine de fois par seconde,
+  // sur quelques centaines de tours seulement. C'est cette vibration rapide — et non trois
+  // coups bien séparés par seconde — qui fait le bourdonnement saccadé d'un moteur au rupteur.
+  // Les gaz imbrûlés ne s'enflamment pas à chaque coupure : une sur trois environ claque.
+  function spawnLimiterCut(intensity, withPop){
     if(!actx) return;
     const now = actx.currentTime;
     const pr = ENGINES[currentProfileKey];
@@ -1205,7 +1209,8 @@
       g.setValueAtTime(0.05, now + hole);
       g.linearRampToValueAtTime(1, now + hole + 0.035);
     }
-    spawnPop(intensity, { at: now + hole * 0.85, level: 0.9 });
+    if(withPop) spawnPop(intensity, { at: now + hole * 0.85, level: 0.75 });
+    return hole;
   }
 
   function spawnWhoosh(){
@@ -4798,7 +4803,7 @@
   let starterTimer = 0, startFlare = 0;
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
-  const LIMITER_RECOVERY_TIME = 0.24; // secondes pour remonter après une coupure
+  const LIMITER_RECOVERY_TIME = 0.06; // secondes pour remonter après une coupure
   const NITRO_DURATION = 3.5;
   const NITRO_COOLDOWN = 6;
   const DEFAULT_CRACKLE = 0.55; // pétarade appliquée par défaut aux moteurs qui n'en ont pas (v6/v8/v12)
@@ -5564,11 +5569,13 @@
     if(atLimiter){
       limiterCooldown -= dt;
       if(limiterCooldown <= 0){
-        spawnLimiterCut(profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE);
-        const dipMag = (profile.redline - profile.idleRPM) * 0.30;
+        const hole = spawnLimiterCut(profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE, Math.random() < 0.35) || 0.04;
+        // petite chute de régime (≈ 5 % de la plage), vite reprise
+        const dipMag = (profile.redline - profile.idleRPM) * 0.05;
         limiterDipAmount = dipMag;
         limiterRecoveryRate = dipMag / LIMITER_RECOVERY_TIME;
-        limiterCooldown = 0.28 + Math.random() * 0.06; // ~3-4 coupures par seconde, cadence lisible
+        // la coupure suivante attend que l'allumage soit revenu : ≈ 10 à 12 par seconde
+        limiterCooldown = hole + 0.045 + Math.random() * 0.02;
       }
     } else {
       limiterCooldown = 0; // prêt à repartir dès le prochain contact du limiteur
