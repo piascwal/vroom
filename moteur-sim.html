@@ -1497,16 +1497,33 @@
     outBus.release.value = 0.25;
     outBus.connect(actx.destination);
 
+    // Équilibre tonal de tout ce qui sort, moteur, pétarades et ambiance compris. Mesuré à pleine
+    // charge, le spectre culminait entre 250 et 500 Hz avec un grave 15 à 20 dB plus bas : sans
+    // fondation, le haut-médium dominait, surtout sur un petit haut-parleur. Un habitacle fait
+    // l'inverse — il gonfle le grave et étouffe l'aigu (vitrages, garnitures, isolant). D'où :
+    // grave rehaussé, haut-médium adouci, extrême aigu coupé.
+    const toneLow = actx.createBiquadFilter();
+    toneLow.type = 'lowshelf'; toneLow.frequency.value = 160; toneLow.gain.value = 6;
+    const toneHigh = actx.createBiquadFilter();
+    toneHigh.type = 'highshelf'; toneHigh.frequency.value = 2200; toneHigh.gain.value = -5;
+    const tonePresence = actx.createBiquadFilter();
+    tonePresence.type = 'peaking'; tonePresence.frequency.value = 3200; tonePresence.Q.value = 0.9; tonePresence.gain.value = -3;
+    const toneTop = actx.createBiquadFilter();
+    toneTop.type = 'lowpass'; toneTop.frequency.value = 9000; toneTop.Q.value = 0.5;
+    const toneIn = actx.createGain();
+    toneIn.gain.value = 0.82;            // le grave rehaussé ajoute de l'énergie : on garde la marge du limiteur
+    toneIn.connect(toneLow); toneLow.connect(toneHigh); toneHigh.connect(tonePresence); tonePresence.connect(toneTop); toneTop.connect(outBus);
+
     // Habitacle : le son direct, plus une part réverbérée. Sans elle le moteur sonne « dans
     // le casque », collé à l'oreille ; avec, il est quelque part dans une voiture.
     preBus = actx.createGain();
-    preBus.connect(outBus);
+    preBus.connect(toneIn);
     try{
       const cabin = actx.createConvolver();
       cabin.buffer = buildCabinImpulse(actx);
       const wet = actx.createGain();
       wet.gain.value = 0.5;
-      preBus.connect(cabin); cabin.connect(wet); wet.connect(outBus);
+      preBus.connect(cabin); cabin.connect(wet); wet.connect(toneIn);
     }catch(e){}
 
     master = actx.createGain();
@@ -1808,7 +1825,9 @@
     const imag = new Float32Array(H + 1);
     const sched = firingSchedule(profile, seed);
     const bright = 0.45 + (profile.brightness != null ? profile.brightness : 0.8) * 0.55;
-    const kc = (sharp ? 8.5 : 2.6) * N * bright;   // ordre de coupure de l'impulsion
+    // ordre de coupure de l'impulsion ; plafonné, sinon un 12-cylindres brillant poussait ses
+    // harmoniques jusqu'à 7 kHz et sifflait au lieu de chanter
+    const kc = Math.min(sharp ? 6.2 * N * bright : 2.6 * N * bright, 70);
     const poles = sharp ? 2.0 : 3.0;
 
     // les harmoniques cochées dans l'atelier deviennent des accents sur les ordres
@@ -1940,7 +1959,7 @@
     // qui traversent des résonances fixes (bloc, ligne d'échappement) ; seule la charge
     // éclaircit vraiment le timbre. Le régime ne garde qu'une influence modeste.
     const bright = profile.brightness != null ? profile.brightness : 0.8;
-    const cutoff = (1100 + 2600 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.33 * rpmRatio);
+    const cutoff = (900 + 2000 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.30 * rpmRatio);
     lowpass.frequency.setTargetAtTime(cutoff * (0.30 + 0.70 * fade), now, 0.12);
 
     noiseFilter.frequency.setTargetAtTime(350 + rpmRatio * 2300, now, 0.05);
