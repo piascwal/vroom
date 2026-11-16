@@ -3769,7 +3769,8 @@
   const traffic = [];
   let trafficTimer = 2;
 
-  const RACE_COLORS = ['#d8342f', '#1f6fc4', '#f0c020', '#1d9e5a', '#e8e2d2', '#f06a20'];
+  const RACE_COLORS = ['#d8342f', '#1f4fb4', '#f0a020', '#14805a', '#e8e2d2', '#1c1e24', '#2fb5c8'];
+  const RACE_ACCENTS = ['#f2f2f2', '#f2c230', '#1c1e24', '#d8342f', '#2fb5c8'];
   function spawnTraffic(ourKmh){
     // sur un circuit, ce qu'on double est une monoplace : basse, large et vive
     const racing = (SCENES[currentSceneKey] || {}).racing === true;
@@ -3781,6 +3782,8 @@
         speed: Math.max(8, Math.min(ourKmh - 15, ourKmh - (18 + Math.random() * 45))),
         width: 2.0, height: 1.0, truck: false, racing: true,
         color: RACE_COLORS[Math.floor(Math.random() * RACE_COLORS.length)],
+        accent: RACE_ACCENTS[Math.floor(Math.random() * RACE_ACCENTS.length)],
+        compound: ['#e8392f', '#f2c230', '#f2f2f2'][Math.floor(Math.random() * 3)],   // tendre, médium, dur
       });
       return;
     }
@@ -3881,6 +3884,88 @@
     ctx.closePath();
   }
 
+  // Monoplace vue de l'arrière, aux cotes d'une F1 moderne (2 m de large, roues arrière de
+  // 72 cm, aileron à 95 cm). Tout est placé en mètres puis converti : c'est ce qui la garde
+  // juste à toutes les distances. Ce qui la fait reconnaître : les deux énormes gommes, les
+  // bras de suspension en diagonale, le diffuseur et ses dérives, le capot moteur en aileron
+  // de requin, et l'aileron étroit sur ses deux plaques — bien moins large que la voiture.
+  function drawRacer(ctx, v, cx, gy, w, dark, lamp){
+    const k = w / v.width;
+    const X = x => cx + x * k, Y = y => gy - y * k;
+    const live = shade(v.color, dark), liveLit = shade(v.color, dark + 0.22), liveDim = shade(v.color, dark - 0.30);
+    const acc = shade(v.accent || '#f0f0f0', dark), carbon = shade('#1c1d21', dark * 0.5);
+    const rect = (x0, y0, x1, y1, col, r) => {
+      ctx.fillStyle = col;
+      boxPath(ctx, X(Math.min(x0, x1)), Y(Math.max(y0, y1)), Math.abs(x1 - x0) * k, Math.abs(y1 - y0) * k, (r || 0) * k);
+      ctx.fill();
+    };
+    const poly = (pts, col) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      pts.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+      ctx.closePath(); ctx.fill();
+    };
+    const detail = w > 18;
+
+    // pontons, en retrait derrière les roues : leur dessus descend vers l'extérieur
+    [-1, 1].forEach(s => poly([[s * 0.20, 0.20], [s * 0.66, 0.20], [s * 0.66, 0.42], [s * 0.20, 0.60]], s < 0 ? live : liveDim));
+    // capot moteur : large à la base, pincé en haut, prolongé par la dérive
+    poly([[-0.30, 0.24], [0.30, 0.24], [0.16, 0.70], [0.06, 0.93], [-0.06, 0.93], [-0.16, 0.70]], live);
+    poly([[-0.30, 0.24], [-0.08, 0.24], [-0.03, 0.93], [-0.06, 0.93], [-0.16, 0.70]], liveLit);   // flanc éclairé
+    if(detail) poly([[0.06, 0.93], [-0.06, 0.93], [-0.02, 0.98], [0.02, 0.98]], liveDim);
+
+    // bras de suspension : du carter de boîte vers chaque moyeu
+    ctx.strokeStyle = carbon; ctx.lineWidth = Math.max(0.8, 0.035 * k); ctx.lineCap = 'round';
+    ctx.beginPath();
+    [-1, 1].forEach(s => {
+      ctx.moveTo(X(s * 0.10), Y(0.44)); ctx.lineTo(X(s * 0.62), Y(0.40));
+      ctx.moveTo(X(s * 0.10), Y(0.26)); ctx.lineTo(X(s * 0.62), Y(0.30));
+      if(detail){ ctx.moveTo(X(s * 0.12), Y(0.30)); ctx.lineTo(X(s * 0.62), Y(0.46)); }   // biellette
+    });
+    ctx.stroke();
+
+    // diffuseur : le creux sombre entre les roues, ses dérives verticales, sa lèvre relevée
+    poly([[-0.60, 0.02], [0.60, 0.02], [0.60, 0.16], [0.22, 0.27], [-0.22, 0.27], [-0.60, 0.16]], '#0d0e10');
+    if(detail){
+      ctx.strokeStyle = 'rgba(120,124,132,0.45)'; ctx.lineWidth = Math.max(0.6, 0.015 * k);
+      ctx.beginPath();
+      [-0.42, -0.24, 0.24, 0.42].forEach(x => { ctx.moveTo(X(x), Y(0.03)); ctx.lineTo(X(x), Y(0.18 + (0.6 - Math.abs(x)) * 0.2)); });
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath(); ctx.moveTo(X(-0.60), Y(0.16)); ctx.lineTo(X(-0.22), Y(0.27)); ctx.lineTo(X(0.22), Y(0.27)); ctx.lineTo(X(0.60), Y(0.16)); ctx.stroke();
+    }
+    // structure anti-choc et feu de pluie
+    rect(-0.10, 0.24, 0.10, 0.44, carbon, 0.02);
+    const rl = 0.6 + 0.4 * lamp;
+    rect(-0.065, 0.31, 0.065, 0.37, `rgba(255,40,30,${rl})`, 0.01);
+    if(lamp > 0.3 && w > 6) drawGlow(GLOW_RED, X(0), Y(0.34), w * 0.45, 0.35 * lamp);
+    // aileron de poutre, bas
+    rect(-0.46, 0.44, 0.46, 0.49, carbon, 0.015);
+
+    // roues arrière : gomme lisse, arrondie, un reflet sur le haut de la bande de roulement
+    [-1, 1].forEach(s => {
+      const x0 = s * 0.60, x1 = s * 1.00;
+      rect(x0, 0.0, x1, 0.72, '#0c0c0e', 0.11);
+      if(detail){
+        const g = ctx.createLinearGradient(0, Y(0.72), 0, Y(0.36));
+        g.addColorStop(0, 'rgba(255,255,255,0.16)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        boxPath(ctx, X(Math.min(x0, x1)) + 0.06 * k, Y(0.72), 0.28 * k, 0.36 * k, 0.1 * k); ctx.fill();
+        // marquage du mélange sur le flanc intérieur, vu de biais
+        rect(s * 0.60, 0.30, s * 0.625, 0.42, v.compound || '#f2c230');
+      }
+    });
+
+    // aileron arrière : deux plaques de bout aux couleurs de l'équipe, plan principal et volet
+    [-1, 1].forEach(s => rect(s * 0.47, 0.52, s * 0.52, 0.99, acc, 0.01));
+    rect(-0.47, 0.80, 0.47, 0.87, carbon, 0.02);
+    rect(-0.47, 0.89, 0.47, 0.96, live, 0.02);
+    if(detail){
+      rect(-0.47, 0.955, 0.47, 0.965, 'rgba(255,255,255,0.35)');
+      rect(-0.47, 0.83, 0.47, 0.845, acc);                           // liseré de livrée
+      rect(-0.03, 0.66, 0.03, 0.80, carbon);                         // mât central
+    }
+  }
+
   function drawVehicle(ctx, v, cx, groundY, w, h, fade, lamp){
     const half = w / 2;
     const detail = w > 14;          // en dessous, les petits détails ne font que du bruit
@@ -3902,34 +3987,7 @@
     ctx.fill();
 
     if(v.racing){
-      // monoplace : deux gommes énormes, un pod étroit au milieu, un aileron en hauteur
-      const tyreW = w * 0.27, tyreH = h * 0.62;
-      ctx.fillStyle = rubber;
-      boxPath(ctx, cx - half, groundY - tyreH, tyreW, tyreH, tyreW * 0.28); ctx.fill();
-      boxPath(ctx, cx + half - tyreW, groundY - tyreH, tyreW, tyreH, tyreW * 0.28); ctx.fill();
-      const podW = w * 0.36;
-      const podGrad = ctx.createLinearGradient(0, groundY - h * 0.8, 0, groundY);
-      podGrad.addColorStop(0, bodyTop); podGrad.addColorStop(1, bodyLow);
-      ctx.fillStyle = podGrad;
-      boxPath(ctx, cx - podW / 2, groundY - h * 0.78, podW, h * 0.72, podW * 0.22); ctx.fill();
-      // diffuseur : le creux sombre sous la voiture, ce qui la plaque au sol
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.fillRect(cx - podW * 0.62, groundY - h * 0.16, podW * 1.24, h * 0.16);
-      // aileron arrière sur deux dérives
-      const wingW = w * 0.84, wingY = groundY - h * 1.02;
-      ctx.fillStyle = shade(v.color, dark - 0.45);
-      ctx.fillRect(cx - podW * 0.40, wingY, Math.max(1, w * 0.045), h * 0.30);
-      ctx.fillRect(cx + podW * 0.40 - Math.max(1, w * 0.045), wingY, Math.max(1, w * 0.045), h * 0.30);
-      ctx.fillStyle = body;
-      boxPath(ctx, cx - wingW / 2, wingY, wingW, Math.max(1.2, h * 0.13), h * 0.05); ctx.fill();
-      if(detail){
-        ctx.fillStyle = 'rgba(255,255,255,0.16)';
-        ctx.fillRect(cx - wingW / 2, wingY, wingW, Math.max(0.8, h * 0.03));
-      }
-      // feu de pluie central
-      const lw = Math.max(1, w * 0.09);
-      ctx.fillStyle = `rgba(255,45,35,${0.55 + 0.45 * lamp})`;
-      ctx.fillRect(cx - lw / 2, groundY - h * 0.34, lw, Math.max(1, h * 0.12));
+      drawRacer(ctx, v, cx, groundY, w, dark, lamp);
       ctx.restore();
       return;
     }
