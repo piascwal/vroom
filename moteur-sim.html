@@ -2397,16 +2397,39 @@
       foliage: ['#57a83c', '#489231'], propDark: '#6b4a28', propStone: '#8f8f8f', trunk: '#6b4a28',
     },
     orage: {
-      name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
-      road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
-      glow: '200,215,235', glowStrength: 0.6, particle: 'rain', particleRGB: [190, 210, 235],
-      haze: 'rgba(58,66,80,0.55)', decor: null, sun: null, carLight: 1, lightning: true,
-      props: ['tree', 'pine', 'pole', 'pole', 'bush'],
-      propsFar: ['pine', 'tree', 'pine'],
+      name: 'Orage', horizon: 0.38,
+      sky: ['#14171d', '#232830', '#353c46', '#4f5862', '#6a737c'], ground: '#1f2823',
+      road: ['#3a4048', '#15181c'], edge: 'rgba(214,220,228,0.72)', dash: 'rgba(222,228,236,0.75)',
+      glow: '200,215,235', glowStrength: 0, particle: 'rain', particleRGB: [190, 210, 235],
+      haze: null, decor: null, sun: null, carLight: 1, lightning: true,
+      props: ['oak', 'oak', 'poplar', 'fir', 'shrub', 'shrub'], nearSparse: 0.6,
+      propsFar: ['oak', 'poplar', 'fir', 'oak'], farSparse: 0.85,
       foliage: ['#1b2620', '#141c18'], propDark: '#252b32', propStone: '#333940', trunk: '#1e1811',
+      // --- rendu détaillé ---
+      fog: { color: '#454e58', start: 8, end: 320, max: 0.86 },
+      lines: true, wet: true, heavyRain: '196,208,226',
+      mirage: { color: '#8e9aa6', depth: 0.22, a: 0.5 },    // le ciel clair à l'horizon se reflète sur la route mouillée
+      dark: { reach: 110, a: 0.35 },
+      rows: [{ kind: 'delineator', every: 50, lat: 5.0 }],
+      verge: { w: 1.0, color: '#2a332d' },
+      groundTex: { cell: 9, rows: 20, cols: 8, light: '110,130,110', dark: '0,0,0', contrast: 0.2,
+        speck: { n: 2, colors: ['#2e3a30', '#38463a', '#23302a'], tuft: 0.6 } },
+      art: { leaf: '#1d2b23', leafLit: '#3e5446', trunk: '#2a231e', shadow: '0,0,0', post: '#c8ccd2' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 91, count: 26, y0: -0.06, y1: 0.34, w0: 1.4, w1: 3.0, thick: 0.34, light: '84,92,104', dark: '22,26,32', alpha: 0.92 });
+        panoClouds(g, span, h, { seed: 57, count: 12, y0: 0.25, y1: 0.55, w0: 0.9, w1: 2.0, thick: 0.18, light: '112,120,132', dark: '38,44,52', alpha: 0.75 });
+        panoRainShafts(g, span, h, { seed: 4, count: 7, top: 0.45, rgb: '70,80,94', a: 0.42 });
+        panoRidge(g, span, h, { seed: 26, cells: 5, oct: 4, base: 0.04, amp: 0.15, light: 1, relief: 0.25,
+          lit: '#3d4848', shadow: '#2e3838', foot: '#58626b', haze: 0.6 });
+        panoRidge(g, span, h, { seed: 48, cells: 10, oct: 4, base: 0.02, amp: 0.05, trees: 0.07, light: 1, relief: 0.3, grainAmt: 0.3,
+          lit: '#1f2a25', shadow: '#18211d', foot: '#3a444a', haze: 0.35 });
+      },
     },
   };
   let currentSceneKey = 'nuit';
+  let lightningBolt = null;      // tracé de l'éclair en cours : segments, branches, durée
+  // pluie battante : des traits obliques indépendants des particules, bien plus nombreux
+  const RAIN_DROPS = Array.from({ length: 240 }, () => ({ x: Math.random(), y: Math.random(), s: 0.8 + Math.random() * 0.6, l: 0.025 + Math.random() * 0.05 }));
   let lightningFlash = 0, lightningTimer = 6;
 
   // Champ d'étoiles de la scène spatiale : positions tirées une fois, puis simplement
@@ -2463,6 +2486,7 @@
   const GLOW_WARM = makeGlowSprite('255,205,130');
   const GLOW_CYAN = makeGlowSprite('90,220,255');
   const GLOW_RED = makeGlowSprite('255,60,40');
+  const GLOW_MIST = makeRadialSprite('200,208,220', [[0, 0.55], [0.5, 0.22], [1, 0]]);
   function drawGlow(sprite, x, y, r, alpha){
     // l'opacité en cours est conservée : le décor lointain est dessiné en fondu, et un halo
     // rendu à pleine opacité au milieu ferait ressortir la lampe devant son propre poteau
@@ -3755,6 +3779,26 @@
         g.fillStyle = gr; g.fillRect(bx + bw / 2 - 4, top - 5, 8, 8);
       }
       x += w + rnd() * o.gap;
+    }
+  }
+
+  // Rideaux de pluie : des voiles obliques qui tombent de la base des nuages jusqu'à
+  // l'horizon, plus denses en bas — on voit l'averse avancer au loin
+  function panoRainShafts(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    for(let i = 0; i < o.count; i++){
+      const x = rnd() * span, w = h * (0.15 + rnd() * 0.35), top = h * (o.top + rnd() * 0.1), slant = w * 0.25;
+      const gr = g.createLinearGradient(0, top, 0, h);
+      gr.addColorStop(0, `rgba(${o.rgb},0)`); gr.addColorStop(0.5, `rgba(${o.rgb},${o.a * 0.6})`); gr.addColorStop(1, `rgba(${o.rgb},${o.a})`);
+      g.fillStyle = gr;
+      [-span, 0, span].forEach(off => {
+        g.beginPath(); g.moveTo(x + off, top); g.lineTo(x + off + w, top); g.lineTo(x + off + w - slant, h); g.lineTo(x + off - slant, h); g.closePath(); g.fill();
+      });
+      g.strokeStyle = `rgba(${o.rgb},${o.a * 0.5})`; g.lineWidth = 1;
+      for(let k = 0; k < w / 3; k++){
+        const sx = x + rnd() * w;
+        g.beginPath(); g.moveTo(sx, top + (h - top) * 0.3); g.lineTo(sx - slant, h); g.stroke();
+      }
     }
   }
 
@@ -5172,6 +5216,23 @@
       visctx.fill();
     }
 
+    // --- éclair : un tracé ramifié dans le ciel, quelques dixièmes de seconde -----------------
+    if(sc.lightning && lightningBolt && lightningBolt.life > 0){
+      const b = lightningBolt, a = Math.min(1, b.life / 0.08) * (0.6 + 0.4 * Math.sin(b.life * 90));
+      const glowR = visctx.createRadialGradient(b.x, vpY * 0.15, 0, b.x, vpY * 0.15, W * 0.35);
+      glowR.addColorStop(0, `rgba(200,212,240,${0.35 * a})`); glowR.addColorStop(1, 'rgba(200,212,240,0)');
+      visctx.fillStyle = glowR; visctx.fillRect(b.x - W * 0.35, 0, W * 0.7, vpY);   // les nuages s'illuminent
+      visctx.lineCap = 'round'; visctx.lineJoin = 'round';
+      b.paths.forEach((pts, i) => {
+        [[i ? 3 : 7, `rgba(170,190,255,${0.30 * a})`], [i ? 0.8 : 1.8, `rgba(250,252,255,${a})`]].forEach(([lw, col]) => {
+          visctx.strokeStyle = col; visctx.lineWidth = lw;
+          visctx.beginPath(); pts.forEach((p, k) => k ? visctx.lineTo(p[0], p[1]) : visctx.moveTo(p[0], p[1])); visctx.stroke();
+        });
+      });
+      visctx.lineCap = 'butt'; visctx.lineJoin = 'miter';
+      b.life -= dt;
+    }
+
     // --- espace : étoiles filantes, puis planètes, du plus loin au plus proche -----------------
     if(sc.deepSpace){
       updateSpace(dt, running ? speedKmh : 0, W, H);
@@ -5522,7 +5583,8 @@
       const ppm = roadHalfAt(tt) / 4;
       // Discrètes et allongées dans le sens de la marche : à 0,11 d'opacité sur une ellipse
       // presque ronde, elles se lisaient comme des cratères au milieu de la chaussée.
-      visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.018)';
+      // sur chaussée mouillée, les reprises d'enrobé deviennent des flaques qui renvoient le ciel
+      visctx.fillStyle = sc.wet ? (pt.dark ? 'rgba(150,165,185,0.13)' : 'rgba(0,0,0,0.10)') : (pt.dark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.018)');
       visctx.beginPath();
       visctx.ellipse(roadCenterAt(tt) + pt.lat * ppm, rowY(tt),
         Math.max(0.6, pt.wid * ppm * 0.42), Math.max(0.5, pt.len * ppm * 0.07), 0, 0, Math.PI * 2);
@@ -6020,6 +6082,21 @@
       visctx.stroke();
     });
 
+    // --- pluie battante : traits obliques poussés par le vent, sur tout l'écran -------------
+    if(sc.heavyRain){
+      const wind = 0.22, fall = 1.9 + (running ? speedKmh / 200 : 0);
+      visctx.strokeStyle = `rgba(${sc.heavyRain},0.22)`; visctx.lineWidth = 1;
+      visctx.beginPath();
+      RAIN_DROPS.forEach(d => {
+        d.y += dt * fall * d.s; d.x += dt * wind * d.s;
+        if(d.y > 1){ d.y -= 1; d.x = Math.random(); }
+        if(d.x > 1) d.x -= 1;
+        const x = d.x * W, y = d.y * H, len = d.l * H * (1 + (running ? speedKmh / 260 : 0));
+        visctx.moveTo(x, y); visctx.lineTo(x - wind * len * 0.5, y - len);
+      });
+      visctx.stroke();
+    }
+
     // --- véhicules devant nous ------------------------------------------------------------
     // le plus loin dessiné en premier pour un recouvrement correct, et après les particules
     // pour qu'une traînée ne traverse pas une voiture qu'on est en train de doubler.
@@ -6038,7 +6115,23 @@
         const cx = roadCenterAt(tt) + v.lane * half;
         const groundY = rowY(tt);
         const fade = Math.min(1, 0.25 + tt * 3);
+        if(sc.wet){
+          // reflets des feux arrière étirés sur le bitume mouillé, sous la voiture
+          const lx = v.racing ? [0] : [-0.36, 0.36];
+          lx.forEach(f => {
+            const rx = cx + f * carW, rw = carW * (v.racing ? 0.12 : 0.16), rh = carH * 1.8;
+            const rg = visctx.createLinearGradient(0, groundY, 0, groundY + rh);
+            rg.addColorStop(0, `rgba(255,60,40,${0.45 * fade})`); rg.addColorStop(1, 'rgba(255,60,40,0)');
+            visctx.fillStyle = rg; visctx.fillRect(rx - rw / 2, groundY, rw, rh);
+          });
+        }
         drawVehicle(visctx, v, cx, groundY, carW, carH, fade, sc.carLight);
+        if(sc.wet && carW > 6){
+          // gerbe d'eau soulevée par les roues
+          visctx.globalAlpha = 0.45 * fade;
+          visctx.drawImage(GLOW_MIST, cx - carW * 0.85, groundY - carH * 0.55, carW * 1.7, carH * 0.75);
+          visctx.globalAlpha = 1;
+        }
       });
     }
 
@@ -6079,6 +6172,18 @@
       lightningTimer -= dt;
       if(lightningTimer <= 0){
         lightningFlash = 0.55 + Math.random() * 0.35;
+        // tracé : une descente en zigzag jusqu'à l'horizon, et deux ou trois branches
+        const bx = W * (0.12 + Math.random() * 0.76), main = [[bx, 0]];
+        let px = bx, py = 0;
+        while(py < vpY * 0.98){ py += vpY * (0.04 + Math.random() * 0.06); px += (Math.random() - 0.5) * W * 0.05; main.push([px, Math.min(py, vpY)]); }
+        const paths = [main];
+        for(let k = 0; k < 2 + Math.floor(Math.random() * 2); k++){
+          const st = main[1 + Math.floor(Math.random() * (main.length - 3))], br = [st];
+          let qx = st[0], qy = st[1], dirx = Math.random() < 0.5 ? -1 : 1;
+          for(let j = 0; j < 4 + Math.floor(Math.random() * 4); j++){ qy += vpY * (0.03 + Math.random() * 0.04); qx += dirx * W * (0.01 + Math.random() * 0.03); br.push([qx, qy]); }
+          paths.push(br);
+        }
+        lightningBolt = { x: bx, paths, life: 0.28 };
         // le tonnerre suit l'éclair, plus ou moins vite selon la distance de la foudre
         if(running) spawnThunder(0.25 + Math.random() * 2.2, lightningFlash);
         lightningTimer = 4 + Math.random() * 9;
