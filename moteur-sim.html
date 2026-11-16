@@ -868,6 +868,49 @@
   // calendriers d'allumage réels, quand la signature du moteur en dépend directement
   // (V-twin Harley à 45° : deuxième cylindre à 405° sur 720, d'où le « potato-potato »)
   const FIRING_OVERRIDES = { harley: [0, 0.5625] };
+
+  // Résonances de caisse et d'échappement propres à chaque moteur : trois bosses fixes [Hz,
+  // gain dB, Q] (grave, bloc, ligne). Ce sont elles, bien plus que les harmoniques, qui font
+  // qu'on reconnaît un moteur les yeux fermés — elles ne bougent pas avec le régime, ce sont
+  // les harmoniques qui les traversent. Avant, tous les moteurs partageaient la même caisse.
+  // Les moteurs sans entrée ici (dont ceux de l'atelier) reçoivent des valeurs déduites de
+  // leur nombre de cylindres et de leur brillance.
+  const BODY_OVERRIDES = {
+    // gros V8 culbutés : grave appuyé, bloc sourd, ligne courte et basse
+    grogne:    { low: [72, 9, 1.0],  mid: [210, 5, 1.3],  high: [520, 3, 1.1] },
+    v8:        { low: [85, 7, 1.1],  mid: [240, 4, 1.4],  high: [640, 3.5, 1.2] },
+    amg:       { low: [80, 8.5, 1.0], mid: [230, 4.5, 1.3], high: [600, 4, 1.1] },
+    v8crackle: { low: [90, 7, 1.1],  mid: [270, 5, 1.5],  high: [820, 4.5, 1.3] },
+    // V8 à vilebrequin plat suralimenté : peu de grave, médium dur et rauque
+    ferrari:   { low: [100, 4, 1.2], mid: [330, 6, 1.6],  high: [1050, 5, 1.3] },
+    // flat-6 : le grain métallique du boxer, une bosse marquée vers 1,2 kHz
+    porsche:   { low: [95, 5, 1.2],  mid: [300, 4, 1.5],  high: [1250, 6.5, 1.8] },
+    // V12 : presque pas de grave, tout dans le haut-médium — ça chante au lieu de gronder
+    v12:       { low: [110, 2.5, 1.2], mid: [420, 4, 1.5], high: [1400, 6, 1.4] },
+    lambo:     { low: [105, 3, 1.2], mid: [400, 4.5, 1.5], high: [1500, 7, 1.5] },
+    // W16 quadri-turbo : un souffle large et grave, aucun pic marqué
+    bugatti:   { low: [78, 6, 0.8],  mid: [260, 3, 0.9],  high: [900, 3, 0.9] },
+    v10rally:  { low: [95, 4, 1.2],  mid: [360, 5, 1.6],  high: [1150, 6, 1.4] },
+    v6:        { low: [95, 5, 1.2],  mid: [280, 4, 1.4],  high: [900, 4, 1.3] },
+    turbo4:    { low: [105, 4, 1.2], mid: [320, 4.5, 1.5], high: [1000, 5, 1.4] },
+    // bicylindre en V : un gros pot, une résonance grave très marquée et un bloc qui claque
+    harley:    { low: [62, 10, 1.3], mid: [180, 6, 1.6],  high: [480, 3, 1.2] },
+    mecanique: { low: [80, 7, 1.1],  mid: [220, 5, 1.4],  high: [560, 3, 1.2] },
+    funky:     { low: [90, 5, 1.2],  mid: [260, 5, 1.5],  high: [760, 4, 1.4] },
+    // monocylindre de tondeuse : pas de grave, une tôle qui vibre
+    tondeuse:  { low: [130, 2, 1.0], mid: [380, 6, 1.8],  high: [1600, 7, 1.6] },
+  };
+  function bodyResonances(key, profile){
+    if(BODY_OVERRIDES[key]) return BODY_OVERRIDES[key];
+    const cyl = Math.max(1, Math.round(profile.cylinders || 6));
+    const b = profile.brightness != null ? profile.brightness : 0.8;
+    const r = profile.roughness || 0;
+    return {
+      low:  [Math.max(55, 112 - cyl * 2.4), 4 + r * 6 - b * 1.5, 1.1],
+      mid:  [200 + b * 160, 3.5 + r * 2, 1.4],
+      high: [Math.max(380, Math.min(1600, 620 * b + 220)), 3 + b * 2.5, 1.3],
+    };
+  }
   Object.entries(ENGINES).forEach(([key, p]) => {
     if(p.rumble == null){
       p.rumble = RUMBLE_OVERRIDES[key] != null ? RUMBLE_OVERRIDES[key] : Math.min(1, (p.roughness || 0) * 1.1);
@@ -1045,6 +1088,7 @@
   let pulseLFO = null, pulseDepth = null; // "mécanique" : cliquetis de distribution, une bouffée de bruit par combustion
   let engineSum = null, engineBodyGain = null; // bus interne moteur, avant les résonances de caisse
   let engineHP = null, bodyLow = null, bodyMid = null, bodyHigh = null; // résonances de caisse/échappement
+  let bodyLowBase = 6;      // gain de la résonance grave du moteur courant, avant rehausse à allure constante
   let outBus = null;        // limiteur de sortie : empêche la saturation quand tout joue en même temps
   let exhaustBus = null, pipeA = null, pipeB = null, pipeC = null, pipeLP = null; // tube d'échappement des détonations
   let combGainIn = null, combDelay = null, combFeedback = null, combLowpass = null; // échappement : bruit filtré en peigne, calé sur la fréquence d'allumage réelle
@@ -1147,7 +1191,11 @@
   // réellement pendant quelques dizaines de millisecondes — c'est ce trou, et non un coup de
   // percussion, qui fait le « bra-bra-bra » d'un limiteur — puis les gaz accumulés pendant la
   // coupure s'enflamment dans le tube au moment où l'allumage revient.
-  function spawnLimiterCut(intensity){
+  // Cadence réelle : un limiteur coupe et rétablit l'allumage une dizaine de fois par seconde,
+  // sur quelques centaines de tours seulement. C'est cette vibration rapide — et non trois
+  // coups bien séparés par seconde — qui fait le bourdonnement saccadé d'un moteur au rupteur.
+  // Les gaz imbrûlés ne s'enflamment pas à chaque coupure : une sur trois environ claque.
+  function spawnLimiterCut(intensity, withPop){
     if(!actx) return;
     const now = actx.currentTime;
     const pr = ENGINES[currentProfileKey];
@@ -1161,7 +1209,8 @@
       g.setValueAtTime(0.05, now + hole);
       g.linearRampToValueAtTime(1, now + hole + 0.035);
     }
-    spawnPop(intensity, { at: now + hole * 0.85, level: 0.9 });
+    if(withPop) spawnPop(intensity, { at: now + hole * 0.85, level: 0.75 });
+    return hole;
   }
 
   function spawnWhoosh(){
@@ -1182,65 +1231,50 @@
     src.start(now); src.stop(now + dur + 0.02);
   }
 
+  // Nitro. Ce qu'on entend d'un vrai système au protoxyde n'a rien d'un coup de grosse caisse :
+  // le claquement sec du solénoïde qui s'ouvre, le jet de gaz sous pression qui siffle dans
+  // la rampe, puis surtout le moteur lui-même qui se met à cogner plus fort — c'est la boucle
+  // principale qui s'en charge (pleine charge et plein volume tant que le nitro est actif).
   function spawnNitro(duration){
     if(!actx || !noiseNode) return;
     const now = actx.currentTime;
-    const attack = 0.04, release = 0.35;
-    const sustain = Math.max(0.1, duration - attack - release);
-    const end = now + attack + sustain + release;
+    const end = now + Math.max(0.6, duration);
 
-    // coup de boutoir initial : impact sec et puissant, la sensation de "shove"
-    const kick = actx.createOscillator();
-    kick.type = 'sine';
-    kick.frequency.setValueAtTime(180, now);
-    kick.frequency.exponentialRampToValueAtTime(32, now + 0.22);
-    const kg = actx.createGain();
-    kg.gain.setValueAtTime(1.0, now);
-    kg.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-    kick.connect(kg); kg.connect(fxGain);
-    kick.start(now); kick.stop(now + 0.35);
+    // solénoïde : deux résonances métalliques étroites, excitées par un clic de 3 ms
+    [[2350, 9, 0.55, 0.045], [5300, 12, 0.35, 0.03]].forEach(([f, q, a, d]) => {
+      const src = actx.createBufferSource();
+      src.buffer = noiseNode.buffer;
+      const bp = actx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.linearRampToValueAtTime(a * 4, now + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + d);
+      src.connect(bp); bp.connect(g); g.connect(fxGain);
+      src.start(now, Math.random()); src.stop(now + d + 0.02);
+    });
 
-    const kickNoise = actx.createBufferSource();
-    kickNoise.buffer = noiseNode.buffer;
-    const kickFilter = actx.createBiquadFilter();
-    kickFilter.type = 'lowpass';
-    kickFilter.frequency.setValueAtTime(4500, now);
-    kickFilter.frequency.exponentialRampToValueAtTime(400, now + 0.15);
-    const kng = actx.createGain();
-    kng.gain.setValueAtTime(0.8, now);
-    kng.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-    kickNoise.connect(kickFilter); kickFilter.connect(kng); kng.connect(fxGain);
-    kickNoise.start(now); kickNoise.stop(now + 0.18);
-
-    // souffle continu (spray), aigu qui redescend légèrement pendant le boost
+    // jet de gaz : fort à l'ouverture (la rampe se remplit), puis un filet continu qui
+    // s'assombrit à mesure que la bouteille se refroidit, et se coupe net à la fermeture
     const src = actx.createBufferSource();
     src.buffer = noiseNode.buffer;
     src.loop = true;
+    const hp = actx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1400; hp.Q.value = 0.6;
     const bp = actx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(2400, now);
-    bp.frequency.linearRampToValueAtTime(1100, now + attack + sustain);
-    bp.Q.value = 1.1;
+    bp.type = 'bandpass'; bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(6200, now);
+    bp.frequency.exponentialRampToValueAtTime(3800, now + 0.4);
+    bp.frequency.linearRampToValueAtTime(3000, end);
     const g = actx.createGain();
     g.gain.setValueAtTime(0.0001, now);
-    g.gain.linearRampToValueAtTime(0.55, now + attack);
-    g.gain.setValueAtTime(0.55, now + attack + sustain);
+    g.gain.linearRampToValueAtTime(0.42, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.07, now + 0.45);
+    g.gain.setValueAtTime(0.07, end - 0.04);
     g.gain.linearRampToValueAtTime(0.0001, end);
-    src.connect(bp); bp.connect(g); g.connect(fxGain);
-    src.start(now); src.stop(end + 0.05);
-
-    // corps grave de la poussée, sustenue tout le long du boost
-    const surge = actx.createOscillator();
-    surge.type = 'sawtooth';
-    surge.frequency.setValueAtTime(60, now);
-    surge.frequency.linearRampToValueAtTime(95, now + attack + sustain);
-    const sg = actx.createGain();
-    sg.gain.setValueAtTime(0.0001, now);
-    sg.gain.linearRampToValueAtTime(0.42, now + attack);
-    sg.gain.setValueAtTime(0.42, now + attack + sustain);
-    sg.gain.linearRampToValueAtTime(0.0001, end);
-    surge.connect(sg); sg.connect(fxGain);
-    surge.start(now); surge.stop(end + 0.05);
+    const pan = makePan(-0.2);
+    src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(pan); pan.connect(fxGain);
+    src.start(now, Math.random()); src.stop(end + 0.05);
   }
 
   // ---- (atelier de test supprimé — la pétarade est intégrée directement à spawnPop) ----
@@ -1639,9 +1673,11 @@
     combDelay.delayTime.value = 0.02;
     combLowpass = actx.createBiquadFilter();
     combLowpass.type = 'lowpass';
-    combLowpass.frequency.value = 3500;
+    combLowpass.frequency.value = 2200;
     combFeedback = actx.createGain();
-    combFeedback.gain.value = 0.55; // < 1 : boucle stable, ne s'emballe pas
+    // < 1 : boucle stable. Un retour fort creuse des pics très étroits qui glissent avec le
+    // régime — l'effet « flanger » d'une accélération de synthé. Modéré, il ne reste qu'un grain.
+    combFeedback.gain.value = 0.38;
     noiseNode.connect(combGainIn);
     combGainIn.connect(combDelay);
     combDelay.connect(combLowpass);
@@ -1760,6 +1796,13 @@
     // le tube d'échappement est accordé sur la cylindrée : plus le moteur est gros, plus la
     // ligne est longue et grave. C'est ce qui fait qu'une pétarade de V8 et une pétarade de
     // 4-cylindres ne claquent pas à la même hauteur.
+    if(bodyLow){
+      const br = bodyResonances(key, profile);
+      [[bodyLow, br.low], [bodyMid, br.mid], [bodyHigh, br.high]].forEach(([f, v]) => {
+        f.frequency.value = v[0]; f.gain.value = v[1]; f.Q.value = v[2];
+      });
+      bodyLowBase = br.low[1];
+    }
     if(pipeA){
       const pipeF = profile.pipeHz != null
         ? profile.pipeHz
@@ -1833,12 +1876,19 @@
     // résonances de caisse : fixes en fréquence (elles ne suivent pas le régime), sauf la
     // grave qu'on rehausse à allure constante pour garder le rombissement audible
     if(bodyLow){
-      bodyLow.frequency.setTargetAtTime(Math.max(55, 110 - cylinders * 2.2), now, 0.2);
-      bodyLow.gain.setTargetAtTime(5 + (profile.roughness || 0) * 4 + (1 - fade) * 5, now, 0.15);
-      bodyHigh.frequency.setTargetAtTime(Math.max(380, Math.min(1500, 620 * (profile.brightness || 0.8) + 180)), now, 0.2);
+      // fréquences posées une fois par moteur (setEngineProfile) ; seule la grave est
+      // rehaussée à allure constante, pour garder le rombissement sous le plancher
+      bodyLow.gain.setTargetAtTime(bodyLowBase + (1 - fade) * 5, now, 0.15);
     }
 
-    lowpass.frequency.setTargetAtTime((450 + rpmRatio * 5500 * profile.brightness + throttle * 900) * (0.30 + 0.70 * fade), now, 0.05);
+    // Filtre principal quasi fixe. Il suivait le régime de 450 à plus de 6 000 Hz : tout le
+    // spectre s'ouvrait en même temps que les harmoniques montaient, et l'accélération se
+    // lisait comme un balayage de synthétiseur. Dans un vrai moteur, ce sont les harmoniques
+    // qui traversent des résonances fixes (bloc, ligne d'échappement) ; seule la charge
+    // éclaircit vraiment le timbre. Le régime ne garde qu'une influence modeste.
+    const bright = profile.brightness != null ? profile.brightness : 0.8;
+    const cutoff = (1100 + 2600 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.33 * rpmRatio);
+    lowpass.frequency.setTargetAtTime(cutoff * (0.30 + 0.70 * fade), now, 0.12);
 
     noiseFilter.frequency.setTargetAtTime(350 + rpmRatio * 2300, now, 0.05);
     // souffle d'admission et cliquetis : ce sont eux qui « claquent » à l'oreille, donc ils
@@ -4738,7 +4788,7 @@
   let starterTimer = 0, startFlare = 0;
   let limiterDipAmount = 0;
   let limiterRecoveryRate = 0;
-  const LIMITER_RECOVERY_TIME = 0.24; // secondes pour remonter après une coupure
+  const LIMITER_RECOVERY_TIME = 0.06; // secondes pour remonter après une coupure
   const NITRO_DURATION = 3.5;
   const NITRO_COOLDOWN = 6;
   const DEFAULT_CRACKLE = 0.55; // pétarade appliquée par défaut aux moteurs qui n'en ont pas (v6/v8/v12)
@@ -5504,11 +5554,13 @@
     if(atLimiter){
       limiterCooldown -= dt;
       if(limiterCooldown <= 0){
-        spawnLimiterCut(profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE);
-        const dipMag = (profile.redline - profile.idleRPM) * 0.30;
+        const hole = spawnLimiterCut(profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE, Math.random() < 0.35) || 0.04;
+        // petite chute de régime (≈ 5 % de la plage), vite reprise
+        const dipMag = (profile.redline - profile.idleRPM) * 0.05;
         limiterDipAmount = dipMag;
         limiterRecoveryRate = dipMag / LIMITER_RECOVERY_TIME;
-        limiterCooldown = 0.28 + Math.random() * 0.06; // ~3-4 coupures par seconde, cadence lisible
+        // la coupure suivante attend que l'allumage soit revenu : ≈ 10 à 12 par seconde
+        limiterCooldown = hole + 0.045 + Math.random() * 0.02;
       }
     } else {
       limiterCooldown = 0; // prêt à repartir dès le prochain contact du limiteur
@@ -5654,11 +5706,13 @@
     updateTraffic(dt, physics.speed, physics.running);
 
     // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
-    const audioThrottle = Math.max(physics.throttle * (1 - shiftCut), shiftBlip * 0.85, revPedal, startFlare * 0.6);
+    // nitro : le moteur passe en pleine charge, timbre dur et plein volume, quoi que fasse la pédale
+    const nitroOn = physics.running && nitroState === 'active' ? 1 : 0;
+    const audioThrottle = Math.max(physics.throttle * (1 - shiftCut), shiftBlip * 0.85, revPedal, startFlare * 0.6, nitroOn);
     // le coup de gaz est une demande explicite de l'utilisateur : il passe devant l'atténuation
     // d'allure constante comme devant celle de décélération, sinon donner un coup de gaz à
     // l'arrêt (le cas même où ces deux atténuations sont au plus bas) ne s'entendrait presque pas
-    updateAudio(audioRpm, audioThrottle, physics.running && !cranking, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal, startFlare));
+    updateAudio(audioRpm, audioThrottle, physics.running && !cranking, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal, startFlare, nitroOn));
     updateAmbience(dt, physics.speed, audioThrottle, Math.min(1, audioRpm / profile.maxRPM), physics.running && !cranking, profile);
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
