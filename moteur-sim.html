@@ -5093,17 +5093,30 @@
       };
       visctx.strokeStyle = 'rgba(38,30,24,0.6)';
       visctx.lineWidth = 1;
+      // Chaque câble est échantillonné dans le monde, point par point, puis projeté avec la même
+      // caméra que la route : il suit donc la courbure de la route et se termine exactement au
+      // poteau. Une seule courbe tracée entre les deux extrémités projetées ne pouvait pas le
+      // faire : en virage elle s'écartait de la ligne réelle, et quand un poteau venait de passer
+      // derrière la caméra, son point de contrôle partait en plein milieu de l'écran.
+      const dNear = camNear / 1.6;                 // en deçà, la caméra n'a plus de projection juste
       const n0 = Math.floor(travelled / E);
       for(let n = n0; n <= n0 + Math.ceil(PROP_SPAN / E) + 1; n++){
-        const da = Math.max(1.2, n * E - travelled), db = (n + 1) * E - travelled;
-        if(db < 2 || db > PROP_SPAN) continue;
+        const da = n * E - travelled, db = da + E;
+        if(db <= dNear || db > PROP_SPAN) continue;
         visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - db) / 40));
         [-0.85, 0.85].forEach(off => {
-          const a = atp(da, P.lat + off, hgt), b = atp(db, P.lat + off, hgt);
-          const m = atp((da + db) / 2, P.lat + off, hgt - P.sag * Math.min(1, (db - da) / E));
-          visctx.beginPath(); visctx.moveTo(a[0], a[1]);
-          visctx.quadraticCurveTo(2 * m[0] - (a[0] + b[0]) / 2, 2 * m[1] - (a[1] + b[1]) / 2, b[0], b[1]);
-          visctx.stroke();
+          visctx.beginPath();
+          let started = false;
+          for(let i = 0; i <= 24; i++){
+            // pas resserré du côté proche, où la perspective déforme le plus
+            const f = i / 24, t = f * f;
+            const d = da + (db - da) * t;
+            if(d < dNear) continue;
+            const sagT = 4 * t * (1 - t);            // flèche maximale à mi-portée
+            const q = atp(d, P.lat + off, hgt - P.sag * sagT);
+            if(started) visctx.lineTo(q[0], q[1]); else { visctx.moveTo(q[0], q[1]); started = true; }
+          }
+          if(started) visctx.stroke();
         });
       }
       visctx.globalAlpha = 1;
