@@ -2313,15 +2313,16 @@
       foliage: ['#141a20', '#0f141a'], propDark: '#3a4048', propStone: '#171b24',
     },
     espace: {
-      name: 'Espace', sky: ['#03040a', '#0a0f22'], ground: null,
-      road: ['rgba(40,150,220,0.30)', 'rgba(20,80,160,0.16)'], edge: 'rgba(90,220,255,0.95)',
+      name: 'Espace', sky: ['#010208', '#03050f', '#070a1a'], ground: null,
+      road: ['rgba(30,46,72,0.86)', 'rgba(12,18,32,0.94)'], edge: 'rgba(110,215,255,0.95)',
       dash: 'rgba(140,235,255,0.55)',
-      glow: '120,220,255', glowStrength: 1.3, particle: 'streak', particleRGB: [180, 235, 255],
+      glow: '120,220,255', glowStrength: 0, particle: 'streak', particleRGB: [200, 225, 255],
       haze: null, decor: null, sun: null, carLight: 0.9,
-      space: true, grid: true,
-      props: ['lightpost', 'lightpost', 'lightpost', 'pylon'],
-      propsFar: ['planet', 'planet', 'moon'], farSparse: 0.3, racing: true,
+      space: true, grid: true, deepSpace: true,
+      props: ['lightpost'], nearSparse: 0.5,            // balises au ras de la piste, rien d'autre
+      propsFar: [], farSparse: 0, racing: true,
       foliage: ['#1a3550', '#12283c'], propDark: '#3fd0ff', propStone: '#25415c',
+      pano(g, span, h){ panoSpace(g, span, h, { seed: 9 }); },
     },
     // Seule scène qui ne cherche pas le réalisme : tout y est cubique, aux couleurs franches,
     // et l'image entière est ramenée à une grille de gros pixels avant d'être affichée. Les
@@ -2705,6 +2706,7 @@
     if(kind === 'torch') return 4.7 + Math.random() * 0.5;
     if(kind === 'woodfence') return 5.8 + Math.random() * 0.6;
     if(kind === 'marker' || kind === 'snowpole') return 4.8 + Math.random() * 0.8;
+    if(kind === 'lightpost') return 4.5;
     return 5.5 + Math.random() * 10;
   }
 
@@ -3087,11 +3089,16 @@
       return;
     }
     if(kind === 'lightpost'){
-      // borne lumineuse : c'est leur défilement serré qui donne la vitesse sur la piste
-      const h = 1.6 * s;
-      ctx.fillStyle = 'rgba(90,220,255,0.9)';
-      ctx.fillRect(x - 0.13 * s, y - h, 0.26 * s, h);
-      if(s > 1.2) drawGlow(GLOW_CYAN, x, y - h, h * 1.7, 0.55);
+      // balise de piste : mât fin et sombre, feu bleu au sommet — c'est le feu qu'on doit voir,
+      // pas le mât
+      const h = 1.3 * s;
+      ctx.fillStyle = '#2a3442';
+      ctx.fillRect(x - 0.05 * s, y - h, 0.10 * s, h);
+      ctx.fillStyle = '#3a4656';
+      ctx.fillRect(x - 0.05 * s, y - h, 0.03 * s, h);
+      ctx.fillStyle = 'rgba(160,236,255,0.95)';
+      ctx.fillRect(x - 0.09 * s, y - h - 0.12 * s, 0.18 * s, 0.14 * s);
+      if(s > 1) drawGlow(GLOW_CYAN, x, y - h - 0.05 * s, 0.9 * s, 0.6);
       return;
     }
     if(kind === 'pylon'){
@@ -3993,6 +4000,394 @@
     return Math.max(0, Math.min(1, (dist - f.start) / (f.end - f.start))) * f.max;
   }
 
+  // ---------------------------------------------------------------------
+  // 4g. ESPACE — ciel profond, planètes, astéroïdes, étoiles filantes
+  // ---------------------------------------------------------------------
+  // Bruit de valeur en 3D : les textures de planète sont lues sur la sphère elle-même, ce qui
+  // évite toute couture et tout pincement aux pôles.
+  function makeNoise3(seed){
+    const rnd = seededRandom(seed);
+    const perm = new Uint8Array(512), val = new Float32Array(256);
+    for(let i = 0; i < 256; i++){ perm[i] = i; val[i] = rnd(); }
+    for(let i = 255; i > 0; i--){ const j = Math.floor(rnd() * (i + 1)); const t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+    for(let i = 0; i < 256; i++) perm[i + 256] = perm[i];
+    const hh = (x, y, z) => val[perm[perm[perm[x & 255] + (y & 255)] + (z & 255)]];
+    const sm = t => t * t * (3 - 2 * t);
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const n3 = (x, y, z) => {
+      const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+      const xf = sm(x - xi), yf = sm(y - yi), zf = sm(z - zi);
+      return lerp(
+        lerp(lerp(hh(xi, yi, zi), hh(xi + 1, yi, zi), xf), lerp(hh(xi, yi + 1, zi), hh(xi + 1, yi + 1, zi), xf), yf),
+        lerp(lerp(hh(xi, yi, zi + 1), hh(xi + 1, yi, zi + 1), xf), lerp(hh(xi, yi + 1, zi + 1), hh(xi + 1, yi + 1, zi + 1), xf), yf), zf);
+    };
+    return (x, y, z, oct) => {
+      let v = 0, a = 1, t = 0, f = 1;
+      for(let o = 0; o < (oct || 4); o++){ v += n3(x * f + o * 17.3, y * f + o * 5.1, z * f) * a; t += a; a *= 0.5; f *= 2.03; }
+      return v / t;
+    };
+  }
+  const hex3 = hex => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  // palette à plusieurs arrêts, t de 0 à 1
+  function palAt(stops, t){
+    const k = Math.max(0, Math.min(0.9999, t)) * (stops.length - 1);
+    const i = Math.floor(k), f = k - i, a = stops[i], b = stops[i + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+  const smooth01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+  // Une planète est peinte pixel par pixel une fois pour toutes : normale de la sphère,
+  // texture lue en 3D, éclairage par l'étoile du système (en haut à gauche), terminateur doux,
+  // assombrissement du limbe, et pour celles qui en ont une, l'atmosphère qui s'illumine sur le
+  // bord. Les anneaux sont calculés dans leur propre plan incliné : la moitié avant passe devant
+  // la planète, la moitié arrière derrière, et la planète porte son ombre sur eux.
+  const PLANET_KEYS = ['ringed', 'gas', 'earth', 'ice', 'mars', 'moon'];
+  const planetCache = new Map();
+  const LIGHT = (() => { const v = [-0.62, -0.40, 0.67], n = Math.hypot(v[0], v[1], v[2]); return v.map(c => c / n); })();
+  function bakePlanet(type){
+    const S = 300, ringed = type === 'ringed';
+    const ext = ringed ? 2.4 : 1.3;
+    const size = Math.round(S * ext), R = S / 2, c = size / 2;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const g = cv.getContext('2d');
+    const img = g.createImageData(size, size), px = img.data;
+    const fbm = makeNoise3(type.length * 131 + type.charCodeAt(0) * 7);
+    const rnd = seededRandom(type.charCodeAt(1) * 97 + 11);
+    const P = {
+      ringed: [hex3('#e9d7ad'), hex3('#c9a46e'), hex3('#f3e6c6'), hex3('#a77a4b'), hex3('#dcc08c')],
+      gas:    [hex3('#5a3424'), hex3('#a8683e'), hex3('#e3b583'), hex3('#f2e2c6'), hex3('#b9784a'), hex3('#7a4a30')],
+      ice:    [hex3('#2a5c86'), hex3('#4f8fbd'), hex3('#8cc3e0'), hex3('#bfe3f2')],
+      mars:   [hex3('#5e2a18'), hex3('#97492a'), hex3('#c26a3d'), hex3('#dd9a66')],
+      moon:   [hex3('#3f3d3b'), hex3('#6f6b66'), hex3('#a29d96'), hex3('#c9c4bc')],
+    };
+    const craters = [];
+    const nCr = type === 'moon' ? 70 : type === 'mars' ? 26 : 0;
+    for(let i = 0; i < nCr; i++){
+      const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+      craters.push([s * Math.cos(a), u, s * Math.sin(a), 0.03 + Math.pow(rnd(), 3) * 0.22]);
+    }
+    const rot = 0.6, cr = Math.cos(rot), sr = Math.sin(rot);
+    const sinI = 0.24, tiltA = -0.18, ca = Math.cos(tiltA), sa = Math.sin(tiltA);   // anneaux : vus de 14° au-dessus, inclinés
+    const atmo = type === 'earth' ? [110, 175, 255] : type === 'ice' ? [150, 210, 245] : type === 'mars' ? [230, 170, 130] : null;
+    const spot = [0.55, 0.28, 0.79];   // grande tache des géantes gazeuses
+
+    const surface = (sx, sy, sz) => {
+      if(type === 'gas' || type === 'ringed'){
+        const warp = (fbm(sx * 2.2, sy * 2.2, sz * 2.2, 4) - 0.5) * 0.9;
+        let t = 0.5 + 0.30 * Math.sin((sy * (type === 'gas' ? 8 : 6) + warp * 2.4) * 1.7);
+        t = t * 0.7 + fbm(sx * 3, sy * 26, sz * 3, 3) * 0.3;
+        let col = palAt(P[type], t);
+        const fine = 0.88 + fbm(sx * 9, sy * 40, sz * 9, 3) * 0.24;
+        col = col.map(v => v * fine);
+        if(type === 'gas'){
+          const d = Math.hypot((sx - spot[0]) * 1.0, (sy - spot[1]) * 2.2, sz - spot[2]);
+          if(d < 0.2){ const k = smooth01(0.2, 0.08, d); col = col.map((v, i) => v + ([196, 92, 60][i] - v) * k * 0.85); }
+        }
+        return col;
+      }
+      if(type === 'ice'){
+        const t = 0.5 + 0.5 * Math.sin(sy * 5 + (fbm(sx * 2, sy * 2, sz * 2, 4) - 0.5) * 2.2);
+        return palAt(P.ice, t * 0.6 + fbm(sx * 4, sy * 14, sz * 4, 3) * 0.4);
+      }
+      if(type === 'earth'){
+        const e = fbm(sx * 1.7, sy * 1.7, sz * 1.7, 6);
+        const lat = Math.abs(sy);
+        let col;
+        if(e < 0.53){
+          col = palAt([hex3('#071d45'), hex3('#0d3a78'), hex3('#1f6aa6')], smooth01(0.30, 0.53, e));
+        } else {
+          const m = fbm(sx * 3 + 9, sy * 3, sz * 3, 4);
+          const dry = smooth01(0.45, 0.75, 1 - lat) * smooth01(0.42, 0.62, m);
+          col = palAt([hex3('#2c5a2c'), hex3('#4d7a3a'), hex3('#a88f5c'), hex3('#c7ad7a')], dry * 0.85 + (e - 0.53) * 1.2);
+        }
+        if(lat > 0.86 - (fbm(sx * 5, sy * 5, sz * 5, 3) - 0.5) * 0.12) col = [236, 242, 248];
+        const cl = fbm(sx * 3.1 + 4, sy * 4.6, sz * 3.1, 5);
+        const ca2 = smooth01(0.50, 0.68, cl) * 0.92;
+        return col.map(v => v + (250 - v) * ca2);
+      }
+      // mars, lune : relief en niveaux de gris teintés, mers plus sombres, cratères
+      const h = fbm(sx * 2.6, sy * 2.6, sz * 2.6, 5);
+      let col = palAt(P[type], h * 0.9 + 0.05);
+      const mare = fbm(sx * 1.1 + 3, sy * 1.1, sz * 1.1, 3);
+      if(mare > 0.55) col = col.map(v => v * (1 - smooth01(0.55, 0.65, mare) * 0.32));
+      for(let i = 0; i < craters.length; i++){
+        const q = craters[i];
+        const dot = sx * q[0] + sy * q[1] + sz * q[2];
+        if(dot < 0.9) continue;
+        const k = Math.acos(Math.min(1, dot)) / q[3];
+        if(k < 1.25){
+          const f = k < 0.85 ? 0.78 : k < 1.05 ? 1.22 : 1 - (k - 1.05) * 0.4;
+          col = col.map(v => v * f);
+        }
+      }
+      if(type === 'mars' && Math.abs(sy) > 0.9) col = [238, 232, 226];
+      return col;
+    };
+
+    const ringAt = (x, y) => {
+      // retour [r,g,b,a] de l'anneau en (x, y), ou null ; y > 0 : moitié avant
+      const xr = x * ca + y * sa, yr = -x * sa + y * ca;
+      const rr = Math.hypot(xr, yr / sinI);
+      if(rr < 1.32 || rr > 2.28) return null;
+      const t = (rr - 1.32) / 0.96;
+      let dens = 0.55 + 0.45 * Math.sin(t * 46) * Math.sin(t * 13 + 1);
+      if(t > 0.56 && t < 0.62) dens *= 0.12;                       // division sombre
+      dens *= smooth01(0, 0.06, t) * smooth01(1, 0.9, t);
+      const col = palAt([hex3('#cdb58e'), hex3('#e8d8b4'), hex3('#a88d68')], t);
+      // ombre de la planète sur l'anneau, côté opposé à l'étoile
+      const ringPt = [xr, yr / sinI];
+      const sh = (xr * LIGHT[0] + yr * LIGHT[1] > 0 && Math.abs(xr * LIGHT[1] - yr * LIGHT[0]) < 1) ? 0.25 : 1;
+      return [col[0] * sh, col[1] * sh, col[2] * sh, Math.max(0, Math.min(1, dens)) * 0.9, yr > 0];
+    };
+
+    for(let py = 0; py < size; py++){
+      for(let pxi = 0; pxi < size; pxi++){
+        const x = (pxi + 0.5 - c) / R, y = (py + 0.5 - c) / R, r2 = x * x + y * y;
+        let r = 0, gg = 0, b = 0, a = 0;
+        const ring = ringed ? ringAt(x, y) : null;
+        if(ring && !ring[4]){ r = ring[0]; gg = ring[1]; b = ring[2]; a = ring[3]; }       // anneau arrière
+        if(r2 <= 1){
+          const nz = Math.sqrt(1 - r2);
+          const sx = x * cr + nz * sr, sz = -x * sr + nz * cr, sy = y;
+          const col = surface(sx, sy, sz);
+          const lam = Math.max(0, x * LIGHT[0] + y * LIGHT[1] + nz * LIGHT[2]);
+          let lit = 0.015 + 0.985 * Math.pow(lam, 0.85);
+          if(type === 'gas' || type === 'ringed' || type === 'ice') lit *= 0.62 + 0.38 * nz;   // limbe
+          let cr0 = col[0] * lit, cg0 = col[1] * lit, cb0 = col[2] * lit;
+          if(atmo){                                                       // diffusion au bord éclairé
+            const k = Math.pow(1 - nz, 2.2) * Math.min(1, lam * 2.5) * 0.85;
+            cr0 += (atmo[0] - cr0) * k; cg0 += (atmo[1] - cg0) * k; cb0 += (atmo[2] - cb0) * k;
+          }
+          // bord antialiasé
+          const edge = Math.min(1, (1 - Math.sqrt(r2)) * R);
+          r = r * (1 - edge) + cr0 * edge; gg = gg * (1 - edge) + cg0 * edge; b = b * (1 - edge) + cb0 * edge;
+          a = a + (1 - a) * edge;
+        } else if(atmo){
+          const rr = Math.sqrt(r2);
+          const face = Math.max(0, (x * LIGHT[0] + y * LIGHT[1]) / rr * 0.9 + 0.35);
+          const k = Math.exp(-(rr - 1) * 22) * face * 0.75;
+          if(k > 0.003){ const na = a + (1 - a) * k; r = (r * a + atmo[0] * k * (1 - a)) / na; gg = (gg * a + atmo[1] * k * (1 - a)) / na; b = (b * a + atmo[2] * k * (1 - a)) / na; a = na; }
+        }
+        if(ring && ring[4]){                                              // anneau avant
+          const ra = ring[3], na = ra + a * (1 - ra);
+          if(na > 0){ r = (ring[0] * ra + r * a * (1 - ra)) / na; gg = (ring[1] * ra + gg * a * (1 - ra)) / na; b = (ring[2] * ra + b * a * (1 - ra)) / na; }
+          a = na;
+        }
+        const o = (py * size + pxi) * 4;
+        px[o] = r; px[o + 1] = gg; px[o + 2] = b; px[o + 3] = a * 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return { cv, ext };
+  }
+  let planetBaking = false;
+  function startPlanetBaking(){
+    if(planetBaking) return;
+    planetBaking = true;
+    const next = () => {
+      const k = PLANET_KEYS.find(t => !planetCache.has(t));
+      if(!k){ planetBaking = false; return; }
+      planetCache.set(k, bakePlanet(k));
+      setTimeout(next, 90);
+    };
+    setTimeout(next, 30);
+  }
+
+  // Astéroïdes : un caillou irrégulier (rayon modulé par un bruit), éclairé comme une sphère
+  // déformée, bosselé et criblé de petits cratères. Huit formes, tournées à l'affichage.
+  const asteroidSprites = [];
+  function bakeAsteroids(){
+    if(asteroidSprites.length) return;
+    for(let v = 0; v < 8; v++){
+      const S = 112, c = S / 2, R = S * 0.46;
+      const cv = document.createElement('canvas'); cv.width = cv.height = S;
+      const g = cv.getContext('2d'), img = g.createImageData(S, S), px = img.data;
+      const fbm = makeNoise3(500 + v * 37);
+      const rnd = seededRandom(900 + v * 13);
+      const elong = 0.65 + rnd() * 0.35;
+      const tint = [[118, 110, 102], [96, 90, 86], [128, 112, 94], [86, 84, 88]][v % 4];
+      const pits = Array.from({ length: 9 }, () => [rnd() * 2 - 1, rnd() * 2 - 1, 0.08 + rnd() * 0.18]);
+      for(let py = 0; py < S; py++) for(let pxi = 0; pxi < S; pxi++){
+        const x = (pxi + 0.5 - c) / R, y = (py + 0.5 - c) / R / elong;
+        const ang = Math.atan2(y, x);
+        const rad = 0.72 + 0.28 * fbm(Math.cos(ang) * 1.3, Math.sin(ang) * 1.3, v * 3.1, 3);
+        const d = Math.hypot(x, y) / rad;
+        if(d > 1) continue;
+        const nz = Math.sqrt(1 - d * d);
+        const bump = (fbm(x * 3, y * 3, nz * 3 + v, 4) - 0.5) * 0.9;
+        const nx = x / rad + bump * 0.6, ny = y / rad + bump * 0.6;
+        const nl = Math.hypot(nx, ny, nz);
+        let lam = Math.max(0, (nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]) / nl);
+        lam = 0.04 + 0.96 * Math.pow(lam, 0.9);
+        let k = 0.85 + fbm(x * 7, y * 7, v, 3) * 0.3;
+        pits.forEach(p => { const q = Math.hypot(x - p[0], y - p[1]) / p[2]; if(q < 1) k *= q < 0.75 ? 0.72 : 1.15; });
+        const edge = Math.min(1, (1 - d) * R * 0.8);
+        const o = (py * S + pxi) * 4;
+        px[o] = tint[0] * lam * k; px[o + 1] = tint[1] * lam * k; px[o + 2] = tint[2] * lam * k; px[o + 3] = 255 * edge;
+      }
+      g.putImageData(img, 0, 0);
+      asteroidSprites.push(cv);
+    }
+  }
+
+  // Planètes qu'on croise : de vrais corps à des kilomètres, qui approchent et grossissent,
+  // puis glissent hors du cadre. On les fait approcher plus vite que la route (rien à l'échelle
+  // d'une planète ne paraîtrait bouger sinon), mais selon la même perspective.
+  const SPACE_BODY_RATE = 5;
+  const spaceBodies = Array.from({ length: 2 }, () => ({ key: null }));
+  function spawnBody(b, initial){
+    const used = spaceBodies.map(o => o !== b && o.key).filter(Boolean);
+    const ready = PLANET_KEYS.filter(k => planetCache.has(k) && !used.includes(k));
+    if(!ready.length){ b.key = null; return; }
+    b.key = ready[Math.floor(Math.random() * ready.length)];
+    const big = b.key === 'ringed' || b.key === 'gas';
+    b.R = big ? 320 + Math.random() * 260 : b.key === 'moon' ? 70 + Math.random() * 60 : 150 + Math.random() * 120;
+    // jamais deux planètes côte à côte : la suivante attend loin derrière la précédente
+    const other = spaceBodies.find(o => o !== b && o.key);
+    b.dist = initial ? (other ? other.dist + 2600 + Math.random() * 1500 : 1400 + Math.random() * 1200)
+                     : Math.max(4600 + Math.random() * 2400, other ? other.dist + 2600 : 0);
+    const side = Math.random() < 0.5 ? -1 : 1;
+    b.lat = side * (b.R * 1.25 + 150 + Math.random() * 700);
+    b.hgt = -b.R * 0.5 + Math.random() * (b.R + 450);
+    if(b.dist > 9000) b.dist = 9000;
+  }
+  const asteroids = Array.from({ length: 16 }, () => ({ v: -1 }));
+  function spawnAsteroid(a, initial){
+    a.v = Math.floor(Math.random() * 8);
+    a.R = 0.5 + Math.pow(Math.random(), 2.2) * 9;
+    a.dist = initial ? 15 + Math.random() * 600 : 560 + Math.random() * 220;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    a.lat = side * (a.R + 7 + Math.pow(Math.random(), 1.4) * 150);
+    a.hgt = Math.random() < 0.3 ? -(a.R + 2 + Math.random() * 35) : Math.random() * 75;
+    a.vz = Math.random() * 18;                 // ils dérivent eux aussi
+    a.vl = (Math.random() - 0.5) * 5;
+    a.rot = Math.random() * Math.PI * 2;
+    a.spin = (Math.random() - 0.5) * 1.4;
+  }
+  // Dessin des astéroïdes. `below` : ceux qui passent sous le plan de la piste sont dessinés
+  // avant elle (elle les cache), les autres après.
+  function drawAsteroids(below, proj, W, H){
+    if(!asteroidSprites.length) return;
+    asteroids.slice().sort((a, b) => b.dist - a.dist).forEach(a => {
+      if(a.v < 0 || (a.hgt < 0) !== below) return;
+      if(a.dist < 2){ spawnAsteroid(a, false); return; }
+      const tt = camNear / a.dist, ppm = proj.half(Math.min(1.6, tt)) / 4;
+      const x = proj.center(Math.min(1, tt)) + a.lat * ppm, y = proj.row(tt) - a.hgt * ppm, r = a.R * ppm;
+      if(x + r < -W * 0.2 || x - r > W * 1.2 || y - r > H * 1.2 || y + r < -H * 0.2){
+        if(a.dist < 300) spawnAsteroid(a, false);
+        return;
+      }
+      if(r < 0.5) return;
+      visctx.save();
+      visctx.globalAlpha = Math.max(0, Math.min(1, (780 - a.dist) / 160));
+      visctx.translate(x, y); visctx.rotate(a.rot);
+      visctx.drawImage(asteroidSprites[a.v], -r * 1.09, -r * 1.09, r * 2.18, r * 2.18);
+      visctx.restore();
+    });
+  }
+
+  // Étoiles filantes : un trait bref, tête vive et traîne qui s'éteint
+  const meteors = [];
+  let meteorTimer = 1.5;
+  function updateSpace(dt, speedKmh, W, H){
+    const mps = visualMps(speedKmh);
+    spaceBodies.forEach(b => {
+      if(!b.key){ spawnBody(b, true); return; }
+      b.dist -= mps * SPACE_BODY_RATE * dt;
+    });
+    asteroids.forEach(a => {
+      if(a.v < 0){ spawnAsteroid(a, true); return; }
+      a.dist -= (mps + a.vz) * dt;
+      // dérive latérale bornée : un caillou ne vient jamais traverser la piste
+      a.lat += a.vl * dt;
+      const minLat = a.R + 6;
+      if(Math.abs(a.lat) < minLat){ a.lat = Math.sign(a.lat || 1) * minLat; a.vl = Math.sign(a.lat) * Math.abs(a.vl); }
+      a.rot += a.spin * dt;
+    });
+    meteorTimer -= dt;
+    if(meteorTimer <= 0){
+      const big = Math.random() < 0.12;
+      const dir = (Math.random() < 0.5 ? 1 : -1);
+      const ang = Math.PI * (0.12 + Math.random() * 0.22);
+      meteors.push({
+        x: W * (0.1 + Math.random() * 0.8), y: H * (0.04 + Math.random() * 0.42),
+        dx: Math.cos(ang) * dir, dy: Math.sin(ang),
+        speed: W * (big ? 0.55 : 0.8 + Math.random() * 0.7), life: 0,
+        dur: big ? 1.4 + Math.random() * 0.6 : 0.45 + Math.random() * 0.55,
+        len: W * (big ? 0.28 : 0.08 + Math.random() * 0.14), w: big ? 2.6 : 0.9 + Math.random() * 1.1,
+        rgb: big ? '255,214,160' : ['255,255,255', '210,230,255', '220,255,230'][Math.floor(Math.random() * 3)], big,
+      });
+      meteorTimer = 1.2 + Math.random() * 4.5;
+    }
+    for(let i = meteors.length - 1; i >= 0; i--){
+      meteors[i].life += dt;
+      if(meteors[i].life > meteors[i].dur) meteors.splice(i, 1);
+    }
+  }
+
+  // Ciel profond : voie lactée (lueur diffuse, bulbe, bandes de poussière), nébuleuses, milliers
+  // d'étoiles de magnitudes et de couleurs différentes, l'étoile du système et une comète.
+  function panoSpace(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    const wrap = (x, r, fn) => { fn(x); if(x - r < 0) fn(x + span); if(x + r > span) fn(x - span); };
+    const blob = (x, y, rx, ry, rgb, a) => wrap(x, rx, xx => {
+      g.save(); g.translate(xx, y); g.scale(1, ry / rx);
+      const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+      gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = gr; g.fillRect(-rx, -rx, rx * 2, rx * 2); g.restore();
+    });
+    const bandY = u => h * (0.40 + 0.20 * Math.sin(Math.PI * 2 * u + 0.6));
+    const bandW = h * 0.13;
+    const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+    // lueur de la galaxie
+    for(let i = 0; i < span / 3; i++){
+      const u = rnd(), core = Math.exp(-Math.pow(((u - 0.3 + 1) % 1 - 0.5) / 0.12, 2));
+      blob(u * span, bandY(u) + gauss() * bandW, bandW * (0.3 + rnd() * 0.5), bandW * (0.2 + rnd() * 0.35),
+        core > 0.3 ? '255,226,190' : '205,215,240', 0.022 + core * 0.035);
+    }
+    // bandes de poussière qui obscurcissent le cœur
+    for(let i = 0; i < span / 14; i++){
+      const u = rnd();
+      blob(u * span, bandY(u) + gauss() * bandW * 0.35, bandW * (0.15 + rnd() * 0.3), bandW * (0.05 + rnd() * 0.1), '2,3,8', 0.30);
+    }
+    // nébuleuses : hydrogène rouge-rose, réflexion bleue
+    [[0.12, 0.30, '214,86,128'], [0.55, 0.62, '84,128,226'], [0.8, 0.22, '200,110,180']].forEach(([u, v, rgb]) => {
+      for(let i = 0; i < 40; i++){
+        blob(u * span + gauss() * h * 0.22, v * h + gauss() * h * 0.10, h * (0.04 + rnd() * 0.1), h * (0.03 + rnd() * 0.07), rgb, 0.03 + rnd() * 0.03);
+      }
+    });
+    // étoiles
+    const temps = ['255,244,232', '255,255,255', '214,228,255', '255,226,196', '255,206,160', '196,212,255'];
+    const n = Math.round(span * h / 650);
+    for(let i = 0; i < n; i++){
+      const u = rnd();
+      const inBand = rnd() < 0.45;
+      const y = inBand ? bandY(u) + gauss() * bandW * 1.2 : rnd() * h;
+      const m = Math.pow(rnd(), 7);                 // la plupart à peine visibles
+      const rgb = temps[Math.floor(rnd() * temps.length)];
+      const s = 0.55 + m * 2.0;
+      g.fillStyle = `rgba(${rgb},${(0.25 + Math.min(0.75, m * 1.6 + rnd() * 0.35)).toFixed(2)})`;
+      g.fillRect(u * span, y, s, s);
+      if(m > 0.35) blob(u * span + s / 2, y + s / 2, 3 + m * 9, 3 + m * 9, rgb, 0.12 + m * 0.12);
+    }
+    // l'étoile du système, d'où vient la lumière des planètes
+    const sx = span * 0.07, sy = h * 0.14;
+    blob(sx, sy, h * 0.16, h * 0.16, '255,236,200', 0.20);
+    blob(sx, sy, h * 0.05, h * 0.05, '255,248,230', 0.65);
+    blob(sx, sy, h * 0.012, h * 0.012, '255,255,255', 1);
+    // comète : tête dans sa chevelure, queue de poussière courbe et queue d'ions droite,
+    // toutes deux à l'opposé de l'étoile
+    const cx = span * 0.66, cy = h * 0.22;
+    for(let i = 0; i < 70; i++){
+      const t = i / 70;
+      blob(cx + t * h * 0.42, cy - t * h * 0.20 + t * t * h * 0.08, h * (0.006 + t * 0.035), h * (0.006 + t * 0.02), '220,230,255', 0.07 * (1 - t));
+      blob(cx + t * h * 0.5, cy - t * h * 0.27, h * (0.004 + t * 0.012), h * (0.003 + t * 0.008), '140,190,255', 0.05 * (1 - t));
+    }
+    blob(cx, cy, h * 0.018, h * 0.018, '230,240,255', 0.55);
+    blob(cx, cy, h * 0.004, h * 0.004, '255,255,255', 1);
+  }
+
   const TRAFFIC_MAX = 5;
   const TRAFFIC_COLORS = ['#8f2f28', '#2f4d8f', '#7d7f84', '#8a6a2c', '#2f6b4a', '#5a3a6e'];
   const traffic = [];
@@ -4373,7 +4768,7 @@
     visctx.fillStyle = sky;
     visctx.fillRect(0, 0, W, skyBottom);
 
-    if(sc.space){
+    if(sc.space && !sc.pano){
       const starShift = (worldHeading / 360) % 1;
       STARS.forEach(st => {
         let u = (st.a - starShift) % 1;
@@ -4456,7 +4851,8 @@
     // --- silhouette d'horizon (sommets, collines, dunes) ---------------------------------
     // elle défile avec le cap, et se répète pour couvrir l'écran quel que soit l'angle
     if(sc.pano){
-      const pano = getPanorama(sc, W, vpY);
+      // dans l'espace il n'y a pas de sol : le ciel profond occupe toute la hauteur
+      const pano = getPanorama(sc, W, sc.space ? H : vpY);
       let base = -(worldHeading * pxPerDeg) % pano.span;
       if(base > 0) base -= pano.span;
       for(let off = base; off < W; off += pano.span) visctx.drawImage(pano.cv, Math.round(off), 0);
@@ -4503,6 +4899,41 @@
       }
       visctx.fillStyle = dg;
       visctx.fill();
+    }
+
+    // --- espace : étoiles filantes, puis planètes, du plus loin au plus proche -----------------
+    if(sc.deepSpace){
+      updateSpace(dt, running ? speedKmh : 0, W, H);
+      meteors.forEach(m => {
+        const f = m.life / m.dur, env = Math.sin(Math.PI * Math.min(1, f));
+        const hx = m.x + m.dx * m.speed * m.life, hy = m.y + m.dy * m.speed * m.life;
+        const tx = hx - m.dx * m.len * (0.4 + 0.6 * Math.min(1, f * 3)), ty = hy - m.dy * m.len * (0.4 + 0.6 * Math.min(1, f * 3));
+        const gr = visctx.createLinearGradient(hx, hy, tx, ty);
+        gr.addColorStop(0, `rgba(${m.rgb},${0.95 * env})`); gr.addColorStop(1, `rgba(${m.rgb},0)`);
+        visctx.strokeStyle = gr; visctx.lineWidth = m.w; visctx.lineCap = 'round';
+        visctx.beginPath(); visctx.moveTo(hx, hy); visctx.lineTo(tx, ty); visctx.stroke();
+        drawGlow(m.big ? GLOW_WARM : GLOW_CYAN, hx, hy, m.w * (m.big ? 9 : 5), 0.8 * env);
+        if(m.big && f > 0.5){                       // le bolide se fragmente en fin de course
+          visctx.fillStyle = `rgba(${m.rgb},${env})`;
+          for(let k = 1; k <= 3; k++) visctx.fillRect(hx - m.dx * k * 14 + k * 3, hy - m.dy * k * 14 - k * 2, 2, 2);
+        }
+      });
+      visctx.lineCap = 'butt';
+      spaceBodies.slice().sort((a, b) => b.dist - a.dist).forEach(b => {
+        if(!b.key) return;
+        const sp = planetCache.get(b.key);
+        const tt = camNear / b.dist, ppm = roadSlope * tt / 4;
+        const x = roadCenterAt(tt) + b.lat * ppm, y = rowY(tt) - b.hgt * ppm;
+        const r = b.R * ppm, half = r * sp.ext;
+        // passée, ou sortie du cadre : on la renvoie très loin devant
+        if(b.dist < 150 || (b.dist < 3000 && (x + half < -W * 0.1 || x - half > W * 1.1 || y - half > H || y + half < 0))){
+          spawnBody(b, false); return;
+        }
+        visctx.globalAlpha = Math.max(0, Math.min(1, (9400 - b.dist) / 1600));
+        visctx.drawImage(sp.cv, x - half, y - half, half * 2, half * 2);
+        visctx.globalAlpha = 1;
+      });
+      drawAsteroids(true, { half: roadHalfAt, center: roadCenterAt, row: rowY }, W, H);
     }
 
     // --- sol ------------------------------------------------------------------------------
@@ -4955,6 +5386,9 @@
     // le paysage se voyait plus qu'il ne servait. Plus rien n'est dessiné ici pour l'instant.
     // Les teintes `haze` des scènes sont laissées dans la table : elles ne coûtent rien et
     // seront le point de départ si on reprend le sujet.
+
+    // --- espace : astéroïdes au-dessus du plan de la piste -----------------------------------
+    if(sc.deepSpace) drawAsteroids(false, { half: roadHalfAt, center: roadCenterAt, row: rowY }, W, H);
 
     // --- mur de circuit : béton, panneaux publicitaires, grillage de retenue ---------------
     // Un circuit n'est pas bordé d'objets isolés mais d'un mur continu, qui suit la piste et
@@ -5588,6 +6022,12 @@
   function selectScene(key){
     currentSceneKey = key;
     horizonFrac = SCENES[key].horizon || HORIZON;
+    if(SCENES[key].deepSpace){
+      startPlanetBaking();
+      bakeAsteroids();
+      spaceBodies.forEach(b => { b.key = null; });
+      asteroids.forEach(a => { a.v = -1; });
+    }
     updateCamera();
     panoCache = { key: null, cv: null, span: 0 };
     decorCache = { key: null, pts: null }; // la silhouette d'horizon change avec la scène
