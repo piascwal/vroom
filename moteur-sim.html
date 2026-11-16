@@ -2238,14 +2238,34 @@
       foliage: ['#241726', '#180f1b'], propDark: '#1a1220', propStone: '#2a1e28', trunk: '#150d18',
     },
     desert: {
-      name: 'Désert', sky: ['#6f9dc4', '#f0dcaa'], ground: '#c8a769',
-      road: ['#6d6354', '#484037'], edge: 'rgba(255,255,255,0.5)', dash: 'rgba(255,250,235,0.75)',
-      glow: '255,240,200', glowStrength: 0.45, particle: 'dust', particleRGB: [220, 194, 146],
-      haze: 'rgba(240,220,170,0.8)', decor: 'dunes', sun: { y: -0.08, r: 0.05, color: '#fff6cf' },
-      carLight: 0.45,
-      props: ['cactus', 'rock', 'bush', 'cactus', 'rock'],
-      propsFar: ['rock', 'cactus', 'rock'],
+      name: 'Désert', horizon: 0.40,
+      sky: ['#2659a6', '#5f9bd2', '#b9d3e4', '#efe4cc'], ground: '#d3aa70',
+      road: ['#6a645b', '#3b3731'], edge: 'rgba(246,244,236,0.9)', dash: 'rgba(238,190,64,0.92)',
+      glow: '255,240,200', glowStrength: 0, particle: 'dust', particleRGB: [220, 194, 146],
+      haze: 'rgba(240,220,170,0.8)', sun: null, carLight: 0.45,
+      props: ['saguaro', 'saguaro', 'scrub', 'scrub', 'scrub', 'redrock', 'pricklypear'], nearSparse: 0.55,
+      propsFar: ['saguaro', 'scrub', 'redrock', 'saguaro', 'scrub', 'redrock'], farSparse: 0.8,
       foliage: ['#4d6b40', '#3e5836'], propDark: '#7a6440', propStone: '#a08050', trunk: '#4a3a22',
+      // --- rendu détaillé ---
+      fog: { color: '#ebdfc8', start: 40, end: 800, max: 0.62 },
+      lines: true, mirage: '#cfe0ea',
+      poles: { lat: 10.5, every: 48, sag: 0.9 },
+      verge: { w: 0.9, color: '#b99b6e' },
+      roadDust: { w: 0.35, color: 'rgba(214,178,124,0.55)' },
+      groundTex: { cell: 9, rows: 22, cols: 9, light: '252,230,186', dark: '150,98,52', contrast: 0.15,
+        speck: { n: 3, colors: ['#9a7a52', '#b39468', '#7d6a45', '#707848'], tuft: 0.35 } },
+      art: { cactus: '#5a8a4c', cactusLit: '#93ba76', cactusDark: '#2c4a2b', scrubDark: '#4a5232', scrubLit: '#a8ac72',
+        rock: '#a5583a', rockLit: '#dc9562', rockDark: '#6a3322', wood: '#5f4632', woodLit: '#9c7c5c',
+        pearLit: '#a3c67c', shadow: '112,72,36' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 61, count: 4, y0: 0.18, y1: 0.42, w0: 1.6, w1: 3.0, thick: 0.035, light: '255,255,255', dark: '220,230,238', alpha: 0.22 });
+        panoMesa(g, span, h, { seed: 19, cells: 6, thr: 0.44, soft: 0.05, base: 0.04, talus: 0.12, top: 0.32, rough: 0.03,
+          lit: '#cdb0a2', shadow: '#a8909a', foot: '#e8dac5', band: '120,80,80' });
+        panoMesa(g, span, h, { seed: 33, cells: 9, thr: 0.50, soft: 0.035, base: 0.02, talus: 0.07, top: 0.22, rough: 0.04,
+          lit: '#dc8d58', shadow: '#954b33', foot: '#e3c79d', band: '90,40,25' });
+        panoRidge(g, span, h, { seed: 71, cells: 12, oct: 3, base: 0.02, amp: 0.05, trees: 0.012, light: 1, relief: 1.2, grainAmt: 0.2,
+          lit: '#edca96', shadow: '#bb905f', foot: '#e3cba0', haze: 0.3 });
+      },
     },
     circuit: {
       name: 'Circuit F1', horizon: 0.37,
@@ -2636,8 +2656,18 @@
   // de freinage annoncent un virage par 300, 200 puis 100 mètres, toujours dans cet ordre.
   const BRAKE_EVERY = 640;
   function sceneExtras(sc){
-    if(!sc.boards) return [];
     const out = [];
+    if(sc.poles){
+      // une ligne de poteaux régulière : c'est l'écart constant qui la fait lire comme une ligne
+      const E = sc.poles.every, n0 = Math.floor(travelled / E);
+      for(let n = n0; n <= n0 + Math.ceil(PROP_SPAN / E) + 1; n++){
+        const dist = n * E - travelled;
+        if(dist > 1.5 && dist < PROP_SPAN){
+          out.push({ dist, side: 1, offset: sc.poles.lat, kind: 'telpole', seed: 0, variant: n % 2, scale: 1, yaw: 0, fixed: true });
+        }
+      }
+    }
+    if(!sc.boards) return out;
     const n0 = Math.floor(travelled / BRAKE_EVERY);
     for(let n = n0; n <= n0 + 1; n++){
       const corner = n * BRAKE_EVERY + 520;
@@ -3510,6 +3540,56 @@
     }
   }
 
+  // Mesas et buttes : des plateaux à sommet plat bordés de falaises, posés sur un talus
+  // d'éboulis. Le seuil adouci du bruit donne les sommets plats ; les strates horizontales,
+  // posées par-dessus en ne touchant que la roche déjà peinte, font lire la pierre sédimentaire.
+  function panoMesa(g, span, h, o){
+    const noise = makeLoopNoise(o.seed);
+    const ks = panoScale(span, h);
+    const cells = Math.max(2, Math.round(o.cells * ks));
+    const hs = new Float32Array(span);
+    for(let x = 0; x < span; x++){
+      const u = x / span;
+      const n = fbmLoop(noise, u, cells, 3, 0);
+      const t = Math.max(0, Math.min(1, (n - o.thr) / o.soft));
+      const plateau = t * t * (3 - 2 * t);
+      let v = o.base + o.talus * n + plateau * o.top;
+      v += plateau * (noise(u, Math.round(span / 25), 4) - 0.5) * o.rough;   // rebord un peu ébréché
+      hs[x] = Math.max(0, v) * h;
+    }
+    const lits = new Float32Array(span), raw = new Float32Array(span);
+    for(let x = 0; x < span; x++) raw[x] = 0.5 + (hs[(x + 3) % span] - hs[(x - 3 + span) % span]) / 6 * 0.9;
+    let acc = 0;
+    for(let i = -4; i <= 4; i++) acc += raw[(i + span) % span];
+    for(let x = 0; x < span; x++){ lits[x] = acc / 9; acc += raw[(x + 5) % span] - raw[(x - 4 + span) % span]; }
+    const lc = document.createElement('canvas');
+    lc.width = span; lc.height = h;
+    const lg = lc.getContext('2d');
+    for(let x = 0; x < span; x++){
+      if(hs[x] < 0.5) continue;
+      const lit = Math.max(0, Math.min(1, lits[x]));
+      const top = h - hs[x];
+      const gr = lg.createLinearGradient(0, top, 0, h);
+      gr.addColorStop(0, hexLerp(o.shadow, o.lit, lit));
+      gr.addColorStop(0.5, hexLerp(o.shadow, o.lit, 0.5 + (lit - 0.5) * 0.4));
+      gr.addColorStop(1, hexLerp(o.shadow, o.foot, 0.7));
+      lg.fillStyle = gr;
+      lg.fillRect(x, top, 1, hs[x] + 1);
+    }
+    lg.globalCompositeOperation = 'source-atop';
+    const rnd = seededRandom(o.seed * 3 + 1);
+    for(let y = 0; y < h;){
+      const th = h * (0.005 + rnd() * 0.018);
+      lg.fillStyle = rnd() < 0.55 ? `rgba(${o.band},${(0.06 + rnd() * 0.12).toFixed(3)})` : `rgba(255,236,210,${(0.04 + rnd() * 0.08).toFixed(3)})`;
+      lg.fillRect(0, y, span, th);
+      y += th + h * (0.002 + rnd() * 0.012);
+    }
+    const tg = lg.createLinearGradient(0, h * (1 - o.base - o.talus * 0.7), 0, h);   // éboulis clairs au pied
+    tg.addColorStop(0, rgba(o.foot, 0)); tg.addColorStop(1, rgba(o.foot, 0.8));
+    lg.fillStyle = tg; lg.fillRect(0, 0, span, h);
+    g.drawImage(lc, 0, 0);
+  }
+
   let panoCache = { key: null, cv: null, span: 0 };
   function getPanorama(sc, W, skyH){
     const key = currentSceneKey + ':' + W + ':' + Math.round(skyH);
@@ -3737,6 +3817,130 @@
       for(let r = 0; r < 2; r++) for(let c = 0; c < 5; c++){
         g.fillStyle = '#eef2f4'; g.fillRect(-2.0 + c * 0.82, -H - 1.65 + r * 0.85, 0.62, 0.62);
       }
+    } },
+    // --- désert ----------------------------------------------------------------------------
+    // Saguaro : fût cannelé, bras qui partent à l'horizontale puis remontent. Un dégradé
+    // latéral fait le volume (éclairé à gauche), les côtes verticales font le cactus.
+    saguaro: { h: 10, w: 6, variants: 4, paint(g, rnd, A){
+      const H = 4.5 + rnd() * 4, W = 0.48 + rnd() * 0.14;
+      groundShadow(g, A, W * 1.3, H * 0.32);
+      const shadeH = (x, w) => {
+        const gr = g.createLinearGradient(x - w / 2, 0, x + w / 2, 0);
+        gr.addColorStop(0, A.cactus); gr.addColorStop(0.22, A.cactusLit);
+        gr.addColorStop(0.55, A.cactus); gr.addColorStop(1, A.cactusDark);
+        return gr;
+      };
+      const column = (x, yBot, yTop, w) => {
+        g.fillStyle = shadeH(x, w);
+        g.beginPath();
+        g.moveTo(x - w / 2, yBot); g.lineTo(x - w / 2, yTop + w / 2);
+        g.arc(x, yTop + w / 2, w / 2, Math.PI, 0); g.lineTo(x + w / 2, yBot); g.closePath(); g.fill();
+        g.lineWidth = w * 0.045;
+        [-0.30, -0.10, 0.10, 0.30].forEach(f => {
+          g.strokeStyle = 'rgba(0,0,0,0.18)';
+          g.beginPath(); g.moveTo(x + f * w, yBot); g.lineTo(x + f * w, yTop + w * 0.35); g.stroke();
+          g.strokeStyle = 'rgba(255,255,255,0.10)';
+          g.beginPath(); g.moveTo(x + f * w - w * 0.05, yBot); g.lineTo(x + f * w - w * 0.05, yTop + w * 0.4); g.stroke();
+        });
+      };
+      const arms = 1 + Math.floor(rnd() * 2.4);   // le saguaro sans bras existe, mais ne se reconnaît pas
+      for(let i = 0; i < arms; i++){
+        const side = i % 2 ? 1 : -1, aw = W * 0.72;
+        const yJ = -H * (0.30 + rnd() * 0.25), out = W * (0.9 + rnd() * 0.6), up = H * (0.18 + rnd() * 0.22);
+        const ax = side * out;
+        const gr = g.createLinearGradient(0, yJ - aw / 2, 0, yJ + aw / 2);
+        gr.addColorStop(0, A.cactusLit); gr.addColorStop(1, A.cactusDark);
+        g.fillStyle = gr;
+        g.fillRect(Math.min(0, ax), yJ - aw / 2, Math.abs(ax), aw);
+        g.beginPath(); g.arc(ax, yJ, aw / 2, 0, Math.PI * 2); g.fill();
+        column(ax, yJ, yJ - up, aw);
+      }
+      column(0, 0, -H, W);
+    } },
+    // Broussaille du désert : un dôme de petites feuilles gris-vert sur des tiges sèches
+    scrub: { h: 1.8, w: 3.6, variants: 4, paint(g, rnd, A){
+      const R = 0.6 + rnd() * 0.6, Hh = R * (0.7 + rnd() * 0.35);
+      groundShadow(g, A, R * 1.1, Hh * 0.6);
+      g.strokeStyle = A.wood; g.lineWidth = 0.03;
+      g.beginPath();
+      for(let i = 0; i < 9; i++){ const a = -Math.PI / 2 + (rnd() - 0.5) * 2.2; g.moveTo(0, 0); g.lineTo(Math.cos(a) * R * 0.9, Math.sin(a) * Hh); }
+      g.stroke();
+      for(let i = 0; i < 90; i++){
+        const a = Math.PI + rnd() * Math.PI, d = Math.sqrt(rnd());
+        const x = Math.cos(a) * R * d, y = Math.sin(a) * Hh * d - 0.04;
+        const lt = Math.max(0, Math.min(1, 0.5 - x / R * 0.4 - (y / Hh) * 0.35 + (rnd() - 0.5) * 0.5));
+        g.fillStyle = hexLerp(A.scrubDark, A.scrubLit, lt);
+        g.beginPath(); g.arc(x, y, R * (0.07 + rnd() * 0.07), 0, Math.PI * 2); g.fill();
+      }
+    } },
+    // Rochers rouges : deux ou trois blocs arrondis, face éclairée, strates
+    redrock: { h: 3.2, w: 7, variants: 4, paint(g, rnd, A){
+      const n = 2 + Math.floor(rnd() * 2);
+      const blocks = [];
+      for(let i = 0; i < n; i++){
+        const rw = 0.5 + rnd() * 1.1;
+        blocks.push({ x: (i - (n - 1) / 2) * 1.1 + (rnd() - 0.5) * 0.5, rw, rh: rw * (0.6 + rnd() * 0.5) });
+      }
+      groundShadow(g, A, n * 0.9, 1.2);
+      blocks.sort((a, b) => b.rh - a.rh).forEach(b => {
+        const pts = [];
+        for(let i = 0; i <= 10; i++){
+          const a = Math.PI * (1 - i / 10), r = (i === 0 || i === 10) ? 1 : jag(rnd, 0.12);
+          pts.push([b.x + Math.cos(a) * b.rw * r, -Math.sin(a) * b.rh * r * (1 + (i > 2 && i < 8 ? 0.15 : 0))]);
+        }
+        const path = () => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); };
+        const gr = g.createLinearGradient(b.x - b.rw, -b.rh, b.x + b.rw, 0);
+        gr.addColorStop(0, A.rockLit); gr.addColorStop(0.5, A.rock); gr.addColorStop(1, A.rockDark);
+        g.fillStyle = gr; path(); g.fill();
+        g.save(); path(); g.clip();
+        for(let y = -b.rh; y < 0; y += b.rh * (0.12 + rnd() * 0.12)){
+          g.fillStyle = `rgba(70,25,10,${(0.08 + rnd() * 0.1).toFixed(3)})`;
+          g.fillRect(b.x - b.rw, y, b.rw * 2, b.rh * 0.035);
+        }
+        g.fillStyle = 'rgba(0,0,0,0.20)'; g.fillRect(b.x - b.rw, -b.rh * 0.12, b.rw * 2, b.rh * 0.12);
+        g.restore();
+      });
+    } },
+    // Figuier de Barbarie : raquettes ovales piquées d'aréoles, quelques fruits roses
+    pricklypear: { h: 2, w: 3, variants: 3, paint(g, rnd, A){
+      groundShadow(g, A, 0.9, 0.6);
+      const pads = [];
+      const grow = (x, y, ang, sz, depth) => {
+        pads.push([x, y, ang, sz]);
+        if(depth > 2) return;
+        const kids = 1 + Math.floor(rnd() * 2);
+        for(let k = 0; k < kids; k++){
+          const a2 = ang + (rnd() - 0.5) * 1.3;
+          grow(x + Math.sin(a2) * sz * 1.5, y - Math.cos(a2) * sz * 1.5, a2, sz * (0.75 + rnd() * 0.15), depth + 1);
+        }
+      };
+      grow(0, -0.28, 0, 0.30, 0);
+      pads.forEach(([x, y, a, sz]) => {
+        g.save(); g.translate(x, y); g.rotate(a);
+        const gr = g.createLinearGradient(-sz * 0.7, 0, sz * 0.7, 0);
+        gr.addColorStop(0, A.pearLit); gr.addColorStop(1, A.cactusDark);
+        g.fillStyle = gr; g.beginPath(); g.ellipse(0, 0, sz * 0.66, sz, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(240,230,170,0.7)';
+        for(let i = 0; i < 6; i++){ g.beginPath(); g.arc((rnd() - 0.5) * sz * 0.9, (rnd() - 0.5) * sz * 1.4, sz * 0.035, 0, Math.PI * 2); g.fill(); }
+        if(rnd() < 0.35){ g.fillStyle = '#c4436a'; g.beginPath(); g.ellipse(0, -sz * 1.02, sz * 0.12, sz * 0.16, 0, 0, Math.PI * 2); g.fill(); }
+        g.restore();
+      });
+    } },
+    // Poteau télégraphique en bois, traverse et isolateurs : les câbles sont tirés à part,
+    // d'un poteau au suivant
+    telpole: { h: 8.2, w: 2.6, variants: 2, paint(g, rnd, A, v){
+      groundShadow(g, A, 0.25, 2.4);
+      const gr = g.createLinearGradient(-0.13, 0, 0.13, 0);
+      gr.addColorStop(0, A.woodLit); gr.addColorStop(1, A.wood);
+      g.fillStyle = gr;
+      g.beginPath(); g.moveTo(-0.14, 0); g.lineTo(-0.10, -7.8); g.lineTo(0.10, -7.8); g.lineTo(0.14, 0); g.closePath(); g.fill();
+      g.fillStyle = A.wood; g.fillRect(-1.0, -7.38, 2.0, 0.14);
+      g.fillStyle = A.woodLit; g.fillRect(-1.0, -7.38, 2.0, 0.04);
+      if(v) { g.strokeStyle = A.wood; g.lineWidth = 0.05; g.beginPath(); g.moveTo(-0.6, -7.25); g.lineTo(0, -6.7); g.lineTo(0.6, -7.25); g.stroke(); }
+      [-0.85, 0.85].forEach(x => {
+        g.fillStyle = '#8fb3a3'; g.fillRect(x - 0.05, -7.50, 0.10, 0.13);
+        g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x - 0.05, -7.50, 0.03, 0.13);
+      });
     } },
   };
 
@@ -4521,6 +4725,20 @@
     roadGrad.addColorStop(1, sc.road[1]);
     visctx.fillStyle = roadGrad;
     visctx.fill();
+    // Mirage : au loin, l'air surchauffé au ras du bitume renvoie le ciel. Une nappe claire
+    // de la couleur du ciel bas, posée sur la chaussée près de l'horizon, qui ondule un peu.
+    if(sc.mirage){
+      const mt = 0.075, wob = 0.85 + 0.15 * Math.sin(performance.now() / 430);
+      visctx.save();
+      visctx.beginPath();
+      for(let i = 0; i <= 12; i++){ const tt = mt * i / 12; const x = roadCenterAt(tt) - edgeAt(tt, -1); if(i) visctx.lineTo(x, rowY(tt)); else visctx.moveTo(x, rowY(tt)); }
+      for(let i = 12; i >= 0; i--){ const tt = mt * i / 12; visctx.lineTo(roadCenterAt(tt) + edgeAt(tt, 1), rowY(tt)); }
+      visctx.closePath();
+      const mg = visctx.createLinearGradient(0, vpY, 0, rowY(mt));
+      mg.addColorStop(0, rgba(sc.mirage, 0.75 * wob)); mg.addColorStop(0.5, rgba(sc.mirage, 0.30 * wob)); mg.addColorStop(1, rgba(sc.mirage, 0));
+      visctx.fillStyle = mg; visctx.fill();
+      visctx.restore();
+    }
 
     // grille lumineuse de la piste spatiale : barreaux au sol tous les 10 m et rails
     // longitudinaux, tous ancrés à la distance parcourue comme le reste
@@ -4865,6 +5083,31 @@
     const accelBoost = running ? Math.max(0, throttle) : 0;
     const kickBoost = running ? Math.max(0, kick || 0) : 0;
     const baseSpeed = running ? (speedFactor * 0.9 + accelBoost * 0.6 + kickBoost * 1.4) : 0;
+
+    // --- câbles entre les poteaux, avec leur flèche --------------------------------------
+    if(sc.poles){
+      const P = sc.poles, E = P.every, hgt = 7.46;
+      const atp = (d, lat, y) => {
+        const tt = camNear / d, ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+        return [roadCenterAt(tt) + lat * ppm, rowY(tt) - y * ppm];
+      };
+      visctx.strokeStyle = 'rgba(38,30,24,0.6)';
+      visctx.lineWidth = 1;
+      const n0 = Math.floor(travelled / E);
+      for(let n = n0; n <= n0 + Math.ceil(PROP_SPAN / E) + 1; n++){
+        const da = Math.max(1.2, n * E - travelled), db = (n + 1) * E - travelled;
+        if(db < 2 || db > PROP_SPAN) continue;
+        visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - db) / 40));
+        [-0.85, 0.85].forEach(off => {
+          const a = atp(da, P.lat + off, hgt), b = atp(db, P.lat + off, hgt);
+          const m = atp((da + db) / 2, P.lat + off, hgt - P.sag * Math.min(1, (db - da) / E));
+          visctx.beginPath(); visctx.moveTo(a[0], a[1]);
+          visctx.quadraticCurveTo(2 * m[0] - (a[0] + b[0]) / 2, 2 * m[1] - (a[1] + b[1]) / 2, b[0], b[1]);
+          visctx.stroke();
+        });
+      }
+      visctx.globalAlpha = 1;
+    }
 
     // --- particules : traînées de vitesse, flocons, pluie ou poussière selon la scène ------
     visctx.lineCap = 'round';
