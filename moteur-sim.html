@@ -1231,65 +1231,50 @@
     src.start(now); src.stop(now + dur + 0.02);
   }
 
+  // Nitro. Ce qu'on entend d'un vrai système au protoxyde n'a rien d'un coup de grosse caisse :
+  // le claquement sec du solénoïde qui s'ouvre, le jet de gaz sous pression qui siffle dans
+  // la rampe, puis surtout le moteur lui-même qui se met à cogner plus fort — c'est la boucle
+  // principale qui s'en charge (pleine charge et plein volume tant que le nitro est actif).
   function spawnNitro(duration){
     if(!actx || !noiseNode) return;
     const now = actx.currentTime;
-    const attack = 0.04, release = 0.35;
-    const sustain = Math.max(0.1, duration - attack - release);
-    const end = now + attack + sustain + release;
+    const end = now + Math.max(0.6, duration);
 
-    // coup de boutoir initial : impact sec et puissant, la sensation de "shove"
-    const kick = actx.createOscillator();
-    kick.type = 'sine';
-    kick.frequency.setValueAtTime(180, now);
-    kick.frequency.exponentialRampToValueAtTime(32, now + 0.22);
-    const kg = actx.createGain();
-    kg.gain.setValueAtTime(1.0, now);
-    kg.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-    kick.connect(kg); kg.connect(fxGain);
-    kick.start(now); kick.stop(now + 0.35);
+    // solénoïde : deux résonances métalliques étroites, excitées par un clic de 3 ms
+    [[2350, 9, 0.55, 0.045], [5300, 12, 0.35, 0.03]].forEach(([f, q, a, d]) => {
+      const src = actx.createBufferSource();
+      src.buffer = noiseNode.buffer;
+      const bp = actx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.linearRampToValueAtTime(a * 4, now + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + d);
+      src.connect(bp); bp.connect(g); g.connect(fxGain);
+      src.start(now, Math.random()); src.stop(now + d + 0.02);
+    });
 
-    const kickNoise = actx.createBufferSource();
-    kickNoise.buffer = noiseNode.buffer;
-    const kickFilter = actx.createBiquadFilter();
-    kickFilter.type = 'lowpass';
-    kickFilter.frequency.setValueAtTime(4500, now);
-    kickFilter.frequency.exponentialRampToValueAtTime(400, now + 0.15);
-    const kng = actx.createGain();
-    kng.gain.setValueAtTime(0.8, now);
-    kng.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
-    kickNoise.connect(kickFilter); kickFilter.connect(kng); kng.connect(fxGain);
-    kickNoise.start(now); kickNoise.stop(now + 0.18);
-
-    // souffle continu (spray), aigu qui redescend légèrement pendant le boost
+    // jet de gaz : fort à l'ouverture (la rampe se remplit), puis un filet continu qui
+    // s'assombrit à mesure que la bouteille se refroidit, et se coupe net à la fermeture
     const src = actx.createBufferSource();
     src.buffer = noiseNode.buffer;
     src.loop = true;
+    const hp = actx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1400; hp.Q.value = 0.6;
     const bp = actx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(2400, now);
-    bp.frequency.linearRampToValueAtTime(1100, now + attack + sustain);
-    bp.Q.value = 1.1;
+    bp.type = 'bandpass'; bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(6200, now);
+    bp.frequency.exponentialRampToValueAtTime(3800, now + 0.4);
+    bp.frequency.linearRampToValueAtTime(3000, end);
     const g = actx.createGain();
     g.gain.setValueAtTime(0.0001, now);
-    g.gain.linearRampToValueAtTime(0.55, now + attack);
-    g.gain.setValueAtTime(0.55, now + attack + sustain);
+    g.gain.linearRampToValueAtTime(0.42, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.07, now + 0.45);
+    g.gain.setValueAtTime(0.07, end - 0.04);
     g.gain.linearRampToValueAtTime(0.0001, end);
-    src.connect(bp); bp.connect(g); g.connect(fxGain);
-    src.start(now); src.stop(end + 0.05);
-
-    // corps grave de la poussée, sustenue tout le long du boost
-    const surge = actx.createOscillator();
-    surge.type = 'sawtooth';
-    surge.frequency.setValueAtTime(60, now);
-    surge.frequency.linearRampToValueAtTime(95, now + attack + sustain);
-    const sg = actx.createGain();
-    sg.gain.setValueAtTime(0.0001, now);
-    sg.gain.linearRampToValueAtTime(0.42, now + attack);
-    sg.gain.setValueAtTime(0.42, now + attack + sustain);
-    sg.gain.linearRampToValueAtTime(0.0001, end);
-    surge.connect(sg); sg.connect(fxGain);
-    surge.start(now); surge.stop(end + 0.05);
+    const pan = makePan(-0.2);
+    src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(pan); pan.connect(fxGain);
+    src.start(now, Math.random()); src.stop(end + 0.05);
   }
 
   // ---- (atelier de test supprimé — la pétarade est intégrée directement à spawnPop) ----
@@ -5721,11 +5706,13 @@
     updateTraffic(dt, physics.speed, physics.running);
 
     // pendant le coup de gaz, l'impulsion doit aussi claquer (charge moteur), pas seulement monter
-    const audioThrottle = Math.max(physics.throttle * (1 - shiftCut), shiftBlip * 0.85, revPedal, startFlare * 0.6);
+    // nitro : le moteur passe en pleine charge, timbre dur et plein volume, quoi que fasse la pédale
+    const nitroOn = physics.running && nitroState === 'active' ? 1 : 0;
+    const audioThrottle = Math.max(physics.throttle * (1 - shiftCut), shiftBlip * 0.85, revPedal, startFlare * 0.6, nitroOn);
     // le coup de gaz est une demande explicite de l'utilisateur : il passe devant l'atténuation
     // d'allure constante comme devant celle de décélération, sinon donner un coup de gaz à
     // l'arrêt (le cas même où ces deux atténuations sont au plus bas) ne s'entendrait presque pas
-    updateAudio(audioRpm, audioThrottle, physics.running && !cranking, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal, startFlare));
+    updateAudio(audioRpm, audioThrottle, physics.running && !cranking, profile, Math.max(cruiseFade * lowSpeedFade, shiftPunch, revPedal, startFlare, nitroOn));
     updateAmbience(dt, physics.speed, audioThrottle, Math.min(1, audioRpm / profile.maxRPM), physics.running && !cranking, profile);
 
     // pétarade / rupteur : un seul comportement, identique pour tous les moteurs, piloté uniquement par le bouton dédié
