@@ -2188,13 +2188,34 @@
   // d'horizon et une brume. La géométrie de la route, elle, est commune.
   const SCENES = {
     nuit: {
-      name: 'Nuit', sky: ['#0b0e13', '#1b212a'], ground: '#08090b',
-      road: ['#1c1f24', '#0e1013'], edge: 'rgba(255,140,60,0.40)', dash: 'rgba(231,228,222,0.55)',
-      glow: '255,220,180', glowStrength: 1, particle: 'streak', particleRGB: [255, 205, 150],
+      name: 'Nuit', horizon: 0.38,
+      sky: ['#03050b', '#081020', '#142038', '#24324e'], ground: '#0a0d0c',
+      road: ['#1b1e23', '#0c0e11'], edge: 'rgba(222,226,232,0.78)', dash: 'rgba(228,230,236,0.78)',
+      glow: '255,220,180', glowStrength: 0, particle: 'streak', particleRGB: [190, 200, 220],
       haze: null, decor: null, sun: null, carLight: 1,
-      props: ['pine', 'pine', 'pole', 'bush', 'marker'],
-      propsFar: ['pine', 'pine', 'tree'],
+      props: ['fir', 'fir', 'oak', 'oak', 'shrub', 'shrub', 'shrub'], nearSparse: 0.6,
+      propsFar: ['fir', 'fir', 'oak', 'fir', 'oak'], farSparse: 0.9,
       foliage: ['#141d16', '#0f1712'], propDark: '#2a2f36', propStone: '#3a3f46', trunk: '#241a12',
+      // --- rendu détaillé ---
+      // La « brume » est ici l'obscurité : ce que les phares n'atteignent pas retombe dans le
+      // noir, d'autant plus vite que l'objet est loin du bord de la route.
+      fog: { color: '#05070c', start: 4, end: 95, max: 0.93, lateral: 2.3 },
+      lines: true, dark: { reach: 55, a: 0.88 },
+      studs: { every: 12, phase: 6, range: 210, lats: [[0, '255,236,190']] },
+      rows: [{ kind: 'delineator', every: 50, lat: 5.0 }],
+      verge: { w: 1.0, color: '#121612' },
+      groundTex: { cell: 8, rows: 18, cols: 8, light: '70,80,60', dark: '0,0,0', contrast: 0.22,
+        speck: { n: 2, colors: ['#232a1e', '#2c3324', '#1a2016'], tuft: 0.55 } },
+      art: { leaf: '#1d3224', leafLit: '#41633f', trunk: '#3a2d22', shadow: '0,0,0', post: '#d6d8dc' },
+      pano(g, span, h){
+        panoNight(g, span, h, { seed: 5, starDensity: 900, moon: { u: 0.30, v: 0.20, r: 0.04 } });
+        panoClouds(g, span, h, { seed: 29, count: 5, y0: 0.28, y1: 0.62, w0: 1.4, w1: 2.8, thick: 0.045, light: '110,126,156', dark: '20,26,40', alpha: 0.20 });
+        panoRidge(g, span, h, { seed: 12, cells: 5, oct: 4, base: 0.05, amp: 0.20, light: 1, relief: 0.35,
+          lit: '#1c2536', shadow: '#0f1520', foot: '#0c1018', haze: 0.4 });
+        panoLights(g, span, h, { seed: 8, clusters: 14, per: 6, y0: 0.88, y1: 0.97, spread: 0.08, rgb: '255,196,120' });
+        panoRidge(g, span, h, { seed: 3, cells: 9, oct: 4, base: 0.02, amp: 0.06, trees: 0.07, light: 1, relief: 0.4, grainAmt: 0.3,
+          lit: '#0d130f', shadow: '#070a09', foot: '#070908', haze: 0.2 });
+      },
     },
     montagne: {
       name: 'Montagne', horizon: 0.40,
@@ -2227,15 +2248,34 @@
       },
     },
     sunset: {
-      name: 'Coucher de soleil', sky: ['#2c1a42', '#ff9a4d'], ground: '#2a1f1c',
-      road: ['#3b2f2c', '#191412'], edge: 'rgba(255,190,120,0.55)', dash: 'rgba(255,240,220,0.7)',
-      glow: '255,175,85', glowStrength: 1.5, particle: 'streak', particleRGB: [255, 190, 120],
-      haze: 'rgba(255,154,77,0.5)', decor: 'hills', sun: { y: 0.005, r: 0.085, color: '#ffd08a' },
+      name: 'Coucher de soleil', horizon: 0.40,
+      sky: ['#171230', '#352049', '#7c3656', '#cb5b48', '#f2914a', '#ffcf7f'], ground: '#5a3a24',
+      road: ['#5a443c', '#1e1614'], edge: 'rgba(255,214,170,0.75)', dash: 'rgba(255,236,210,0.8)',
+      glow: '255,175,85', glowStrength: 0, particle: 'streak', particleRGB: [255, 190, 120],
+      haze: null, decor: null, sun: { y: -0.004, r: 0.058, color: '#fff2cc', halo: '255,168,92', follow: 0.25 },
       carLight: 0.8,
-      // contre-jour : tout ce qui borde la route se réduit à une silhouette presque noire
-      props: ['tree', 'cypress', 'tree', 'pole', 'bush'],
-      propsFar: ['tree', 'cypress', 'tree'],
+      props: ['stonepine', 'tcypress', 'tcypress', 'haybale', 'haybale', 'shrub'], nearSparse: 0.55,
+      propsFar: ['stonepine', 'tcypress', 'tcypress', 'stonepine', 'haybale'], farSparse: 0.85,
       foliage: ['#241726', '#180f1b'], propDark: '#1a1220', propStone: '#2a1e28', trunk: '#150d18',
+      // --- rendu détaillé ---
+      fog: { color: '#d07a4c', start: 30, end: 620, max: 0.72 },
+      lines: true,
+      mirage: { color: '#ffc27e', depth: 0.16, a: 0.55 },   // le soleil se reflète sur le bitume
+      longShadows: { k: 3.4, a: 0.34, rgb: '40,18,24' },
+      verge: { w: 1.0, color: '#6a4628' },
+      groundTex: { cell: 10, rows: 20, cols: 8, light: '255,184,104', dark: '40,18,10', contrast: 0.16,
+        speck: { n: 3, colors: ['#8a5e30', '#a3743c', '#6b4424'], tuft: 0.6 } },
+      art: { leaf: '#2a1d1c', rim: '#c9824a', trunk: '#24160f', shadow: '30,12,16', leafLit: '#5a3a26',
+        hay: '#c58a3e', hayDark: '#7a4f24' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 44, count: 6, y0: 0.18, y1: 0.62, w0: 1.6, w1: 3.2, thick: 0.045, light: '255,168,118', dark: '94,46,86', alpha: 0.5 });
+        panoRidge(g, span, h, { seed: 21, cells: 4, oct: 4, base: 0.05, amp: 0.20, light: 1, relief: 0.2,
+          lit: '#9a4f5c', shadow: '#8a4658', foot: '#e08c5a', haze: 0.7 });
+        panoRidge(g, span, h, { seed: 64, cells: 7, oct: 4, base: 0.03, amp: 0.10, light: 1, relief: 0.2,
+          lit: '#5c2c46', shadow: '#4e2440', foot: '#b6644c', haze: 0.5 });
+        panoRidge(g, span, h, { seed: 17, cells: 11, oct: 3, base: 0.015, amp: 0.035, trees: 0.06, light: 1, relief: 0.2, grainAmt: 0.2,
+          lit: '#2c1626', shadow: '#26121f', foot: '#5a2c2c', haze: 0.25 });
+      },
     },
     desert: {
       name: 'Désert', horizon: 0.40,
@@ -2303,14 +2343,31 @@
       },
     },
     ville: {
-      name: 'Ville de nuit', sky: ['#06070d', '#221a33'], ground: '#0b0d12',
-      road: ['#20232a', '#0e1014'], edge: 'rgba(240,240,245,0.55)', dash: 'rgba(245,230,180,0.7)',
-      glow: '255,205,150', glowStrength: 1.1, particle: 'streak', particleRGB: [255, 210, 160],
-      haze: 'rgba(60,42,70,0.55)', decor: 'skyline', sun: null, carLight: 1,
-      solid: true,
-      props: ['streetlight', 'streetlight', 'streetlight', 'pole', 'bush'],
-      propsFar: ['building', 'building', 'building', 'tower'],
+      name: 'Ville de nuit', horizon: 0.36,
+      sky: ['#04050b', '#0c0b1a', '#22172f', '#4a2539', '#7a3b3a'], ground: '#0b0c11',
+      road: ['#25282e', '#101216'], edge: 'rgba(236,236,240,0.72)', dash: 'rgba(240,226,176,0.78)',
+      glow: '255,205,150', glowStrength: 0, particle: 'streak', particleRGB: [255, 210, 160],
+      haze: null, decor: null, sun: null, carLight: 1,
+      props: [], nearSparse: 0,
+      propsFar: ['cityblock', 'cityblock', 'cityblock'], farSparse: 0.5,
       foliage: ['#141a20', '#0f141a'], propDark: '#3a4048', propStone: '#171b24',
+      // --- rendu détaillé ---
+      fog: { color: '#160f20', start: 30, end: 520, max: 0.7 },
+      lines: true,
+      wall: { lat: 5.3, h: 0.95, fence: 0, color: '#4c5058', cap: '#6c717a', joints: 'rgba(0,0,0,0.35)' },
+      rows: [{ kind: 'citylamp', every: 36, lat: 5.3, stagger: 18, pool: { len: 11, wide: 4.2, reach: 2.0, a: 0.32 } }],
+      gantry: { every: 520, lat: 6.3, h: 7.6, steel: '#5a606a', steelDark: '#3a3f47', panel: '#1d6a3d' },
+      groundTex: { cell: 14, rows: 14, cols: 6, light: '60,60,80', dark: '0,0,0', contrast: 0.2 },
+      art: { steel: '#4a4f58', steelLit: '#7a808a', facade: '#191b24', facadeSide: '#101118', shadow: '0,0,0' },
+      pano(g, span, h){
+        panoNight(g, span, h, { seed: 31, starDensity: 6000 });
+        panoSkyline(g, span, h, { seed: 2, w0: 18, w1: 60, h0: 0.10, h1: 0.42, gap: 6, cell: 3, lit: 0.18, bright: 0.55,
+          body: '#2a2238', fog: '#4a2f45' });
+        panoSkyline(g, span, h, { seed: 7, w0: 24, w1: 80, h0: 0.12, h1: 0.62, gap: 30, cell: 4, lit: 0.28, bright: 0.85,
+          body: '#14131e', fog: '#2a2034' });
+        panoSkyline(g, span, h, { seed: 13, w0: 40, w1: 110, h0: 0.06, h1: 0.30, gap: 60, cell: 5, lit: 0.34, bright: 1,
+          body: '#0b0b12', fog: '#16121e' });
+      },
     },
     espace: {
       name: 'Espace', sky: ['#010208', '#03050f', '#070a1a'], ground: null,
@@ -2340,16 +2397,39 @@
       foliage: ['#57a83c', '#489231'], propDark: '#6b4a28', propStone: '#8f8f8f', trunk: '#6b4a28',
     },
     orage: {
-      name: 'Orage', sky: ['#171a21', '#3a4250'], ground: '#14171b',
-      road: ['#2a3037', '#15191d'], edge: 'rgba(180,200,220,0.45)', dash: 'rgba(220,230,240,0.6)',
-      glow: '200,215,235', glowStrength: 0.6, particle: 'rain', particleRGB: [190, 210, 235],
-      haze: 'rgba(58,66,80,0.55)', decor: null, sun: null, carLight: 1, lightning: true,
-      props: ['tree', 'pine', 'pole', 'pole', 'bush'],
-      propsFar: ['pine', 'tree', 'pine'],
+      name: 'Orage', horizon: 0.38,
+      sky: ['#14171d', '#232830', '#353c46', '#4f5862', '#6a737c'], ground: '#1f2823',
+      road: ['#3a4048', '#15181c'], edge: 'rgba(214,220,228,0.72)', dash: 'rgba(222,228,236,0.75)',
+      glow: '200,215,235', glowStrength: 0, particle: 'rain', particleRGB: [190, 210, 235],
+      haze: null, decor: null, sun: null, carLight: 1, lightning: true,
+      props: ['oak', 'oak', 'poplar', 'fir', 'shrub', 'shrub'], nearSparse: 0.6,
+      propsFar: ['oak', 'poplar', 'fir', 'oak'], farSparse: 0.85,
       foliage: ['#1b2620', '#141c18'], propDark: '#252b32', propStone: '#333940', trunk: '#1e1811',
+      // --- rendu détaillé ---
+      fog: { color: '#454e58', start: 8, end: 320, max: 0.86 },
+      lines: true, wet: true, heavyRain: '196,208,226',
+      mirage: { color: '#8e9aa6', depth: 0.22, a: 0.5 },    // le ciel clair à l'horizon se reflète sur la route mouillée
+      dark: { reach: 110, a: 0.35 },
+      rows: [{ kind: 'delineator', every: 50, lat: 5.0 }],
+      verge: { w: 1.0, color: '#2a332d' },
+      groundTex: { cell: 9, rows: 20, cols: 8, light: '110,130,110', dark: '0,0,0', contrast: 0.2,
+        speck: { n: 2, colors: ['#2e3a30', '#38463a', '#23302a'], tuft: 0.6 } },
+      art: { leaf: '#1d2b23', leafLit: '#3e5446', trunk: '#2a231e', shadow: '0,0,0', post: '#c8ccd2' },
+      pano(g, span, h){
+        panoClouds(g, span, h, { seed: 91, count: 26, y0: -0.06, y1: 0.34, w0: 1.4, w1: 3.0, thick: 0.34, light: '84,92,104', dark: '22,26,32', alpha: 0.92 });
+        panoClouds(g, span, h, { seed: 57, count: 12, y0: 0.25, y1: 0.55, w0: 0.9, w1: 2.0, thick: 0.18, light: '112,120,132', dark: '38,44,52', alpha: 0.75 });
+        panoRainShafts(g, span, h, { seed: 4, count: 7, top: 0.45, rgb: '70,80,94', a: 0.42 });
+        panoRidge(g, span, h, { seed: 26, cells: 5, oct: 4, base: 0.04, amp: 0.15, light: 1, relief: 0.25,
+          lit: '#3d4848', shadow: '#2e3838', foot: '#58626b', haze: 0.6 });
+        panoRidge(g, span, h, { seed: 48, cells: 10, oct: 4, base: 0.02, amp: 0.05, trees: 0.07, light: 1, relief: 0.3, grainAmt: 0.3,
+          lit: '#1f2a25', shadow: '#18211d', foot: '#3a444a', haze: 0.35 });
+      },
     },
   };
   let currentSceneKey = 'nuit';
+  let lightningBolt = null;      // tracé de l'éclair en cours : segments, branches, durée
+  // pluie battante : des traits obliques indépendants des particules, bien plus nombreux
+  const RAIN_DROPS = Array.from({ length: 240 }, () => ({ x: Math.random(), y: Math.random(), s: 0.8 + Math.random() * 0.6, l: 0.025 + Math.random() * 0.05 }));
   let lightningFlash = 0, lightningTimer = 6;
 
   // Champ d'étoiles de la scène spatiale : positions tirées une fois, puis simplement
@@ -2406,6 +2486,7 @@
   const GLOW_WARM = makeGlowSprite('255,205,130');
   const GLOW_CYAN = makeGlowSprite('90,220,255');
   const GLOW_RED = makeGlowSprite('255,60,40');
+  const GLOW_MIST = makeRadialSprite('200,208,220', [[0, 0.55], [0.5, 0.22], [1, 0]]);
   function drawGlow(sprite, x, y, r, alpha){
     // l'opacité en cours est conservée : le décor lointain est dessiné en fondu, et un halo
     // rendu à pleine opacité au milieu ferait ressortir la lampe devant son propre poteau
@@ -2666,6 +2747,25 @@
         if(dist > 1.5 && dist < PROP_SPAN){
           out.push({ dist, side: 1, offset: sc.poles.lat, kind: 'telpole', seed: 0, variant: n % 2, scale: 1, yaw: 0, fixed: true });
         }
+      }
+    }
+    // rangées régulières d'un même élément des deux côtés (balises, réverbères…)
+    (sc.rows || []).forEach(rw => {
+      const E = rw.every, n0 = Math.floor(travelled / E);
+      for(let n = n0; n <= n0 + Math.ceil(PROP_SPAN / E) + 1; n++){
+        const dist = n * E - travelled + (rw.phase || 0);
+        if(dist <= 1.5 || dist >= PROP_SPAN) continue;
+        (rw.sides || [-1, 1]).forEach(side => {
+          out.push({ dist: dist + (side < 0 ? (rw.stagger || 0) : 0), side, offset: rw.lat, kind: rw.kind, seed: 0,
+            variant: side > 0 ? 0 : 1, scale: 1, yaw: 0, fixed: true });
+        });
+      }
+    });
+    if(sc.gantry){
+      const E = sc.gantry.every, n0 = Math.floor(travelled / E);
+      for(let n = n0; n <= n0 + 1; n++){
+        const dist = n * E + 180 - travelled;
+        if(dist > 1.5 && dist < PROP_SPAN) out.push({ dist, side: 1, offset: 0, kind: 'gantry', seed: 0, scale: 1, yaw: 0, fixed: true });
       }
     }
     if(!sc.boards) return out;
@@ -3597,6 +3697,111 @@
     g.drawImage(lc, 0, 0);
   }
 
+  // Ciel nocturne : étoiles (plus rares qu'en plein espace, l'atmosphère en éteint beaucoup),
+  // et la lune, avec sa lueur et ses mers sombres.
+  function panoNight(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    const n = Math.round(span * h / (o.starDensity || 1400));
+    for(let i = 0; i < n; i++){
+      const y = Math.pow(rnd(), 1.4) * h * 0.9, m = Math.pow(rnd(), 6);
+      // les étoiles basses sont avalées par la brume de l'horizon
+      const a = (0.25 + Math.min(0.75, m * 1.8)) * (1 - Math.pow(y / h, 3));
+      g.fillStyle = `rgba(${['255,250,240', '220,230,255', '255,232,205'][i % 3]},${a.toFixed(2)})`;
+      const sz = 0.6 + m * 1.6;
+      g.fillRect(rnd() * span, y, sz, sz);
+    }
+    if(o.moon){
+      const mx = span * o.moon.u, my = h * o.moon.v, mr = h * o.moon.r;
+      [[mr * 9, 0.10], [mr * 4, 0.16], [mr * 1.8, 0.25]].forEach(([rr, a]) => {
+        const gr = g.createRadialGradient(mx, my, 0, mx, my, rr);
+        gr.addColorStop(0, `rgba(205,218,240,${a})`); gr.addColorStop(1, 'rgba(205,218,240,0)');
+        g.fillStyle = gr; g.fillRect(mx - rr, my - rr, rr * 2, rr * 2);
+      });
+      g.save();
+      g.beginPath(); g.arc(mx, my, mr, 0, Math.PI * 2); g.clip();
+      const dg = g.createRadialGradient(mx - mr * 0.3, my - mr * 0.3, mr * 0.1, mx, my, mr);
+      dg.addColorStop(0, '#f6f7f2'); dg.addColorStop(1, '#cfd3d6');
+      g.fillStyle = dg; g.fillRect(mx - mr, my - mr, mr * 2, mr * 2);
+      const mr2 = seededRandom(77);
+      for(let i = 0; i < 9; i++){
+        g.fillStyle = `rgba(120,128,140,${(0.18 + mr2() * 0.18).toFixed(2)})`;
+        g.beginPath(); g.ellipse(mx + (mr2() - 0.5) * mr * 1.2, my + (mr2() - 0.5) * mr * 1.2, mr * (0.12 + mr2() * 0.25), mr * (0.1 + mr2() * 0.2), mr2() * 3, 0, Math.PI * 2); g.fill();
+      }
+      g.restore();
+    }
+  }
+  // Lumières lointaines : hameaux et fermes, petits points chauds groupés au pied des collines
+  function panoLights(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    for(let c = 0; c < o.clusters; c++){
+      const cx = rnd() * span, cy = h * (o.y0 + rnd() * (o.y1 - o.y0)), n = 2 + Math.floor(rnd() * o.per);
+      for(let i = 0; i < n; i++){
+        const x = cx + (rnd() - 0.5) * h * o.spread, y = cy + (rnd() - 0.5) * h * o.spread * 0.18;
+        const gr = g.createRadialGradient(x, y, 0, x, y, 3.5);
+        gr.addColorStop(0, `rgba(${o.rgb},0.5)`); gr.addColorStop(1, `rgba(${o.rgb},0)`);
+        g.fillStyle = gr; g.fillRect(x - 4, y - 4, 8, 8);
+        g.fillStyle = `rgba(${o.rgb},0.95)`; g.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // Ligne d'immeubles : rectangles et gradins, fenêtres allumées au hasard (chaudes, froides,
+  // quelques étages de bureaux entièrement éclairés), feux rouges de balisage sur les toits.
+  function panoSkyline(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    let x = -rnd() * 40;
+    while(x < span){
+      const w = o.w0 + rnd() * (o.w1 - o.w0), H = h * (o.h0 + Math.pow(rnd(), 1.8) * (o.h1 - o.h0));
+      const top = h - H, bx = Math.round(x), bw = Math.round(w);
+      g.fillStyle = hexLerp(o.body, o.fog, rnd() * 0.25);
+      g.fillRect(bx, top, bw, H + 1);
+      if(rnd() < 0.35){                                   // gradin au sommet
+        const sw = bw * (0.4 + rnd() * 0.3);
+        g.fillRect(bx + (bw - sw) / 2, top - H * 0.08, sw, H * 0.08 + 1);
+        if(rnd() < 0.5){ g.fillRect(bx + bw / 2, top - H * 0.08 - H * 0.12, 1, H * 0.12); }   // antenne
+      }
+      g.fillStyle = 'rgba(255,255,255,0.04)'; g.fillRect(bx, top, Math.max(1, bw * 0.12), H);   // arête
+      const cw = o.cell, chh = o.cell * 1.4;
+      const office = rnd() < 0.3;
+      for(let wy = top + chh; wy < h - chh; wy += chh){
+        const floorLit = office && rnd() < 0.5;
+        for(let wx = bx + cw * 0.6; wx < bx + bw - cw; wx += cw){
+          if(!floorLit && rnd() > o.lit) continue;
+          const r = rnd();
+          g.fillStyle = r < 0.6 ? `rgba(255,${200 + Math.floor(rnd() * 30)},${120 + Math.floor(rnd() * 50)},${(0.5 + rnd() * 0.5) * o.bright})`
+            : r < 0.85 ? `rgba(200,225,255,${(0.4 + rnd() * 0.5) * o.bright})` : `rgba(255,255,240,${0.9 * o.bright})`;
+          g.fillRect(Math.round(wx), Math.round(wy), Math.max(1, Math.round(cw * 0.5)), Math.max(1, Math.round(chh * 0.45)));
+        }
+      }
+      if(H > h * 0.3 && rnd() < 0.6){
+        const gr = g.createRadialGradient(bx + bw / 2, top - 1, 0, bx + bw / 2, top - 1, 4);
+        gr.addColorStop(0, 'rgba(255,40,30,0.9)'); gr.addColorStop(1, 'rgba(255,40,30,0)');
+        g.fillStyle = gr; g.fillRect(bx + bw / 2 - 4, top - 5, 8, 8);
+      }
+      x += w + rnd() * o.gap;
+    }
+  }
+
+  // Rideaux de pluie : des voiles obliques qui tombent de la base des nuages jusqu'à
+  // l'horizon, plus denses en bas — on voit l'averse avancer au loin
+  function panoRainShafts(g, span, h, o){
+    const rnd = seededRandom(o.seed);
+    for(let i = 0; i < o.count; i++){
+      const x = rnd() * span, w = h * (0.15 + rnd() * 0.35), top = h * (o.top + rnd() * 0.1), slant = w * 0.25;
+      const gr = g.createLinearGradient(0, top, 0, h);
+      gr.addColorStop(0, `rgba(${o.rgb},0)`); gr.addColorStop(0.5, `rgba(${o.rgb},${o.a * 0.6})`); gr.addColorStop(1, `rgba(${o.rgb},${o.a})`);
+      g.fillStyle = gr;
+      [-span, 0, span].forEach(off => {
+        g.beginPath(); g.moveTo(x + off, top); g.lineTo(x + off + w, top); g.lineTo(x + off + w - slant, h); g.lineTo(x + off - slant, h); g.closePath(); g.fill();
+      });
+      g.strokeStyle = `rgba(${o.rgb},${o.a * 0.5})`; g.lineWidth = 1;
+      for(let k = 0; k < w / 3; k++){
+        const sx = x + rnd() * w;
+        g.beginPath(); g.moveTo(sx, top + (h - top) * 0.3); g.lineTo(sx - slant, h); g.stroke();
+      }
+    }
+  }
+
   let panoCache = { key: null, cv: null, span: 0 };
   function getPanorama(sc, W, skyH){
     const key = currentSceneKey + ':' + W + ':' + Math.round(skyH);
@@ -3668,6 +3873,25 @@
         }
       }
     } },
+    // Buisson : une masse de feuillage basse, en grappe, éclairée à gauche
+    shrub: { h: 2, w: 3.4, variants: 4, paint(g, rnd, A){
+      const R = 0.55 + rnd() * 0.6, Hh = R * (0.8 + rnd() * 0.4);
+      groundShadow(g, A, R * 1.1, Hh * 0.5);
+      for(let i = 0; i < 40; i++){
+        const a = Math.PI + rnd() * Math.PI, d = Math.sqrt(rnd());
+        const x = Math.cos(a) * R * d, y = Math.sin(a) * Hh * d;
+        g.fillStyle = hexLerp(A.leaf, A.leafLit, Math.max(0, Math.min(1, 0.45 - x / R * 0.35 - y / Hh * 0.35 + (rnd() - 0.5) * 0.4)));
+        g.beginPath(); g.arc(x, y - R * 0.05, R * (0.2 + rnd() * 0.18), 0, Math.PI * 2); g.fill();
+      }
+    } },
+    // Balise de bord de route : poteau blanc à bande noire et catadioptre, ambre à droite,
+    // blanc à gauche — c'est le catadioptre qui s'allume dans les phares (voir glint)
+    delineator: { h: 1.4, w: 0.8, variants: 2, paint(g, rnd, A){
+      groundShadow(g, A, 0.12, 0.2);
+      g.fillStyle = A.post || '#c9ccd0'; g.fillRect(-0.06, -1.05, 0.12, 1.05);
+      g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0.02, -1.05, 0.04, 1.05);
+      g.fillStyle = '#16181b'; g.fillRect(-0.06, -1.05, 0.12, 0.26);
+    }, glint: v => ({ y: 0.92, w: 0.07, h: 0.12, rgb: v ? '235,240,250' : '255,170,40', range: 200, halo: 0.22, glow: 0.7 }) },
     // Arbre nu : tronc et branches tracés par ramifications successives, comme un vrai
     // squelette d'arbre en hiver.
     baretree: { h: 9.5, w: 9, variants: 3, paint(g, rnd, A){
@@ -3951,6 +4175,94 @@
     } },
   };
 
+  // --- coucher de soleil : contre-jour. Chaque masse est peinte deux fois, en couleur de
+  // liseré puis en silhouette décalée vers le bas : il reste un fin liseré doré sur le haut,
+  // celui que dessine un soleil rasant derrière les arbres.
+  const rimBlob = (g, A, x, y, rx, ry) => {
+    g.fillStyle = A.rim; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = A.leaf; g.beginPath(); g.ellipse(x + rx * 0.03, y + ry * 0.10, rx * 0.99, ry * 0.97, 0, 0, Math.PI * 2); g.fill();
+  };
+  // Pin parasol : long fût nu et légèrement courbe, houppier large et plat
+  PROP_ART.stonepine = { h: 15, w: 14, variants: 4, paint(g, rnd, A){
+    const H = 9 + rnd() * 5, lean = (rnd() - 0.5) * H * 0.18, W = H * (0.42 + rnd() * 0.18);
+    groundShadow(g, A, W * 0.4, 1);
+    g.strokeStyle = A.trunk; g.lineCap = 'round';
+    g.lineWidth = H * 0.035;
+    g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(lean * 0.2, -H * 0.45, lean, -H * 0.78); g.stroke();
+    g.lineWidth = H * 0.016;
+    g.beginPath(); g.moveTo(lean * 0.8, -H * 0.72); g.lineTo(lean - W * 0.3, -H * 0.84);
+    g.moveTo(lean * 0.9, -H * 0.74); g.lineTo(lean + W * 0.28, -H * 0.86); g.stroke();
+    const blobs = [];
+    for(let i = 0; i < 42; i++){
+      const t = rnd() * 2 - 1;
+      blobs.push([lean + t * W * 0.46, -H * (0.85 + (1 - t * t) * 0.07 + rnd() * 0.035), W * (0.15 + rnd() * 0.11), H * (0.05 + rnd() * 0.03)]);
+    }
+    blobs.sort((a, b) => a[1] - b[1]).forEach(bb => rimBlob(g, A, bb[0], bb[1], bb[2], bb[3]));
+  } };
+  // Cyprès : une flamme sombre, haute et serrée
+  PROP_ART.tcypress = { h: 15, w: 3.4, variants: 4, paint(g, rnd, A){
+    const H = 9 + rnd() * 5, W = H * (0.085 + rnd() * 0.03);
+    groundShadow(g, A, W * 0.8, 1);
+    g.fillStyle = A.trunk; g.fillRect(-W * 0.1, -H * 0.08, W * 0.2, H * 0.08);
+    const flame = (col, dy) => {
+      g.fillStyle = col; g.beginPath();
+      g.moveTo(0, -H + dy);
+      g.bezierCurveTo(W * 0.9, -H * 0.7 + dy, W * 1.05, -H * 0.25 + dy, W * 0.35, -H * 0.05 + dy);
+      g.lineTo(-W * 0.35, -H * 0.05 + dy);
+      g.bezierCurveTo(-W * 1.05, -H * 0.25 + dy, -W * 0.9, -H * 0.7 + dy, 0, -H + dy);
+      g.fill();
+    };
+    flame(A.rim, 0);
+    flame(A.leaf, H * 0.012);
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    for(let i = 0; i < 9; i++){ g.beginPath(); g.ellipse((rnd() - 0.5) * W, -H * (0.15 + rnd() * 0.7), W * 0.3, H * 0.04, 0, 0, Math.PI * 2); g.fill(); }
+  } };
+  // Botte de foin ronde : face spiralée, flanc à l'ombre, liseré doré sur le dessus
+  PROP_ART.haybale = { h: 1.7, w: 2.6, variants: 3, paint(g, rnd, A){
+    const R = 0.72 + rnd() * 0.1, Wd = 1.15;
+    groundShadow(g, A, R * 1.4, 0.6);
+    g.fillStyle = A.hayDark;
+    g.fillRect(-Wd / 2, -R * 2, Wd, R * 2);
+    g.beginPath(); g.ellipse(Wd / 2, -R, R * 0.38, R, 0, -Math.PI / 2, Math.PI / 2); g.fill();
+    g.fillStyle = A.hay;
+    g.beginPath(); g.ellipse(-Wd / 2, -R, R * 0.38, R, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = A.hayDark; g.lineWidth = 0.03;
+    for(let i = 1; i < 6; i++){ g.beginPath(); g.ellipse(-Wd / 2, -R, R * 0.38 * i / 6, R * i / 6, 0, 0, Math.PI * 2); g.stroke(); }
+    g.fillStyle = A.rim; g.fillRect(-Wd / 2, -R * 2, Wd, R * 0.08);
+  } };
+  // --- ville --------------------------------------------------------------------------------
+  // Réverbère d'autoroute urbaine : mât sur le muret, crosse qui avance au-dessus de la voie,
+  // luminaire plat. La lampe elle-même est une source (glint « emit »), jamais noyée de nuit.
+  PROP_ART.citylamp = { h: 11, w: 6, variants: 2, paint(g, rnd, A, v){
+    const dir = v ? 1 : -1;                // variante 0 : mât à droite, crosse vers la gauche
+    g.fillStyle = A.steel; g.fillRect(-0.09, -9.6, 0.18, 9.6);
+    g.fillStyle = A.steelLit; g.fillRect(-0.09, -9.6, 0.05, 9.6);
+    g.strokeStyle = A.steel; g.lineWidth = 0.12; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(0, -9.4); g.quadraticCurveTo(dir * 0.3, -9.95, dir * 2.0, -9.85); g.stroke();
+    g.fillStyle = '#2b2f36'; g.fillRect(dir * 2.0 - 0.45, -9.92, 0.9, 0.16);
+  }, glint: v => ({ y: 9.72, dx: (v ? 1 : -1) * 2.0, w: 0.75, h: 0.07, rgb: '255,230,180', emit: true, halo: 2.6, glow: 0.55 }) };
+  // Immeuble proche : façade sombre, trame de fenêtres dont une part allumée, arête éclairée
+  PROP_ART.cityblock = { h: 46, w: 26, variants: 6, res: 16, paint(g, rnd, A){
+    const W = 12 + rnd() * 12, H = 16 + rnd() * 28;
+    g.fillStyle = A.facade; g.fillRect(-W / 2, -H, W, H);
+    g.fillStyle = A.facadeSide; g.fillRect(W / 2 - W * 0.16, -H, W * 0.16, H);
+    g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(-W / 2, -H, W * 0.05, H);
+    const cw = 1.8, ch = 3.1, office = rnd() < 0.4;
+    for(let y = -H + 1.2; y < -1.6; y += ch){
+      const floor = office && rnd() < 0.45;
+      for(let x = -W / 2 + 0.7; x < W / 2 - W * 0.16 - 1; x += cw){
+        if(!floor && rnd() > 0.32) continue;
+        const r = rnd();
+        g.fillStyle = r < 0.62 ? `rgb(255,${205 + Math.floor(rnd() * 25)},${130 + Math.floor(rnd() * 40)})` : r < 0.88 ? '#bcd8ff' : '#f4f2e6';
+        g.fillRect(x, y, cw * 0.62, ch * 0.55);
+      }
+    }
+    if(rnd() < 0.5){ g.fillStyle = '#ff3a2c'; g.fillRect(-0.2, -H - 0.4, 0.4, 0.4); }
+    g.fillStyle = A.facade; g.fillRect(-W / 2 - 0.3, -H - 0.5, W + 0.6, 0.5);     // acrotère
+  } };
+  PROP_ART.fir = PROP_ART.snowfir;     // le même sapin, sans neige quand la palette n'en a pas
+  PROP_ART.oak = PROP_ART.roundtree;
+
   const spriteCache = new Map();
   function getSprite(sceneKey, sc, kind, seed, forced){
     const spec = PROP_ART[kind];
@@ -3961,7 +4273,7 @@
     const key = sceneKey + '|' + kind + '|' + variant;
     let e = spriteCache.get(key);
     if(e) return e;
-    const ppm = Math.min(110, 360 / spec.h);
+    const ppm = spec.res || Math.min(110, 360 / spec.h);   // `res` : pixels par mètre imposés (grands éléments vus de près)
     const cv = document.createElement('canvas');
     cv.width = Math.ceil(spec.w * ppm) + 4;
     cv.height = Math.ceil((spec.h + 0.5) * ppm) + 4;
@@ -4793,6 +5105,9 @@
     // --- soleil (couchant / de plein désert) ---------------------------------------------
     if(sc.sun){
       if(sunBearing == null) sunBearing = worldHeading - 5;
+      // soleil couchant : il fait l'identité de la scène, il revient donc doucement devant
+      // après chaque virage au lieu de quitter le cadre pour de bon
+      if(sc.sun.follow) sunBearing += (worldHeading - 4 - sunBearing) * Math.min(1, dt * sc.sun.follow);
       const d = relBearing(sunBearing);
       if(Math.abs(d) < 95){
         const sx = W / 2 + d * pxPerDeg, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
@@ -4899,6 +5214,23 @@
       }
       visctx.fillStyle = dg;
       visctx.fill();
+    }
+
+    // --- éclair : un tracé ramifié dans le ciel, quelques dixièmes de seconde -----------------
+    if(sc.lightning && lightningBolt && lightningBolt.life > 0){
+      const b = lightningBolt, a = Math.min(1, b.life / 0.08) * (0.6 + 0.4 * Math.sin(b.life * 90));
+      const glowR = visctx.createRadialGradient(b.x, vpY * 0.15, 0, b.x, vpY * 0.15, W * 0.35);
+      glowR.addColorStop(0, `rgba(200,212,240,${0.35 * a})`); glowR.addColorStop(1, 'rgba(200,212,240,0)');
+      visctx.fillStyle = glowR; visctx.fillRect(b.x - W * 0.35, 0, W * 0.7, vpY);   // les nuages s'illuminent
+      visctx.lineCap = 'round'; visctx.lineJoin = 'round';
+      b.paths.forEach((pts, i) => {
+        [[i ? 3 : 7, `rgba(170,190,255,${0.30 * a})`], [i ? 0.8 : 1.8, `rgba(250,252,255,${a})`]].forEach(([lw, col]) => {
+          visctx.strokeStyle = col; visctx.lineWidth = lw;
+          visctx.beginPath(); pts.forEach((p, k) => k ? visctx.lineTo(p[0], p[1]) : visctx.moveTo(p[0], p[1])); visctx.stroke();
+        });
+      });
+      visctx.lineCap = 'butt'; visctx.lineJoin = 'miter';
+      b.life -= dt;
     }
 
     // --- espace : étoiles filantes, puis planètes, du plus loin au plus proche -----------------
@@ -5086,7 +5418,7 @@
       if(farArt){
         // apparition en fondu sur le dernier dixième de la portée, teinte de brume ensuite
         visctx.globalAlpha = Math.max(0, Math.min(1, (FAR_SPAN + 30 - pr.dist) / 70));
-        drawSprite(farArt, x, rowY(tt) - lift, ppm * pr.scale, fogAt(sc, Math.hypot(pr.dist, pr.offset)));
+        drawSprite(farArt, x, rowY(tt) - lift, ppm * pr.scale, fogAt(sc, Math.hypot(pr.dist, pr.offset * (sc.fog.lateral || 1))));
         visctx.globalAlpha = 1;
         return;
       }
@@ -5159,14 +5491,15 @@
     // Mirage : au loin, l'air surchauffé au ras du bitume renvoie le ciel. Une nappe claire
     // de la couleur du ciel bas, posée sur la chaussée près de l'horizon, qui ondule un peu.
     if(sc.mirage){
-      const mt = 0.075, wob = 0.85 + 0.15 * Math.sin(performance.now() / 430);
+      const M = typeof sc.mirage === 'string' ? { color: sc.mirage, depth: 0.075, a: 0.75 } : sc.mirage;
+      const mt = M.depth, wob = 0.85 + 0.15 * Math.sin(performance.now() / 430);
       visctx.save();
       visctx.beginPath();
       for(let i = 0; i <= 12; i++){ const tt = mt * i / 12; const x = roadCenterAt(tt) - edgeAt(tt, -1); if(i) visctx.lineTo(x, rowY(tt)); else visctx.moveTo(x, rowY(tt)); }
       for(let i = 12; i >= 0; i--){ const tt = mt * i / 12; visctx.lineTo(roadCenterAt(tt) + edgeAt(tt, 1), rowY(tt)); }
       visctx.closePath();
       const mg = visctx.createLinearGradient(0, vpY, 0, rowY(mt));
-      mg.addColorStop(0, rgba(sc.mirage, 0.75 * wob)); mg.addColorStop(0.5, rgba(sc.mirage, 0.30 * wob)); mg.addColorStop(1, rgba(sc.mirage, 0));
+      mg.addColorStop(0, rgba(M.color, M.a * wob)); mg.addColorStop(0.5, rgba(M.color, M.a * 0.4 * wob)); mg.addColorStop(1, rgba(M.color, 0));
       visctx.fillStyle = mg; visctx.fill();
       visctx.restore();
     }
@@ -5250,7 +5583,8 @@
       const ppm = roadHalfAt(tt) / 4;
       // Discrètes et allongées dans le sens de la marche : à 0,11 d'opacité sur une ellipse
       // presque ronde, elles se lisaient comme des cratères au milieu de la chaussée.
-      visctx.fillStyle = pt.dark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.018)';
+      // sur chaussée mouillée, les reprises d'enrobé deviennent des flaques qui renvoient le ciel
+      visctx.fillStyle = sc.wet ? (pt.dark ? 'rgba(150,165,185,0.13)' : 'rgba(0,0,0,0.10)') : (pt.dark ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.018)');
       visctx.beginPath();
       visctx.ellipse(roadCenterAt(tt) + pt.lat * ppm, rowY(tt),
         Math.max(0.6, pt.wid * ppm * 0.42), Math.max(0.5, pt.len * ppm * 0.07), 0, 0, Math.PI * 2);
@@ -5380,6 +5714,36 @@
       visctx.fill();
     }
 
+    // Portée des phares : au-delà de quelques dizaines de mètres, la route et ses marquages
+    // retombent dans le noir. Les plots et catadioptres, dessinés ensuite, restent visibles bien
+    // plus loin — exactement ce qu'on voit d'une route de campagne la nuit.
+    if(sc.dark){
+      const yEnd = rowY(camNear / sc.dark.reach);
+      const gr = visctx.createLinearGradient(0, vpY, 0, yEnd);
+      gr.addColorStop(0, rgba(sc.fog.color, sc.dark.a)); gr.addColorStop(0.55, rgba(sc.fog.color, sc.dark.a * 0.45)); gr.addColorStop(1, rgba(sc.fog.color, 0));
+      visctx.fillStyle = gr; visctx.fillRect(0, vpY, W, yEnd - vpY);
+    }
+
+    // Plots rétroréfléchissants (« yeux de chat ») : ils s'allument dans les phares, de plus en
+    // plus faibles avec la distance, et c'est souvent tout ce qu'on voit de la route la nuit.
+    if(sc.studs){
+      const st = sc.studs, sFirst = Math.ceil((travelled - st.phase) / st.every) * st.every + st.phase - travelled;
+      for(let k = 0; k < 40; k++){
+        const d = sFirst + k * st.every;
+        if(d < 2.5) continue;
+        if(d > st.range) break;
+        const tt = camNear / d;
+        if(tt > 1.6) continue;
+        const ppm = roadHalfAt(tt) / 4, a = Math.pow(1 - d / st.range, 1.3);
+        st.lats.forEach(([lat, rgb]) => {
+          const x = roadCenterAt(tt) + lat * ppm, y = rowY(tt);
+          visctx.fillStyle = `rgba(${rgb},${a.toFixed(3)})`;
+          visctx.fillRect(x - Math.max(0.8, 0.07 * ppm), y - Math.max(0.6, 0.03 * ppm), Math.max(1.6, 0.14 * ppm), Math.max(1.2, 0.06 * ppm));
+          if(ppm > 2) drawGlow(rgb[0] === '2' && rgb.startsWith('255,6') ? GLOW_RED : GLOW_WARM, x, y, Math.max(2, 0.3 * ppm), 0.5 * a);
+        });
+      }
+    }
+
     // --- brume d'horizon : retirée ---------------------------------------------------------
     // Ni la bande d'origine (arrêtée à 26 % de la hauteur, coupée d'un trait net sur un écran
     // haut) ni la version étendue à tout l'écran n'ont convaincu à l'usage : le voile posé sur
@@ -5423,11 +5787,11 @@
         visctx.closePath(); visctx.fill();
         return Math.abs(a[0] - b[0]);
       };
-      [-1, 1].forEach(side => {
+      (wl.sides || [-1, 1]).forEach(side => {
         const lat = side * wl.lat;
         vstrip(lat, 0, wl.h, wl.color);
-        const P = wl.panel, first = Math.ceil(travelled / P) * P - travelled;
-        for(let k = 0; k < 40; k++){
+        const P = wl.panel || 12, first = Math.ceil(travelled / P) * P - travelled;
+        for(let k = 0; wl.ads && k < 40; k++){
           const d0 = first + k * P, d1 = d0 + P * 0.94;
           if(camNear / d0 > 1.6) continue;
           if(camNear / d1 < 0.012) break;
@@ -5444,6 +5808,19 @@
         if(side < 0) vstrip(lat, 0, wl.h, 'rgba(0,0,0,0.16)');
         vstrip(lat, wl.h - 0.07, wl.h, wl.cap);
         vstrip(lat, 0, 0.12, 'rgba(0,0,0,0.22)');            // pied du mur, dans l'herbe
+        // joints de coffrage tous les 4 m : c'est eux qui font défiler un mur nu
+        if(wl.joints){
+          const JF = 4, jFirst = Math.ceil(travelled / JF) * JF - travelled;
+          visctx.strokeStyle = wl.joints; visctx.lineWidth = 1;
+          for(let k = 0; k < 50; k++){
+            const d = jFirst + k * JF;
+            if(camNear / d > 1.6) continue;
+            if(camNear / d < 0.03) break;
+            const lo = at(d, lat, 0), hi = at(d, lat, wl.h);
+            visctx.beginPath(); visctx.moveTo(lo[0], lo[1]); visctx.lineTo(hi[0], hi[1]); visctx.stroke();
+          }
+        }
+        if(!wl.fence) return;
         // grillage : voile de maille, poteaux tous les 4 m, câbles
         vstrip(lat, wl.h, wl.h + wl.fence, wl.mesh);
         const PF = 4, fFirst = Math.ceil(travelled / PF) * PF - travelled;
@@ -5466,13 +5843,74 @@
       visctx.lineWidth = 2;
     }
 
+    // --- flaques de lumière des réverbères sur la chaussée ------------------------------------
+    // Chaque lampe éclaire une ellipse de bitume sous elle, allongée dans le sens de la route :
+    // c'est ce chapelet de flaques qui dessine la route en ville la nuit.
+    (sc.rows || []).forEach(rw => {
+      if(!rw.pool) return;
+      const E = rw.every, n0 = Math.floor(travelled / E);
+      for(let n = n0 + Math.ceil(PROP_SPAN / E) + 1; n >= n0; n--){
+        const d = n * E - travelled + (rw.phase || 0);
+        if(d < 2) continue;
+        (rw.sides || [-1, 1]).forEach(side => {
+          const dd = d + (side < 0 ? (rw.stagger || 0) : 0);
+          const dA = Math.max(camNear / 1.5, dd - rw.pool.len), dB = dd + rw.pool.len;
+          const tc = camNear / dd, ta = camNear / dA, tb = camNear / dB;
+          if(tb < 0.01 || tc > 1.2) return;     // tout près, la flaque est déjà sous le capot
+          const ppm = roadHalfAt(Math.min(1.6, tc)) / 4;
+          const cx = roadCenterAt(Math.min(1, tc)) + side * (rw.lat - rw.pool.reach) * ppm;
+          const y0 = rowY(tb), y1 = rowY(ta);
+          const rx = rw.pool.wide * ppm;
+          visctx.globalAlpha = rw.pool.a * Math.max(0, Math.min(1, (PROP_SPAN - dd) / 60));
+          visctx.drawImage(GLOW_WARM, cx - rx, y0, rx * 2, Math.max(1, y1 - y0));
+        });
+      }
+      visctx.globalAlpha = 1;
+    });
+
     // --- décor de bord de route ------------------------------------------------------------
     // dessiné juste après la chaussée : les véhicules et les particules passeront devant
     const palette = sc.props || ['pine', 'bush', 'pole'];
+    // Portique de signalisation : deux pieds hors chaussée, une poutre qui enjambe la route et
+    // deux panneaux directionnels (motifs purement graphiques : bandeaux et flèche)
+    const g3 = (d, lat, hgt) => {
+      const tt = camNear / d, ppm = roadHalfAt(Math.min(1.6, tt)) / 4;
+      return [roadCenterAt(Math.min(1, tt)) + lat * ppm, rowY(tt) - hgt * ppm, ppm];
+    };
+    const drawGantry = d => {
+      const G = sc.gantry;
+      if(d < camNear / 1.5) return;
+      visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - d) / 40));
+      const box = (l0, l1, h0, h1, col) => {
+        const a = g3(d, l0, h0), b = g3(d, l1, h1);
+        visctx.fillStyle = col; visctx.fillRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+        return [a, b];
+      };
+      box(-G.lat - 0.2, -G.lat + 0.2, 0, G.h, G.steel);
+      box(G.lat - 0.2, G.lat + 0.2, 0, G.h, G.steelDark);
+      box(-G.lat - 0.2, G.lat + 0.2, G.h - 0.55, G.h, G.steel);
+      box(-G.lat - 0.2, G.lat + 0.2, G.h - 0.55, G.h - 0.48, 'rgba(0,0,0,0.3)');
+      [[-3.7, -0.25], [0.25, 3.7]].forEach(([l0, l1], i) => {
+        box(l0, l1, G.h - 2.35, G.h - 0.55, '#e8ece8');
+        const [a, b] = box(l0 + 0.08, l1 - 0.08, G.h - 2.27, G.h - 0.63, G.panel);
+        const pw = b[0] - a[0];
+        if(pw > 18){
+          visctx.fillStyle = 'rgba(240,244,240,0.92)';
+          const ph = a[1] - b[1];
+          [0.22, 0.48].forEach(f => visctx.fillRect(a[0] + pw * 0.1, b[1] + ph * f, pw * (0.5 + (i ? 0.15 : 0.05)), Math.max(1, ph * 0.1)));
+          // flèche vers le bas, au-dessus de la voie
+          const ax = a[0] + pw * 0.8, ay = b[1] + ph * 0.25;
+          visctx.beginPath(); visctx.moveTo(ax - pw * 0.06, ay + ph * 0.3); visctx.lineTo(ax + pw * 0.06, ay + ph * 0.3); visctx.lineTo(ax, ay + ph * 0.55); visctx.closePath(); visctx.fill();
+          visctx.fillRect(ax - pw * 0.015, ay, pw * 0.03, ph * 0.32);
+        }
+      });
+      visctx.globalAlpha = 1;
+    };
     const nearList = sc.art ? roadProps.concat(sceneExtras(sc)).sort((a, b) => b.dist - a.dist) : roadProps;
     nearList.forEach(pr => {
       if(pr.dist < 1.5) return;
       if(!pr.fixed && sc.nearSparse != null && pr.seed > sc.nearSparse) return;
+      if(pr.kind === 'gantry'){ drawGantry(pr.dist); return; }
       if(!pr.kind){
         pr.kind = palette[Math.floor(Math.random() * palette.length)];
         pr.offset = propOffset(pr.kind);
@@ -5491,7 +5929,36 @@
       const nearArt = sc.art && getSprite(currentSceneKey, sc, pr.kind, pr.seed, pr.variant);
       if(nearArt){
         visctx.globalAlpha = Math.max(0, Math.min(1, (PROP_SPAN - pr.dist) / 40));
-        drawSprite(nearArt, x, rowY(tt), s3, fogAt(sc, pr.dist));
+        // Ombres longues : soleil bas droit devant, chaque objet projette son ombre vers nous,
+        // posée au sol en perspective — le signe le plus sûr d'une fin de journée
+        if(sc.longShadows){
+          const spec = PROP_ART[pr.kind], L = spec.h * 0.75 * pr.scale * sc.longShadows.k;
+          const w = Math.min(spec.w * 0.3, 2.2) * pr.scale, lat = pr.side * pr.offset;
+          const dn = Math.max(camNear / 1.5, pr.dist - L);
+          const P = (d, l) => { const t2 = camNear / d, p2 = roadHalfAt(Math.min(1.6, t2)) / 4; return [roadCenterAt(Math.min(1, t2)) + l * p2, rowY(t2)]; };
+          const a1 = P(pr.dist, lat - w * 0.5), a2 = P(pr.dist, lat + w * 0.5), b2 = P(dn, lat + w * 1.1), b1 = P(dn, lat - w * 1.1);
+          const sg = visctx.createLinearGradient(0, a1[1], 0, b1[1]);
+          sg.addColorStop(0, `rgba(${sc.longShadows.rgb},${sc.longShadows.a})`); sg.addColorStop(1, `rgba(${sc.longShadows.rgb},0)`);
+          visctx.fillStyle = sg;
+          visctx.beginPath(); visctx.moveTo(a1[0], a1[1]); visctx.lineTo(a2[0], a2[1]); visctx.lineTo(b2[0], b2[1]); visctx.lineTo(b1[0], b1[1]); visctx.closePath(); visctx.fill();
+        }
+        const fd = sc.fog.lateral ? Math.hypot(pr.dist, pr.offset * sc.fog.lateral) : pr.dist;
+        drawSprite(nearArt, x, rowY(tt), s3, fogAt(sc, fd));
+        // Catadioptres et lampes : ils ne sont pas noyés dans la nuit comme le reste, ils
+        // renvoient la lumière des phares (ou l'émettent). Dessinés par-dessus, sans brume.
+        const gl = PROP_ART[pr.kind].glint;
+        if(gl){
+          const G = typeof gl === 'function' ? gl(pr.variant || 0) : gl;
+          const reach = G.emit ? 1 : Math.max(0, 1 - pr.dist / (G.range || 190));
+          if(reach > 0.02){
+            const gx = x + pr.side * (G.dx || 0) * s3 * (G.mirror ? 1 : 0) + (G.mirror ? 0 : (G.dx || 0) * s3);
+            const gy = rowY(tt) - G.y * s3;
+            visctx.globalAlpha = Math.min(1, reach * 1.2) * Math.max(0, Math.min(1, (PROP_SPAN - pr.dist) / 40));
+            visctx.fillStyle = `rgb(${G.rgb})`;
+            visctx.fillRect(gx - G.w * s3 / 2, gy - G.h * s3 / 2, Math.max(1, G.w * s3), Math.max(1, G.h * s3));
+            drawGlow(G.sprite === 'cyan' ? GLOW_CYAN : G.sprite === 'red' ? GLOW_RED : GLOW_WARM, gx, gy, Math.min(W * 0.18, Math.max(2.5, (G.halo || 0.35) * s3)), G.glow || 0.6);
+          }
+        }
         visctx.globalAlpha = 1;
         return;
       }
@@ -5615,6 +6082,21 @@
       visctx.stroke();
     });
 
+    // --- pluie battante : traits obliques poussés par le vent, sur tout l'écran -------------
+    if(sc.heavyRain){
+      const wind = 0.22, fall = 1.9 + (running ? speedKmh / 200 : 0);
+      visctx.strokeStyle = `rgba(${sc.heavyRain},0.22)`; visctx.lineWidth = 1;
+      visctx.beginPath();
+      RAIN_DROPS.forEach(d => {
+        d.y += dt * fall * d.s; d.x += dt * wind * d.s;
+        if(d.y > 1){ d.y -= 1; d.x = Math.random(); }
+        if(d.x > 1) d.x -= 1;
+        const x = d.x * W, y = d.y * H, len = d.l * H * (1 + (running ? speedKmh / 260 : 0));
+        visctx.moveTo(x, y); visctx.lineTo(x - wind * len * 0.5, y - len);
+      });
+      visctx.stroke();
+    }
+
     // --- véhicules devant nous ------------------------------------------------------------
     // le plus loin dessiné en premier pour un recouvrement correct, et après les particules
     // pour qu'une traînée ne traverse pas une voiture qu'on est en train de doubler.
@@ -5633,7 +6115,23 @@
         const cx = roadCenterAt(tt) + v.lane * half;
         const groundY = rowY(tt);
         const fade = Math.min(1, 0.25 + tt * 3);
+        if(sc.wet){
+          // reflets des feux arrière étirés sur le bitume mouillé, sous la voiture
+          const lx = v.racing ? [0] : [-0.36, 0.36];
+          lx.forEach(f => {
+            const rx = cx + f * carW, rw = carW * (v.racing ? 0.12 : 0.16), rh = carH * 1.8;
+            const rg = visctx.createLinearGradient(0, groundY, 0, groundY + rh);
+            rg.addColorStop(0, `rgba(255,60,40,${0.45 * fade})`); rg.addColorStop(1, 'rgba(255,60,40,0)');
+            visctx.fillStyle = rg; visctx.fillRect(rx - rw / 2, groundY, rw, rh);
+          });
+        }
         drawVehicle(visctx, v, cx, groundY, carW, carH, fade, sc.carLight);
+        if(sc.wet && carW > 6){
+          // gerbe d'eau soulevée par les roues
+          visctx.globalAlpha = 0.45 * fade;
+          visctx.drawImage(GLOW_MIST, cx - carW * 0.85, groundY - carH * 0.55, carW * 1.7, carH * 0.75);
+          visctx.globalAlpha = 1;
+        }
       });
     }
 
@@ -5674,6 +6172,18 @@
       lightningTimer -= dt;
       if(lightningTimer <= 0){
         lightningFlash = 0.55 + Math.random() * 0.35;
+        // tracé : une descente en zigzag jusqu'à l'horizon, et deux ou trois branches
+        const bx = W * (0.12 + Math.random() * 0.76), main = [[bx, 0]];
+        let px = bx, py = 0;
+        while(py < vpY * 0.98){ py += vpY * (0.04 + Math.random() * 0.06); px += (Math.random() - 0.5) * W * 0.05; main.push([px, Math.min(py, vpY)]); }
+        const paths = [main];
+        for(let k = 0; k < 2 + Math.floor(Math.random() * 2); k++){
+          const st = main[1 + Math.floor(Math.random() * (main.length - 3))], br = [st];
+          let qx = st[0], qy = st[1], dirx = Math.random() < 0.5 ? -1 : 1;
+          for(let j = 0; j < 4 + Math.floor(Math.random() * 4); j++){ qy += vpY * (0.03 + Math.random() * 0.04); qx += dirx * W * (0.01 + Math.random() * 0.03); br.push([qx, qy]); }
+          paths.push(br);
+        }
+        lightningBolt = { x: bx, paths, life: 0.28 };
         // le tonnerre suit l'éclair, plus ou moins vite selon la distance de la foudre
         if(running) spawnThunder(0.25 + Math.random() * 2.2, lightningFlash);
         lightningTimer = 4 + Math.random() * 9;
