@@ -1639,9 +1639,11 @@
     combDelay.delayTime.value = 0.02;
     combLowpass = actx.createBiquadFilter();
     combLowpass.type = 'lowpass';
-    combLowpass.frequency.value = 3500;
+    combLowpass.frequency.value = 2200;
     combFeedback = actx.createGain();
-    combFeedback.gain.value = 0.55; // < 1 : boucle stable, ne s'emballe pas
+    // < 1 : boucle stable. Un retour fort creuse des pics très étroits qui glissent avec le
+    // régime — l'effet « flanger » d'une accélération de synthé. Modéré, il ne reste qu'un grain.
+    combFeedback.gain.value = 0.38;
     noiseNode.connect(combGainIn);
     combGainIn.connect(combDelay);
     combDelay.connect(combLowpass);
@@ -1838,7 +1840,14 @@
       bodyHigh.frequency.setTargetAtTime(Math.max(380, Math.min(1500, 620 * (profile.brightness || 0.8) + 180)), now, 0.2);
     }
 
-    lowpass.frequency.setTargetAtTime((450 + rpmRatio * 5500 * profile.brightness + throttle * 900) * (0.30 + 0.70 * fade), now, 0.05);
+    // Filtre principal quasi fixe. Il suivait le régime de 450 à plus de 6 000 Hz : tout le
+    // spectre s'ouvrait en même temps que les harmoniques montaient, et l'accélération se
+    // lisait comme un balayage de synthétiseur. Dans un vrai moteur, ce sont les harmoniques
+    // qui traversent des résonances fixes (bloc, ligne d'échappement) ; seule la charge
+    // éclaircit vraiment le timbre. Le régime ne garde qu'une influence modeste.
+    const bright = profile.brightness != null ? profile.brightness : 0.8;
+    const cutoff = (1100 + 2600 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.33 * rpmRatio);
+    lowpass.frequency.setTargetAtTime(cutoff * (0.30 + 0.70 * fade), now, 0.12);
 
     noiseFilter.frequency.setTargetAtTime(350 + rpmRatio * 2300, now, 0.05);
     // souffle d'admission et cliquetis : ce sont eux qui « claquent » à l'oreille, donc ils
