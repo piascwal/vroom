@@ -2461,9 +2461,11 @@
     pixel: {
       name: 'Pixel World', sky: ['#4d9bec', '#a9d6fb'], ground: '#5aa54a',
       road: ['#9a9a9a', '#6f6f6f'], edge: 'rgba(196,196,196,0.9)', dash: 'rgba(232,232,232,0.95)',
-      glow: '255,255,255', glowStrength: 0.25, particle: 'streak', particleRGB: [255, 255, 255],
+      // pas de traînées de vitesse : des traits d'un pixel, une fois pixellisés, ne font que
+      // scintiller d'un bloc à l'autre
+      glow: '255,255,255', glowStrength: 0.25, particle: 'none', particleRGB: [255, 255, 255],
       haze: null, decor: 'blocks', sun: { y: -0.17, r: 0.038, color: '#fff6bd' }, sunSquare: true,
-      carLight: 0.3, pixelate: 5, blockClouds: true,
+      carLight: 0.3, pixelate: 4, posterize: 16, blockClouds: true,
       props: ['blocktree', 'blocktree', 'blocktree', 'cow', 'pig', 'villager', 'torch', 'woodfence', 'cobble'],
       propsFar: ['blocktree', 'blockhill', 'blocktree'],
       foliage: ['#57a83c', '#489231'], propDark: '#6b4a28', propStone: '#8f8f8f', trunk: '#6b4a28',
@@ -5285,7 +5287,7 @@
       const d = relBearing(sunBearing);
       if(Math.abs(d) < 95){
         const sx = W / 2 + d * pxPerDeg, sy = vpY + sc.sun.y * H, sr = sc.sun.r * W;
-        const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3.4);
+        const halo = visctx.createRadialGradient(sx, sy, 0, sx, sy, sr * (sc.sunSquare ? 1.6 : 3.4));
         halo.addColorStop(0, sc.sun.color);
         // halo teinté par scène : l'orangé d'un couchant fait une tache brune sur un ciel bleu
         const hc = sc.sun.halo || '255,200,120';
@@ -5752,6 +5754,7 @@
 
     // rustines et reprises d'enrobé, ancrées au sol : elles défilent donc à la vraie vitesse
     roadPatches.forEach(pt => {
+      if(sc.pixelate) return;          // taches rondes et floues : sans objet sur un pavage de blocs
       const tt = camNear / pt.dist;
       if(tt < 0.03 || tt > 1.5) return;
       const ppm = roadHalfAt(tt) / 4;
@@ -6201,6 +6204,7 @@
     visctx.lineCap = 'round';
     const [pr, pg, pb] = sc.particleRGB;
     visionParticles.forEach(p => {
+      if(sc.particle === 'none') return;
       // la neige et la poussière flottent : elles avancent moins vite que le paysage
       const drift = sc.particle === 'snow' ? 0.35 : sc.particle === 'dust' ? 0.7 : 1;
       p.z += dt * (baseSpeed * drift + (sc.particle === 'snow' ? 0.12 : 0)) * (0.6 + Math.abs(p.angle) * 0.4);
@@ -6321,23 +6325,38 @@
 
     // --- vignettage : les bords s'assombrissent, comme sur toute image réelle. C'est ce qui
     // referme le cadre et empêche la chaussée de partir en aplat jusqu'aux quatre coins.
-    visctx.drawImage(getVignette(W, H, vpY), 0, 0);
+    if(!sc.pixelate) visctx.drawImage(getVignette(W, H, vpY), 0, 0);   // pas de dégradé flou sur un monde en blocs
 
     // --- pixellisation : dernière étape, elle s'applique à l'image finie ------------------
     if(sc.pixelate){
       // le canevas est dimensionné en pixels CSS (resizeVisionCanvas), pas en pixels physiques :
       // multiplier par la densité d'écran doublait la taille des blocs sur un téléphone
+      // Grille strictement régulière : on arrondit au bloc supérieur et on agrandit d'un facteur
+      // entier, quitte à déborder du cadre d'un bloc. Avec un arrondi au plus proche, un écran de
+      // 1366 px de large mêlait des blocs de 4, 5 et 6 pixels : la grille tremblait.
       const f = sc.pixelate;
-      const pw = Math.max(1, Math.round(W / f)), ph = Math.max(1, Math.round(H / f));
+      const pw = Math.max(1, Math.ceil(W / f)), ph = Math.max(1, Math.ceil(H / f));
       if(!pixelBuf) pixelBuf = document.createElement('canvas');
       if(pixelBuf.width !== pw || pixelBuf.height !== ph){ pixelBuf.width = pw; pixelBuf.height = ph; }
-      const pctx = pixelBuf.getContext('2d');
+      const pctx = pixelBuf.getContext('2d', { willReadFrequently: true });
       pctx.imageSmoothingEnabled = false;        // au plus proche voisin dans les deux sens :
       pctx.clearRect(0, 0, pw, ph);              // c'est ce qui donne des carrés nets plutôt
-      pctx.drawImage(visionCanvas, 0, 0, W, H, 0, 0, pw, ph);   // qu'une mosaïque floue
+      // échantillon pris au centre de chaque bloc et non dans son coin : un détail fin qui
+      // passe d'un bloc à l'autre clignote moins
+      pctx.drawImage(visionCanvas, f / 2, f / 2, pw * f, ph * f, 0, 0, pw, ph);   // qu'une mosaïque floue
+      // Couleurs ramenées à des paliers francs, comme dans un vrai pixel art : sans cela, les
+      // dégradés du ciel et du sol passaient d'un bloc à l'autre par nuances imperceptibles, et
+      // l'œil, qui cherche des arêtes nettes, lisait l'ensemble comme flou.
+      if(sc.posterize){
+        const id = pctx.getImageData(0, 0, pw, ph), px = id.data, q = sc.posterize;
+        for(let i = 0; i < px.length; i += 4){
+          px[i] = Math.round(px[i] / q) * q; px[i + 1] = Math.round(px[i + 1] / q) * q; px[i + 2] = Math.round(px[i + 2] / q) * q;
+        }
+        pctx.putImageData(id, 0, 0);
+      }
       visctx.imageSmoothingEnabled = false;
       visctx.clearRect(0, 0, W, H);
-      visctx.drawImage(pixelBuf, 0, 0, pw, ph, 0, 0, W, H);
+      visctx.drawImage(pixelBuf, 0, 0, pw, ph, 0, 0, pw * f, ph * f);
       visctx.imageSmoothingEnabled = true;
     }
 
@@ -6706,6 +6725,11 @@
   function selectScene(key){
     currentSceneKey = key;
     horizonFrac = SCENES[key].horizon || HORIZON;
+    // Le canevas est dimensionné en pixels CSS ; sur un écran dense, le navigateur l'agrandit
+    // en lissant, ce qui étalait chaque bord de bloc en dégradé flou. Pour le monde en blocs, on
+    // lui demande d'agrandir au plus proche voisin : des carrés nets, quelle que soit la densité.
+    visionCanvas.style.imageRendering = SCENES[key].pixelate ? 'pixelated' : '';
+    if(SCENES[key].pixelate && visionCanvas.style.imageRendering !== 'pixelated') visionCanvas.style.imageRendering = 'crisp-edges';
     if(SCENES[key].deepSpace){
       startPlanetBaking();
       bakeAsteroids();
