@@ -1079,6 +1079,8 @@
   let lowpass = null;
   let currentProfileKey = 'mecanique';
   let popCooldown = 0;      // secondes avant le prochain "pop" possible
+  let overrunTime = 0;      // secondes écoulées depuis le lever de pied (pétarades plus vives au début)
+  let popBurst = 0;         // coups restant dans la salve en cours
   let popFlash = 0;         // 0..1, flash visuel du compteur RPM synchronisé sur la pétarade, décroît avec le temps
   let prevThrottleVal = 0;  // pour détecter un lâcher brusque d'accélérateur (turbo)
   let prevGear = 1;         // pour détecter un changement de rapport
@@ -1111,29 +1113,60 @@
     return p;
   }
 
-  // Une détonation : l'étincelle n'est qu'une excitation très courte, tout le reste — la
-  // hauteur, le corps, la longueur — vient des résonances du tube en aval. C'est pourquoi on
-  // n'ajoute plus ici ni sinus grave (qui donnait une grosse caisse) ni claquement aigu (qui
-  // donnait le « snap » d'une caisse claire) : le pop, c'est le tube qui sonne.
-  function detonation(t0, amp){
-    const src = actx.createBufferSource();
-    src.buffer = noiseNode.buffer;
-    src.loop = true;
-    src.playbackRate.value = 0.5 + Math.random() * 0.9;
-    const lp = actx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.Q.value = 0.6;
-    const dur = (0.05 + Math.random() * 0.06) * popLengthFactor();
-    lp.frequency.setValueAtTime(1800 + amp * 1800, t0);
-    lp.frequency.exponentialRampToValueAtTime(260, t0 + dur); // le claquement s'assombrit en s'éteignant
-    const g = actx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.linearRampToValueAtTime(Math.max(0.001, amp), t0 + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    // deux sorties d'échappement : chaque détonation sort d'un côté ou de l'autre
-    const pan = makePan((Math.random() * 2 - 1) * 0.45);
-    src.connect(lp); lp.connect(g); g.connect(pan); pan.connect(exhaustBus);
-    src.start(t0); src.stop(t0 + dur + 0.03);
+  // Une détonation dans l'échappement, c'est d'abord une onde de choc : une surpression
+  // brutale suivie d'une dépression, l'« onde en N », qui dure deux ou trois millisecondes.
+  // Derrière elle, une poussée d'air (une bosse de pression, pas une oscillation) puis la
+  // flamme qui finit de brûler dans le tube, en queue turbulente qui papillote. Le tube fait le
+  // reste : ses résonances (exhaustBus) donnent la hauteur et le corps.
+  // L'ancienne détonation n'était qu'un bruit filtré qui s'assombrissait : sans front raide, elle
+  // soufflait au lieu de claquer. Les formes sont calculées une fois, en plusieurs variantes
+  // pour qu'aucune salve ne répète deux fois le même coup.
+  let popBank = null, crackleBank = null;
+  function buildPopBank(ctx){
+    const sr = ctx.sampleRate, rnd = seededRandom(4242);
+    const make = (len, fill) => {
+      const b = ctx.createBuffer(1, Math.floor(len * sr), sr), d = b.getChannelData(0);
+      fill(d);
+      let pk = 0; for(let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i]));
+      for(let i = 0; i < d.length; i++) d[i] /= pk || 1;
+      return b;
+    };
+    popBank = [];
+    for(let v = 0; v < 8; v++){
+      const Tn = 0.0015 + rnd() * 0.0025, tauB = 0.005 + rnd() * 0.007, tau = 0.016 + rnd() * 0.03;
+      const k = 0.18 + rnd() * 0.35, fl = 25 + rnd() * 40, push = 0.4 + rnd() * 0.35;
+      popBank.push(make(0.18, d => {
+        let lp = 0;
+        for(let i = 0; i < d.length; i++){
+          const t = i / sr;
+          let y = t < Tn ? 1 - 2 * t / Tn : 0;                                   // onde en N
+          y += push * (t / tauB) * Math.exp(1 - t / tauB);                        // poussée d'air
+          lp += ((Math.random() * 2 - 1) - lp) * k;
+          const flick = 0.55 + 0.45 * Math.abs(Math.sin(t * 2 * Math.PI * fl + v));
+          y += lp * 0.6 * Math.exp(-t / tau) * flick * Math.min(1, t / 0.0012);   // flamme
+          d[i] = y;
+        }
+      }));
+    }
+    // Crépitement : une grappe de petits claquements secs, irréguliers en force et en
+    // espacement — le « gargouillis » d'un V8 qui ravale ses gaz au lever de pied
+    crackleBank = [];
+    for(let v = 0; v < 5; v++){
+      crackleBank.push(make(0.34, d => {
+        const n = 5 + Math.floor(rnd() * 9);
+        let t0 = 0;
+        for(let c = 0; c < n; c++){
+          t0 += 0.006 + Math.pow(rnd(), 1.6) * 0.04;
+          const Tn = 0.0004 + rnd() * 0.0011, a = 0.25 + rnd() * 0.75, s0 = Math.floor(t0 * sr);
+          let lp = 0;
+          for(let i = 0; i < sr * 0.012 && s0 + i < d.length; i++){
+            const t = i / sr;
+            lp += ((Math.random() * 2 - 1) - lp) * 0.4;
+            d[s0 + i] += a * ((t < Tn ? 1 - 2 * t / Tn : 0) + lp * 0.35 * Math.exp(-t / 0.003));
+          }
+        }
+      }));
+    }
   }
 
   // Souffle de gaz chassé sous la détonation : c'est le corps grave du pop, mais c'est de
@@ -1172,19 +1205,38 @@
   // d'une boîte à rythmes. Seul le rupteur coupe vraiment le moteur, et pour une vraie raison.
   function spawnPop(intensity, opts){
     popFlash = Math.min(1, 0.6 + intensity * 0.6);
-    if(!actx || !noiseNode) return;
+    if(!actx || !popBank) return;
     const o = opts || {};
     const weight = o.weight || 1;
     const t0 = Math.max(actx.currentTime, o.at || 0);
     const level = (0.5 + intensity * 0.5) * (o.level != null ? o.level : 1);
-
-    exhaustChuff(t0, 0.55 * level * weight, (0.11 + 0.06 * weight) * popLengthFactor());
-    const count = 1 + Math.floor(Math.random() * (1 + intensity * 2.5 * weight));
+    const stretch = popLengthFactor();
+    const pick = bank => bank[Math.floor(Math.random() * bank.length)];
+    // chaque coup sort d'une des deux sorties d'échappement
+    const bang = (t, amp, buf, rate) => {
+      const src = actx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = rate / stretch;
+      const g = actx.createGain();
+      g.gain.value = amp;
+      const pan = makePan((Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.3));
+      src.connect(g); g.connect(pan); pan.connect(exhaustBus);
+      src.start(t);
+    };
+    // l'anti-lag joue les mêmes coups plus lentement : plus graves, plus longs
+    const base = weight > 1 ? 0.62 : 0.86;
+    bang(t0, 1.6 * level * (weight > 1 ? 1.2 : 1), pick(popBank), base + Math.random() * 0.28);
+    const extra = Math.floor(Math.random() * (1 + intensity * 1.8 * weight));
     let t = t0;
-    for(let i = 0; i < count; i++){
-      detonation(t, (i === 0 ? 1 : 0.3 + Math.random() * 0.55) * level);
-      t += 0.016 + Math.random() * 0.05;
+    for(let i = 0; i < extra; i++){
+      t += 0.022 + Math.random() * 0.06;
+      bang(t, (0.5 + Math.random() * 0.8) * level, pick(popBank), base + Math.random() * 0.35);
     }
+    if(Math.random() < 0.25 + intensity * 0.5){
+      bang(t0 + 0.015 + Math.random() * 0.05, (0.6 + Math.random() * 0.5) * level, pick(crackleBank), 0.85 + Math.random() * 0.35);
+    }
+    // l'anti-lag pousse aussi une langue de flamme : un souffle grave qui suit les coups
+    if(weight > 1) exhaustChuff(t0 + 0.01, 0.40 * level * weight, 0.24 * stretch);
   }
 
   // Rupteur : ce n'est pas une pétarade, c'est une coupure d'allumage. Le moteur se tait
@@ -1445,16 +1497,33 @@
     outBus.release.value = 0.25;
     outBus.connect(actx.destination);
 
+    // Équilibre tonal de tout ce qui sort, moteur, pétarades et ambiance compris. Mesuré à pleine
+    // charge, le spectre culminait entre 250 et 500 Hz avec un grave 15 à 20 dB plus bas : sans
+    // fondation, le haut-médium dominait, surtout sur un petit haut-parleur. Un habitacle fait
+    // l'inverse — il gonfle le grave et étouffe l'aigu (vitrages, garnitures, isolant). D'où :
+    // grave rehaussé, haut-médium adouci, extrême aigu coupé.
+    const toneLow = actx.createBiquadFilter();
+    toneLow.type = 'lowshelf'; toneLow.frequency.value = 160; toneLow.gain.value = 6;
+    const toneHigh = actx.createBiquadFilter();
+    toneHigh.type = 'highshelf'; toneHigh.frequency.value = 2200; toneHigh.gain.value = -5;
+    const tonePresence = actx.createBiquadFilter();
+    tonePresence.type = 'peaking'; tonePresence.frequency.value = 3200; tonePresence.Q.value = 0.9; tonePresence.gain.value = -3;
+    const toneTop = actx.createBiquadFilter();
+    toneTop.type = 'lowpass'; toneTop.frequency.value = 9000; toneTop.Q.value = 0.5;
+    const toneIn = actx.createGain();
+    toneIn.gain.value = 0.82;            // le grave rehaussé ajoute de l'énergie : on garde la marge du limiteur
+    toneIn.connect(toneLow); toneLow.connect(toneHigh); toneHigh.connect(tonePresence); tonePresence.connect(toneTop); toneTop.connect(outBus);
+
     // Habitacle : le son direct, plus une part réverbérée. Sans elle le moteur sonne « dans
     // le casque », collé à l'oreille ; avec, il est quelque part dans une voiture.
     preBus = actx.createGain();
-    preBus.connect(outBus);
+    preBus.connect(toneIn);
     try{
       const cabin = actx.createConvolver();
       cabin.buffer = buildCabinImpulse(actx);
       const wet = actx.createGain();
       wet.gain.value = 0.5;
-      preBus.connect(cabin); cabin.connect(wet); wet.connect(outBus);
+      preBus.connect(cabin); cabin.connect(wet); wet.connect(toneIn);
     }catch(e){}
 
     master = actx.createGain();
@@ -1601,6 +1670,7 @@
     rect.connect(tickDepth); tickDepth.connect(tickGate.gain);
     tickGain = actx.createGain(); tickGain.gain.value = 0;
     noiseNode.connect(tickFilter); tickFilter.connect(tickGate); tickGate.connect(tickGain); tickGain.connect(master);
+    buildPopBank(actx);
     noiseNode.connect(noiseFilter);
     noiseFilter.connect(noiseGate);
     noiseGate.connect(noiseGain);
@@ -1755,7 +1825,9 @@
     const imag = new Float32Array(H + 1);
     const sched = firingSchedule(profile, seed);
     const bright = 0.45 + (profile.brightness != null ? profile.brightness : 0.8) * 0.55;
-    const kc = (sharp ? 8.5 : 2.6) * N * bright;   // ordre de coupure de l'impulsion
+    // ordre de coupure de l'impulsion ; plafonné, sinon un 12-cylindres brillant poussait ses
+    // harmoniques jusqu'à 7 kHz et sifflait au lieu de chanter
+    const kc = Math.min(sharp ? 6.2 * N * bright : 2.6 * N * bright, 70);
     const poles = sharp ? 2.0 : 3.0;
 
     // les harmoniques cochées dans l'atelier deviennent des accents sur les ordres
@@ -1887,7 +1959,7 @@
     // qui traversent des résonances fixes (bloc, ligne d'échappement) ; seule la charge
     // éclaircit vraiment le timbre. Le régime ne garde qu'une influence modeste.
     const bright = profile.brightness != null ? profile.brightness : 0.8;
-    const cutoff = (1100 + 2600 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.33 * rpmRatio);
+    const cutoff = (900 + 2000 * bright) * (0.55 + 0.45 * Math.min(1, throttle)) * (0.82 + 0.30 * rpmRatio);
     lowpass.frequency.setTargetAtTime(cutoff * (0.30 + 0.70 * fade), now, 0.12);
 
     noiseFilter.frequency.setTargetAtTime(350 + rpmRatio * 2300, now, 0.05);
@@ -7416,10 +7488,28 @@
     const effectiveCrackle = rupteurOn ? (profile.crackle > 0 ? profile.crackle : DEFAULT_CRACKLE) : 0;
     if(physics.running && effectiveCrackle > 0){
       const overrun = physics.throttle < 0.2 && physics.rpm > profile.idleRPM + (profile.redline - profile.idleRPM) * 0.22;
+      // Des salves, pas un métronome : quelques coups rapprochés, puis un silence de longueur
+      // variable. Juste après le lever de pied les gaz imbrûlés abondent, les salves sont
+      // nourries et serrées ; elles s'espacent et s'affaiblissent à mesure que le régime retombe.
       popCooldown -= dt;
-      if(overrun && popCooldown <= 0){
-        spawnPop(effectiveCrackle);
-        popCooldown = (0.28 - effectiveCrackle * 0.16) + Math.random() * 0.2;
+      if(overrun){
+        overrunTime += dt;
+        if(popCooldown <= 0){
+          const fresh = Math.max(0, 1 - overrunTime / 2.5);
+          const rpmFrac = (physics.rpm - profile.idleRPM) / Math.max(1, profile.redline - profile.idleRPM);
+          spawnPop(effectiveCrackle * (0.55 + 0.45 * fresh), { level: 0.75 + 0.35 * Math.min(1, rpmFrac) });
+          if(popBurst > 0){
+            popBurst--;
+            popCooldown = 0.04 + Math.random() * 0.10;
+          } else {
+            popBurst = Math.floor(Math.random() * (1 + effectiveCrackle * 4 * (0.35 + fresh)));
+            popCooldown = (0.18 + Math.random() * 0.75) * (1.35 - effectiveCrackle * 0.6) * (1 + overrunTime * 0.25);
+          }
+        }
+      } else {
+        overrunTime = 0;
+        popBurst = 1;                       // la première salve après le lever de pied est double
+        popCooldown = Math.min(popCooldown, 0.05 + Math.random() * 0.12);
       }
     }
     // anti-lag : pétarade au changement de rapport, activable sur tous les moteurs
